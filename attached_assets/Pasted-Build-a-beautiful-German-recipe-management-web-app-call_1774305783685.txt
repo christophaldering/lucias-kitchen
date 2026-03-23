@@ -1,0 +1,73 @@
+Build a beautiful German recipe management web app called "Lucias Küche" using React with Tailwind CSS. 
+
+The app should feel warm, personal and slightly rustic – like a handwritten recipe collection brought to life digitally. Use a warm cream/beige color palette with green and terracotta accents.
+
+Include these REAL recipes (pre-loaded as demo data) with all their details:
+
+1. "Spaghetti mit Lachs und Champignons" – Kategorie: Nudeln/Fisch – Zeit: 20 Min – Schwierigkeit: simpel – Bewertung: ⭐⭐⭐⭐⭐ – Lucias Notiz: "Sehr lecker! Mehrfach gekocht (Feb/März/Apr/Okt 2021). Schmelzkäse gesondert auflösen!! Soße soll andicken. 4 EL Lachs, 500g Champignons, 300ml Sahne, 300g Schmelzkäse."
+
+2. "Paprika-Sahne-Hähnchen" – Kategorie: Geflügel – Zeit: 1 Std – Schwierigkeit: normal – Bewertung: ⭐⭐⭐⭐⭐ – Lucias Notiz: "Sehr lecker! Feb 2026."
+
+3. "Kabeljau in Senfsauce" – Kategorie: Fisch – Zeit: 55 Min – Schwierigkeit: normal – Bewertung: ⭐⭐⭐⭐⭐ – Lucias Notiz: "Sehr lecker! 6.4.25. Oder mehr fettarme Sahne (Kochsahne). Mit Kartoffeln + Erbsen & Möhren oder mit (gebratenen) Zuckerschoten."
+
+4. "Hähnchen mit Walnüssen und Früchten im Bratschlauch" – Kategorie: Geflügel – Zeit: 30 Min – Schwierigkeit: simpel – Bewertung: ⭐⭐⭐⭐ – Lucias Notiz: "Beilage: Rotkohl und Knödel."
+
+5. "Hackbraten vom Blech" – Kategorie: Fleisch – Zeit: 45 Min – Schwierigkeit: normal – Bewertung: ⭐⭐⭐⭐ – Lucias Notiz: "Schmeckt auch kalt – prima fürs Partybuffet."
+
+6. "Gyrosauflauf mit Sauce Hollandaise" – Kategorie: Fleisch/Auflauf – Zeit: 40 Min – Schwierigkeit: simpel – Bewertung: ⭐⭐⭐⭐ – Lucias Notiz: "Einfach und lecker."
+
+7. "Putenschnitzel in Käse-Lauch-Sauce mit Rösti" – Kategorie: Geflügel/Auflauf – Zeit: 40 Min – Schwierigkeit: simpel – Bewertung: ⭐⭐⭐⭐⭐ – Lucias Notiz: "Sehr lecker! 2.2.26 – kräftig würzen! Oder Säuerungsfilet, Weißwein od. Zitronensaft."
+
+8. "Lachs mit Rübenstampf und Knusperspeck" – Kategorie: Fisch – Zeit: 45 Min – Schwierigkeit: normal – Bewertung: ⭐⭐⭐⭐ – Lucias Notiz: "Aus Zeitschrift. Mit griech. Joghurt."
+
+9. "Türkischer Hackfleischauflauf mit Schafskäse" – Kategorie: Fleisch/Auflauf – Zeit: 1 Std – Schwierigkeit: normal – Bewertung: ⭐⭐⭐⭐⭐ – Lucias Notiz: "Sehr lecker! 15.3.26 – mit VK-Nudeln. Für Herrenabend. Pita-Brot u. Tzatziki dazu und auf jeden Fall Salat. Kalipsid, mit Schafsenkäse."
+
+10. "Vegetarische Linsen-Bolognese" – Kategorie: Vegetarisch – Zeit: 65 Min – Schwierigkeit: normal – Bewertung: ⭐⭐⭐⭐ – Lucias Notiz: "Gut für Pasta oder Pfannkuchen."
+
+11. "Kichererbsen-Curry" – Kategorie: Vegetarisch – Zeit: 25 Min – Schwierigkeit: normal – Bewertung: ⭐⭐⭐⭐ – Lucias Notiz: "Schnell und einfach. Dazu Basmatireis."
+
+12. "Nudeln mit Spinatsoße" – Kategorie: Vegetarisch – Zeit: 30 Min – Schwierigkeit: simpel – Bewertung: ⭐⭐⭐⭐ – Lucias Notiz: "TK-Spinat, Schmand, Kräuterschmelzkäse."
+
+13. "Grüne Nudeln mit Thunfischsoße" – Kategorie: Fisch/Nudeln – Zeit: 30 Min – Schwierigkeit: simpel – Bewertung: ⭐⭐⭐⭐ – Lucias Notiz: "Mit Kapern und Zitrone – sehr aromatisch."
+
+The app must have these FOUR sections/views:
+
+--- VIEW 1: "Meine Rezepte" (Recipe Gallery) ---
+- Beautiful card grid layout with emoji food icons per category
+- Each card shows: title, category badge, time, star rating, and a small preview of Lucia's personal note
+- Filter bar at top: by category (Alle / Fisch / Geflügel / Fleisch / Vegetarisch / Nudeln) and by time (Unter 30 Min / Unter 1 Std / Alle)
+- A search bar
+- Cards have a hover effect showing "Details ansehen" button
+
+--- VIEW 2: Recipe Detail Modal ---
+- Opens when clicking a recipe card
+- Shows full recipe info in a beautiful layout
+- Prominently features "Lucias Notizen" in a handwriting-style font with a yellow sticky-note background
+- Shows ingredients list and preparation steps
+- A "Zum Wochenplan hinzufügen" button
+
+--- VIEW 3: "Wochenplan & Einkaufsliste" ---
+- A weekly planner: 7 days (Mo-So), each day has a slot to assign a recipe
+- Pre-fill 3-4 days with example recipes
+- Below the planner: auto-generated consolidated shopping list
+- Shopping list groups ingredients by category (Gemüse, Fleisch & Fisch, Milchprodukte, Vorrat, etc.)
+- Checkboxes on each item so Lucia can tick off while shopping
+- A "Liste kopieren" button
+
+--- VIEW 4: "Statistiken & Muster" ---
+- Fun visual stats about Lucia's cooking:
+  - "Lieblingsküche": Pie chart showing category distribution  
+  - "Schnell vs. aufwendig": Bar showing time distribution
+  - "Am häufigsten gekocht": Top 3 recipes highlighted
+  - "Lucias Kochprofil": A few fun insight sentences like "Du liebst Sahnesaucen 🥛", "Fisch steht bei dir hoch im Kurs 🐟", "Du kochst am liebsten Gerichte unter 45 Minuten ⏱️"
+  - A text box saying "Dies sind erst 13 von ~500 Rezepten – die KI freut sich auf mehr! 🍳"
+
+--- GENERAL REQUIREMENTS ---
+- Single page app, navigation via top tabs
+- Warm, cozy design – NOT cold/corporate. Think: cream background (#FDF6EC), forest green (#4A7C59) for nav, terracotta (#C1693A) for accents
+- The app title "Lucias Küche 🍳" should appear in a script/handwriting-style font (use Google Fonts: "Dancing Script")
+- Subtitle: "Bewährte Lieblingsrezepte – mit Herz gekocht seit Jahren"
+- Fully responsive
+- All text in German
+- Use recharts for the statistics charts
+- No backend needed – all data hardcoded in the frontend

@@ -91,6 +91,17 @@ Generated Zod schemas from the OpenAPI spec (e.g. `HealthCheckResponse`). Used b
 
 Generated React Query hooks and fetch client from the OpenAPI spec (e.g. `useHealthCheck`, `healthCheck`).
 
+### `artifacts/lucias-kueche` (`@workspace/lucias-kueche`)
+
+React + Vite recipe management app (SPA, no backend required). Features:
+- **Meine Rezepte**: Recipe gallery with category/time filters, search, recipe detail modal with sticky notes for Lucia's personal notes
+- **Wochenplan & Einkaufsliste**: 7-day weekly planner with drag-in recipes + auto-generated grouped shopping list with checkboxes
+- **Statistiken & Muster**: Pie/bar charts (Recharts) showing category distribution, time distribution, top favorites, and Lucia's cook profile
+- 13 real recipes hardcoded in `src/data/recipes.ts`
+- Color palette: cream #FDF6EC, forest green #4A7C59, terracotta #C1693A
+- Fonts: Dancing Script (script/title), Lora (serif headings), Inter (body)
+- Packages: recharts, framer-motion, react-hook-form, date-fns, @hookform/resolvers
+
 ### `scripts` (`@workspace/scripts`)
 
 Utility scripts package. Each script is a `.ts` file in `src/` with a corresponding npm script in `package.json`. Run scripts via `pnpm --filter @workspace/scripts run <script>`. Scripts can import any workspace package (e.g., `@workspace/db`) by adding it as a dependency in `scripts/package.json`.

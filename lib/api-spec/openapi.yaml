@@ -3,13 +3,17 @@ info:
   # Do not change the title, if the title changes, the import paths will be broken
   title: Api
   version: 0.1.0
-  description: API specification
+  description: API specification for Lucias Küche
 servers:
   - url: /api
     description: Base API path
 tags:
   - name: health
     description: Health operations
+  - name: menu
+    description: Menu operations
+  - name: reservations
+    description: Reservation operations
 paths:
   /healthz:
     get:
@@ -24,6 +28,49 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/HealthStatus"
+
+  /menu:
+    get:
+      operationId: getMenuItems
+      tags: [menu]
+      summary: Get all menu items
+      description: Returns all menu items grouped by category
+      responses:
+        "200":
+          description: List of menu items
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/MenuItem"
+
+  /reservations:
+    post:
+      operationId: createReservation
+      tags: [reservations]
+      summary: Create a reservation
+      description: Submit a new table reservation
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateReservation"
+      responses:
+        "201":
+          description: Reservation created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Reservation"
+        "400":
+          description: Invalid request
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
 components:
   schemas:
     HealthStatus:
@@ -34,3 +81,114 @@ components:
       required:
         - status
 
+    MenuItem:
+      type: object
+      properties:
+        id:
+          type: integer
+        name:
+          type: string
+        description:
+          type: string
+        price:
+          type: number
+          format: float
+        category:
+          type: string
+          enum: [vorspeisen, hauptgerichte, desserts, getraenke]
+        isVegetarian:
+          type: boolean
+        isVegan:
+          type: boolean
+        isGlutenFree:
+          type: boolean
+        imageUrl:
+          type: string
+          nullable: true
+      required:
+        - id
+        - name
+        - description
+        - price
+        - category
+        - isVegetarian
+        - isVegan
+        - isGlutenFree
+
+    CreateReservation:
+      type: object
+      properties:
+        name:
+          type: string
+        email:
+          type: string
+          format: email
+        phone:
+          type: string
+        date:
+          type: string
+          format: date
+        time:
+          type: string
+        guests:
+          type: integer
+          minimum: 1
+          maximum: 20
+        notes:
+          type: string
+          nullable: true
+      required:
+        - name
+        - email
+        - phone
+        - date
+        - time
+        - guests
+
+    Reservation:
+      type: object
+      properties:
+        id:
+          type: integer
+        name:
+          type: string
+        email:
+          type: string
+        phone:
+          type: string
+        date:
+          type: string
+        time:
+          type: string
+        guests:
+          type: integer
+        notes:
+          type: string
+          nullable: true
+        status:
+          type: string
+          enum: [pending, confirmed, cancelled]
+        createdAt:
+          type: string
+          format: date-time
+      required:
+        - id
+        - name
+        - email
+        - phone
+        - date
+        - time
+        - guests
+        - status
+        - createdAt
+
+    ErrorResponse:
+      type: object
+      properties:
+        error:
+          type: string
+        message:
+          type: string
+      required:
+        - error
+        - message

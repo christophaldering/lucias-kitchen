@@ -1,0 +1,19 @@
+packages:
+  "framer-motion": "For elegant page transitions and scroll animations fitting the premium feel"
+  "react-hook-form": "For robust reservation form state management"
+  "@hookform/resolvers": "For Zod validation integration with the reservation form"
+  "date-fns": "For formatting reservation dates"
+  "clsx": "Utility for constructing className strings conditionally"
+  "tailwind-merge": "Utility to merge tailwind classes safely"
+
+images:
+  - path: "artifacts/lucias-kueche/public/images/hero-bg.png"
+    description: "A beautifully lit, warm and rustic mediterranean restaurant kitchen table filled with fresh ingredients like tomatoes, olive oil, artisan bread, and herbs, creating an inviting, premium culinary atmosphere. Soft warm lighting."
+    aspect_ratio: "16:9"
+  - path: "artifacts/lucias-kueche/public/images/about-kitchen.png"
+    description: "A cozy, sunlit corner of an authentic rustic European kitchen with copper pots, wooden cutting boards, and fresh pasta being prepared. Warm, nostalgic, high quality."
+    aspect_ratio: "4:3"
+
+notes:
+  - Assuming the API hooks are available at @workspace/api-client-react as provided in the implementation notes.
+  - The API uses simple categories (vorspeisen, hauptgerichte, desserts, getraenke) which we will translate for display.

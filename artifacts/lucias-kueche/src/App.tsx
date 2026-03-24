@@ -12,6 +12,7 @@ import WasKocheIch from "@/pages/WasKocheIch";
 import MeineKueche from "@/pages/MeineKueche";
 import { AuthProvider, useAuth } from "@/contexts/AuthContext";
 import { NotificationBell } from "@/components/NotificationBell";
+import { BulkImportProgressBar } from "@/components/BulkImportProgressBar";
 import { useNotifications } from "@/hooks/useInvitations";
 import { useIncomingSuggestions } from "@/hooks/useRecipeSuggestions";
 
@@ -238,6 +239,7 @@ function AppShell() {
       </main>
 
       <BottomNav activeTab={activeTab} onTabChange={setActiveTab} unreadCount={unreadCount} />
+      <BulkImportProgressBar onNavigateToImport={() => setActiveTab("admin")} />
     </>
   );
 }

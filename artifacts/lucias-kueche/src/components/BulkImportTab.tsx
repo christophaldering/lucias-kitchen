@@ -1,7 +1,7 @@
 import { useState, useRef, useCallback, useEffect } from "react";
 import {
   Upload, Loader2, Check, X, AlertTriangle, PenLine, ChevronDown, ChevronUp,
-  Eye, RefreshCw, Trash2, Save, FileText, Clock
+  Eye, RefreshCw, Trash2, Save, FileText, Clock, RotateCcw
 } from "lucide-react";
 
 const API_BASE = "/api";
@@ -20,7 +20,19 @@ interface BulkImportStatus {
   totalFiles: number;
   processedFiles: number;
   currentFile: string | null;
+  errorCount?: number;
   updatedAt: string;
+  files?: FileStatusRow[];
+}
+
+interface FileStatusRow {
+  id: number;
+  fileName: string;
+  status: "pending" | "processing" | "done" | "failed";
+  errorText?: string | null;
+  canRetry?: boolean;
+  startedAt?: string | null;
+  finishedAt?: string | null;
 }
 
 interface BulkImportItem {
@@ -54,6 +66,8 @@ interface BulkImportFileGroup {
     fileName: string;
     status: string;
     pageImageUrls: string[];
+    startedAt?: string | null;
+    finishedAt?: string | null;
   };
   items: BulkImportItem[];
 }
@@ -70,6 +84,22 @@ const STATUS_CONFIG = {
   failed: { label: "Fehlgeschlagen", color: "bg-red-100 text-red-800", icon: X },
   pending: { label: "Wartend", color: "bg-gray-100 text-gray-600", icon: Clock },
 };
+
+const FILE_STATUS_CONFIG: Record<string, { label: string; color: string; textColor: string }> = {
+  pending: { label: "Wartend", color: "bg-gray-100", textColor: "text-gray-600" },
+  processing: { label: "Wird verarbeitet", color: "bg-blue-100", textColor: "text-blue-700" },
+  done: { label: "Fertig", color: "bg-green-100", textColor: "text-green-700" },
+  failed: { label: "Fehler", color: "bg-red-100", textColor: "text-red-700" },
+};
+
+function formatDuration(startedAt: string | null | undefined, finishedAt: string | null | undefined): string | null {
+  if (!startedAt || !finishedAt) return null;
+  const ms = new Date(finishedAt).getTime() - new Date(startedAt).getTime();
+  if (ms < 0) return null;
+  const secs = Math.round(ms / 1000);
+  if (secs < 60) return `${secs}s`;
+  return `${Math.floor(secs / 60)}m ${secs % 60}s`;
+}
 
 function LightboxModal({ urls, initial, onClose }: { urls: string[]; initial: number; onClose: () => void }) {
   const [current, setCurrent] = useState(initial);
@@ -247,6 +277,69 @@ function ItemCard({
   );
 }
 
+function FileStatusTable({
+  sessionId,
+  statusData,
+  onRetry,
+}: {
+  sessionId: number;
+  statusData: BulkImportStatus;
+  onRetry: (fileId: number) => void;
+}) {
+  const files = statusData.files ?? [];
+  const isRunning = statusData.status === "pending" || statusData.status === "processing";
+
+  if (files.length === 0) return null;
+
+  return (
+    <div className="bg-white border border-border rounded-xl overflow-hidden">
+      <div className="px-4 py-2 bg-gray-50 border-b border-border flex items-center gap-2">
+        <FileText className="w-4 h-4 text-muted-foreground" />
+        <span className="text-sm font-medium text-foreground">Datei-Status</span>
+        {isRunning && <Loader2 className="w-3.5 h-3.5 animate-spin text-[#4A7C59] ml-auto" />}
+      </div>
+      <div className="divide-y divide-border">
+        {files.map((file) => {
+          const cfg = FILE_STATUS_CONFIG[file.status] ?? FILE_STATUS_CONFIG.pending;
+          const duration = formatDuration(file.startedAt, file.finishedAt);
+          const isProcessingThis = file.status === "processing";
+
+          return (
+            <div key={file.id} className="px-4 py-2.5">
+              <div className="flex items-center gap-3">
+                <div className={`flex-shrink-0 px-2 py-0.5 rounded-full text-xs font-medium ${cfg.color} ${cfg.textColor} flex items-center gap-1`}>
+                  {isProcessingThis && <Loader2 className="w-3 h-3 animate-spin" />}
+                  {file.status === "done" && <Check className="w-3 h-3" />}
+                  {file.status === "failed" && <X className="w-3 h-3" />}
+                  {file.status === "pending" && <Clock className="w-3 h-3" />}
+                  {cfg.label}
+                </div>
+                <span className="flex-1 text-sm text-foreground truncate min-w-0">{file.fileName}</span>
+                {duration && (
+                  <span className="text-xs text-muted-foreground flex-shrink-0">{duration}</span>
+                )}
+                {file.status === "failed" && file.canRetry && (
+                  <button
+                    onClick={() => onRetry(file.id)}
+                    title="Erneut versuchen"
+                    className="flex items-center gap-1 text-xs text-red-600 hover:text-red-800 flex-shrink-0 transition-colors"
+                  >
+                    <RotateCcw className="w-3 h-3" />
+                    Retry
+                  </button>
+                )}
+              </div>
+              {file.status === "failed" && file.errorText && (
+                <p className="text-xs text-red-600 mt-1 ml-1">{file.errorText}</p>
+              )}
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
 function ReviewDashboard({
   sessionId,
   onClear,
@@ -255,9 +348,22 @@ function ReviewDashboard({
   onClear: () => void;
 }) {
   const [data, setData] = useState<BulkImportResults | null>(null);
+  const [statusData, setStatusData] = useState<BulkImportStatus | null>(null);
   const [saving, setSaving] = useState(false);
   const [saveResult, setSaveResult] = useState<{ savedCount: number; newTotal?: number } | null>(null);
   const pollingRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
+  const fetchStatus = useCallback(async () => {
+    try {
+      const res = await fetch(`${API_BASE}/bulk-import/${sessionId}/status`, {
+        headers: authHeaders(),
+      });
+      if (!res.ok) return;
+      const json = await res.json() as BulkImportStatus;
+      setStatusData(json);
+    } catch {
+    }
+  }, [sessionId]);
 
   const fetchResults = useCallback(async () => {
     try {
@@ -279,11 +385,15 @@ function ReviewDashboard({
 
   useEffect(() => {
     fetchResults();
-    pollingRef.current = setInterval(fetchResults, 3000);
+    fetchStatus();
+    pollingRef.current = setInterval(() => {
+      fetchResults();
+      fetchStatus();
+    }, 3000);
     return () => {
       if (pollingRef.current) clearInterval(pollingRef.current);
     };
-  }, [fetchResults]);
+  }, [fetchResults, fetchStatus]);
 
   const handleReject = async (itemId: number) => {
     await fetch(`${API_BASE}/bulk-import/${sessionId}/reject/${itemId}`, {
@@ -299,6 +409,15 @@ function ReviewDashboard({
       headers: authHeaders(),
     });
     await fetchResults();
+  };
+
+  const handleRetry = async (fileId: number) => {
+    await fetch(`${API_BASE}/bulk-import/${sessionId}/retry/${fileId}`, {
+      method: "POST",
+      headers: authHeaders(),
+    });
+    await fetchResults();
+    await fetchStatus();
   };
 
   const handleSaveAll = async () => {
@@ -349,9 +468,6 @@ function ReviewDashboard({
   const unsavedApproved = approvedItems.filter((i) => i.savedRecipeId == null);
   const totalSaved = allItems.filter((i) => i.savedRecipeId != null).length;
 
-  const handwritingAndUncertain = allItems.filter(
-    (i) => (i.status === "handwriting" || i.status === "uncertain") && !i.rejected
-  );
   const priorityGroups = groups.map((g) => ({
     ...g,
     items: [
@@ -395,6 +511,14 @@ function ReviewDashboard({
         )}
       </div>
 
+      {statusData && (
+        <FileStatusTable
+          sessionId={sessionId}
+          statusData={statusData}
+          onRetry={handleRetry}
+        />
+      )}
+
       {saveResult && (
         <div className="bg-green-50 border border-green-200 rounded-xl p-4 flex items-start gap-3">
           <Check className="w-5 h-5 text-green-600 flex-shrink-0 mt-0.5" />
@@ -428,6 +552,11 @@ function ReviewDashboard({
           <div className="bg-gray-50 border-b border-border px-4 py-2 flex items-center gap-2">
             <FileText className="w-4 h-4 text-muted-foreground" />
             <span className="font-medium text-sm text-foreground flex-1">{file.fileName}</span>
+            {file.startedAt && file.finishedAt && (
+              <span className="text-xs text-muted-foreground">
+                {formatDuration(file.startedAt, file.finishedAt)}
+              </span>
+            )}
             <span className="text-xs text-muted-foreground">{items.length} Rezept{items.length !== 1 ? "e" : ""}</span>
           </div>
           <div className="p-3 space-y-2">
@@ -474,6 +603,26 @@ export default function BulkImportTab() {
   const [error, setError] = useState<string | null>(null);
   const fileRef = useRef<HTMLInputElement>(null);
   const dropRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (sessionId === null) {
+      const fetchActive = async () => {
+        try {
+          const res = await fetch(`${API_BASE}/bulk-import/active`, {
+            headers: authHeaders(),
+          });
+          if (!res.ok) return;
+          const data = await res.json();
+          if (data && data.id) {
+            localStorage.setItem("lk_bulk_import_session", String(data.id));
+            setSessionId(data.id);
+          }
+        } catch {
+        }
+      };
+      fetchActive();
+    }
+  }, [sessionId]);
 
   const handleFiles = (newFiles: FileList | File[]) => {
     const pdfs = Array.from(newFiles).filter((f) => f.name.toLowerCase().endsWith(".pdf"));

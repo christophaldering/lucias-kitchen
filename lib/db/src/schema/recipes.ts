@@ -120,6 +120,10 @@ export const bulkImportFilesTable = pgTable("bulk_import_files", {
   fileName: text("file_name").notNull(),
   pageImageUrls: jsonb("page_image_urls").notNull().default([]),
   status: bulkImportSessionStatusEnum("status").notNull().default("pending"),
+  pdfStoragePath: text("pdf_storage_path"),
+  errorText: text("error_text"),
+  startedAt: timestamp("started_at"),
+  finishedAt: timestamp("finished_at"),
   createdAt: timestamp("created_at").defaultNow().notNull(),
 });
 

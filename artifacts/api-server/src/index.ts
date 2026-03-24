@@ -2,6 +2,7 @@ import app from "./app";
 import { logger } from "./lib/logger";
 import { seedRecipes } from "./db/seedRecipes";
 import { seedUser } from "./db/seedUser";
+import { recoverProcessingSessions } from "./routes/bulkImport";
 
 const rawPort = process.env["PORT"];
 
@@ -35,5 +36,11 @@ app.listen(port, async (err) => {
     await seedUser();
   } catch (seedErr) {
     logger.error({ err: seedErr }, "Failed to seed user");
+  }
+
+  try {
+    await recoverProcessingSessions();
+  } catch (recoverErr) {
+    logger.error({ err: recoverErr }, "Failed to recover processing sessions");
   }
 });

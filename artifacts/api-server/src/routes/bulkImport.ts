@@ -8,10 +8,12 @@ import {
   recipesTable,
   recipeIngredientsTable,
   recipePhotosTable,
+  usersTable,
+  notificationsTable,
 } from "@workspace/db/schema";
 import { eq, and } from "drizzle-orm";
 import { anthropic } from "@workspace/integrations-anthropic-ai";
-import { ObjectStorageService } from "../lib/objectStorage";
+import { ObjectStorageService, objectStorageClient } from "../lib/objectStorage";
 import {
   BULK_IMPORT_EXTRACTION_SYSTEM_PROMPT,
   BULK_IMPORT_HANDWRITING_PROMPT,
@@ -33,6 +35,29 @@ const upload = multer({
 });
 
 const storageService = new ObjectStorageService();
+
+function parseObjectPath(path: string): { bucketName: string; objectName: string } {
+  if (!path.startsWith("/")) path = `/${path}`;
+  const parts = path.split("/");
+  return { bucketName: parts[1], objectName: parts.slice(2).join("/") };
+}
+
+async function downloadPdfFromStorage(storagePath: string): Promise<Buffer> {
+  const privateObjectDir = storageService.getPrivateObjectDir();
+  let dir = privateObjectDir;
+  if (!dir.endsWith("/")) dir = `${dir}/`;
+
+  const entityId = storagePath.startsWith("/objects/")
+    ? storagePath.slice("/objects/".length)
+    : storagePath;
+
+  const fullPath = `${dir}${entityId}`;
+  const { bucketName, objectName } = parseObjectPath(fullPath);
+  const bucket = objectStorageClient.bucket(bucketName);
+  const file = bucket.file(objectName);
+  const [contents] = await file.download();
+  return contents as Buffer;
+}
 
 async function renderPdfPages(pdfBuffer: Buffer): Promise<Buffer[]> {
   const pdfjsLib = await import("pdfjs-dist/legacy/build/pdf.mjs");
@@ -74,7 +99,7 @@ async function processPdfFile(
   try {
     await db
       .update(bulkImportFilesTable)
-      .set({ status: "processing" })
+      .set({ status: "processing", startedAt: new Date(), errorText: null })
       .where(eq(bulkImportFilesTable.id, fileId));
 
     await db
@@ -189,13 +214,14 @@ async function processPdfFile(
       pageNumbers?: number[];
     }> = [];
 
+    const parseError = "KI konnte keine gültige JSON-Antwort liefern";
     try {
       const parsed = JSON.parse(rawJson);
       extractedRecipes = Array.isArray(parsed.recipes) ? parsed.recipes : [];
     } catch {
       await db
         .update(bulkImportFilesTable)
-        .set({ status: "failed" })
+        .set({ status: "failed", finishedAt: new Date(), errorText: parseError })
         .where(eq(bulkImportFilesTable.id, fileId));
 
       await db.insert(bulkImportItemsTable).values({
@@ -207,7 +233,7 @@ async function processPdfFile(
         pageNumbers: [] as unknown as string[],
         pageImageUrls: [] as unknown as string[],
         hasHandwriting: documentHasHandwriting,
-        errorText: "KI konnte keine gültige JSON-Antwort liefern",
+        errorText: parseError,
       });
       return;
     }
@@ -254,6 +280,12 @@ async function processPdfFile(
     }
 
     if (extractedRecipes.length === 0) {
+      const noRecipesError = "Keine Rezepte im Dokument gefunden";
+      await db
+        .update(bulkImportFilesTable)
+        .set({ status: "failed", finishedAt: new Date(), errorText: noRecipesError })
+        .where(eq(bulkImportFilesTable.id, fileId));
+
       await db.insert(bulkImportItemsTable).values({
         sessionId,
         fileId,
@@ -263,20 +295,22 @@ async function processPdfFile(
         pageNumbers: [] as unknown as string[],
         pageImageUrls: [] as unknown as string[],
         hasHandwriting: documentHasHandwriting,
-        errorText: "Keine Rezepte im Dokument gefunden",
+        errorText: noRecipesError,
       });
+      return;
     }
 
     await db
       .update(bulkImportFilesTable)
-      .set({ status: "done" })
+      .set({ status: "done", finishedAt: new Date() })
       .where(eq(bulkImportFilesTable.id, fileId));
 
   } catch (err) {
     console.error("Error processing PDF file:", err);
+    const errMsg = err instanceof Error ? err.message : "Verarbeitung fehlgeschlagen";
     await db
       .update(bulkImportFilesTable)
-      .set({ status: "failed" })
+      .set({ status: "failed", finishedAt: new Date(), errorText: errMsg })
       .where(eq(bulkImportFilesTable.id, fileId));
 
     await db.insert(bulkImportItemsTable).values({
@@ -288,14 +322,15 @@ async function processPdfFile(
       pageNumbers: [] as unknown as string[],
       pageImageUrls: [] as unknown as string[],
       hasHandwriting: false,
-      errorText: err instanceof Error ? err.message : "Verarbeitung fehlgeschlagen",
+      errorText: errMsg,
     });
   }
 }
 
 async function runQueue(
   sessionId: number,
-  files: Array<{ id: number; name: string; buffer: Buffer; base64: string }>
+  files: Array<{ id: number; name: string; buffer: Buffer; base64: string }>,
+  userId?: number
 ): Promise<void> {
   try {
     await db
@@ -322,14 +357,244 @@ async function runQueue(
       .update(bulkImportSessionsTable)
       .set({ status: "done", currentFile: null, updatedAt: new Date() })
       .where(eq(bulkImportSessionsTable.id, sessionId));
+
+    if (userId != null) {
+      await db
+        .update(usersTable)
+        .set({ activeBulkImportSessionId: null })
+        .where(eq(usersTable.id, userId));
+
+      const allItems = await db
+        .select()
+        .from(bulkImportItemsTable)
+        .where(eq(bulkImportItemsTable.sessionId, sessionId));
+
+      const [finalSession] = await db
+        .select()
+        .from(bulkImportSessionsTable)
+        .where(eq(bulkImportSessionsTable.id, sessionId));
+
+      const totalRecipes = allItems.filter((i) => i.status !== "failed").length;
+      const totalFiles = finalSession?.totalFiles ?? files.length;
+
+      await db.insert(notificationsTable).values({
+        userId,
+        type: "bulk_import_done",
+        payload: {
+          sessionId,
+          totalRecipes,
+          totalFiles,
+          message: `Import abgeschlossen: ${totalRecipes} Rezepte aus ${totalFiles} Datei${totalFiles !== 1 ? "en" : ""} extrahiert`,
+        },
+      });
+    }
   } catch (err) {
     console.error("Queue processing failed:", err);
     await db
       .update(bulkImportSessionsTable)
       .set({ status: "failed", updatedAt: new Date() })
       .where(eq(bulkImportSessionsTable.id, sessionId));
+
+    if (userId != null) {
+      await db
+        .update(usersTable)
+        .set({ activeBulkImportSessionId: null })
+        .where(eq(usersTable.id, userId));
+    }
   }
 }
+
+export async function recoverProcessingSessions(): Promise<void> {
+  try {
+    console.log("[BulkImport] Checking for interrupted processing sessions...");
+
+    const processingSessions = await db
+      .select()
+      .from(bulkImportSessionsTable)
+      .where(eq(bulkImportSessionsTable.status, "processing"));
+
+    if (processingSessions.length === 0) {
+      console.log("[BulkImport] No interrupted sessions found.");
+      return;
+    }
+
+    console.log(`[BulkImport] Found ${processingSessions.length} interrupted session(s). Recovering...`);
+
+    for (const session of processingSessions) {
+      const allFiles = await db
+        .select()
+        .from(bulkImportFilesTable)
+        .where(eq(bulkImportFilesTable.sessionId, session.id));
+
+      const stuckFiles = allFiles.filter(
+        (f) => f.status === "pending" || f.status === "processing"
+      );
+
+      if (stuckFiles.length === 0) {
+        const anyStillRunning = allFiles.some((f) => f.status === "pending" || f.status === "processing");
+        if (!anyStillRunning) {
+          await db
+            .update(bulkImportSessionsTable)
+            .set({ status: "done", currentFile: null, updatedAt: new Date() })
+            .where(eq(bulkImportSessionsTable.id, session.id));
+          console.log(`[BulkImport] Session ${session.id}: all files resolved, marked as done.`);
+
+          const usersWithSession = await db
+            .select()
+            .from(usersTable)
+            .where(eq(usersTable.activeBulkImportSessionId, session.id));
+          for (const user of usersWithSession) {
+            await db.update(usersTable).set({ activeBulkImportSessionId: null }).where(eq(usersTable.id, user.id));
+          }
+        }
+        continue;
+      }
+
+      console.log(`[BulkImport] Session ${session.id}: ${stuckFiles.length} stuck file(s) (pending/processing). Recovering...`);
+
+      for (const f of stuckFiles) {
+        if (f.status === "processing") {
+          await db
+            .update(bulkImportFilesTable)
+            .set({ status: "pending", startedAt: null, pageImageUrls: [] as unknown as string[] })
+            .where(eq(bulkImportFilesTable.id, f.id));
+
+          await db
+            .delete(bulkImportItemsTable)
+            .where(and(eq(bulkImportItemsTable.fileId, f.id), eq(bulkImportItemsTable.sessionId, session.id)));
+        }
+      }
+
+      const recoverableFiles = stuckFiles.filter((f) => f.pdfStoragePath != null);
+      const unrecoverableFiles = stuckFiles.filter((f) => f.pdfStoragePath == null);
+
+      if (unrecoverableFiles.length > 0) {
+        console.log(`[BulkImport] Session ${session.id}: ${unrecoverableFiles.length} file(s) have no stored PDF, marking as failed.`);
+        for (const f of unrecoverableFiles) {
+          await db
+            .update(bulkImportFilesTable)
+            .set({
+              status: "failed",
+              errorText: "Verarbeitung nach Neustart nicht möglich (PDF nicht gespeichert)",
+              finishedAt: new Date(),
+            })
+            .where(eq(bulkImportFilesTable.id, f.id));
+        }
+      }
+
+      const usersWithSession = await db
+        .select()
+        .from(usersTable)
+        .where(eq(usersTable.activeBulkImportSessionId, session.id));
+      const userId = usersWithSession[0]?.id;
+
+      if (recoverableFiles.length === 0) {
+        await db
+          .update(bulkImportSessionsTable)
+          .set({ status: "done", currentFile: null, updatedAt: new Date() })
+          .where(eq(bulkImportSessionsTable.id, session.id));
+        for (const user of usersWithSession) {
+          await db.update(usersTable).set({ activeBulkImportSessionId: null }).where(eq(usersTable.id, user.id));
+        }
+        continue;
+      }
+
+      console.log(`[BulkImport] Session ${session.id}: recovering ${recoverableFiles.length} file(s) from storage...`);
+
+      setImmediate(async () => {
+        try {
+          const queueItems: Array<{ id: number; name: string; buffer: Buffer; base64: string }> = [];
+          for (const f of recoverableFiles) {
+            try {
+              const buffer = await downloadPdfFromStorage(f.pdfStoragePath!);
+              queueItems.push({
+                id: f.id,
+                name: f.fileName,
+                buffer,
+                base64: buffer.toString("base64"),
+              });
+            } catch (downloadErr) {
+              console.error(`[BulkImport] Failed to download PDF for file ${f.id}:`, downloadErr);
+              await db
+                .update(bulkImportFilesTable)
+                .set({
+                  status: "failed",
+                  errorText: "PDF konnte nicht aus dem Speicher geladen werden",
+                  finishedAt: new Date(),
+                })
+                .where(eq(bulkImportFilesTable.id, f.id));
+            }
+          }
+
+          if (queueItems.length > 0) {
+            await runQueue(session.id, queueItems, userId);
+          } else {
+            await db
+              .update(bulkImportSessionsTable)
+              .set({ status: "done", currentFile: null, updatedAt: new Date() })
+              .where(eq(bulkImportSessionsTable.id, session.id));
+            if (userId != null) {
+              await db.update(usersTable).set({ activeBulkImportSessionId: null }).where(eq(usersTable.id, userId));
+            }
+          }
+        } catch (err) {
+          console.error(`[BulkImport] Recovery failed for session ${session.id}:`, err);
+          await db
+            .update(bulkImportSessionsTable)
+            .set({ status: "failed", updatedAt: new Date() })
+            .where(eq(bulkImportSessionsTable.id, session.id));
+          if (userId != null) {
+            await db.update(usersTable).set({ activeBulkImportSessionId: null }).where(eq(usersTable.id, userId));
+          }
+        }
+      });
+    }
+  } catch (err) {
+    console.error("[BulkImport] Recovery check failed:", err);
+  }
+}
+
+router.get("/bulk-import/active", authMiddleware, async (req, res) => {
+  try {
+    const userId = req.authUser!.id;
+
+    const [user] = await db
+      .select()
+      .from(usersTable)
+      .where(eq(usersTable.id, userId));
+
+    if (!user?.activeBulkImportSessionId) {
+      res.json(null);
+      return;
+    }
+
+    const [session] = await db
+      .select()
+      .from(bulkImportSessionsTable)
+      .where(eq(bulkImportSessionsTable.id, user.activeBulkImportSessionId));
+
+    if (!session || (session.status !== "pending" && session.status !== "processing")) {
+      await db
+        .update(usersTable)
+        .set({ activeBulkImportSessionId: null })
+        .where(eq(usersTable.id, userId));
+      res.json(null);
+      return;
+    }
+
+    res.json({
+      id: session.id,
+      status: session.status,
+      totalFiles: session.totalFiles,
+      processedFiles: session.processedFiles,
+      currentFile: session.currentFile,
+      updatedAt: session.updatedAt,
+    });
+  } catch (err) {
+    req.log.error({ err }, "Failed to get active bulk import session");
+    res.status(500).json({ error: "internal_error", message: "Aktive Session konnte nicht abgerufen werden" });
+  }
+});
 
 router.post(
   "/bulk-import/start",
@@ -343,6 +608,8 @@ router.post(
         return;
       }
 
+      const userId = req.authUser!.id;
+
       const [session] = await db
         .insert(bulkImportSessionsTable)
         .values({
@@ -352,19 +619,32 @@ router.post(
         })
         .returning();
 
+      await db
+        .update(usersTable)
+        .set({ activeBulkImportSessionId: session.id })
+        .where(eq(usersTable.id, userId));
+
       const fileRecords = await Promise.all(
-        files.map((f) =>
-          db
+        files.map(async (f) => {
+          let pdfStoragePath: string | null = null;
+          try {
+            pdfStoragePath = await storageService.uploadBuffer(f.buffer, "application/pdf", "bulk-import/pdfs");
+          } catch (uploadErr) {
+            console.error("Failed to persist PDF to storage:", uploadErr);
+          }
+
+          const [record] = await db
             .insert(bulkImportFilesTable)
             .values({
               sessionId: session.id,
               fileName: f.originalname,
               status: "pending",
               pageImageUrls: [] as unknown as string[],
+              pdfStoragePath,
             })
-            .returning()
-            .then((rows) => rows[0])
-        )
+            .returning();
+          return record;
+        })
       );
 
       const queueItems = files.map((f, i) => ({
@@ -375,7 +655,7 @@ router.post(
       }));
 
       setImmediate(() => {
-        runQueue(session.id, queueItems).catch(console.error);
+        runQueue(session.id, queueItems, userId).catch(console.error);
       });
 
       res.json({ sessionId: session.id, totalFiles: files.length });
@@ -404,13 +684,30 @@ router.get("/bulk-import/:sessionId/status", authMiddleware, async (req, res) =>
       return;
     }
 
+    const files = await db
+      .select()
+      .from(bulkImportFilesTable)
+      .where(eq(bulkImportFilesTable.sessionId, sessionId));
+
+    const errorCount = files.filter((f) => f.status === "failed").length;
+
     res.json({
       id: session.id,
       status: session.status,
       totalFiles: session.totalFiles,
       processedFiles: session.processedFiles,
       currentFile: session.currentFile,
+      errorCount,
       updatedAt: session.updatedAt,
+      files: files.map((f) => ({
+        id: f.id,
+        fileName: f.fileName,
+        status: f.status,
+        errorText: f.errorText,
+        startedAt: f.startedAt,
+        finishedAt: f.finishedAt,
+        canRetry: f.pdfStoragePath != null,
+      })),
     });
   } catch (err) {
     req.log.error({ err }, "Failed to get bulk import status");
@@ -446,14 +743,16 @@ router.get("/bulk-import/:sessionId/results", authMiddleware, async (req, res) =
       .from(bulkImportItemsTable)
       .where(eq(bulkImportItemsTable.sessionId, sessionId));
 
-    const fileMap = new Map(files.map((f) => [f.id, f]));
-
     const groupedByFile = files.map((file) => ({
       file: {
         id: file.id,
         fileName: file.fileName,
         status: file.status,
         pageImageUrls: file.pageImageUrls as string[],
+        errorText: file.errorText,
+        startedAt: file.startedAt,
+        finishedAt: file.finishedAt,
+        canRetry: file.pdfStoragePath != null,
       },
       items: items
         .filter((item) => item.fileId === file.id)
@@ -526,6 +825,121 @@ router.post("/bulk-import/:sessionId/reject/:itemId", authMiddleware, async (req
   } catch (err) {
     req.log.error({ err }, "Failed to reject item");
     res.status(500).json({ error: "internal_error", message: "Ablehnen fehlgeschlagen" });
+  }
+});
+
+router.post("/bulk-import/:sessionId/retry/:fileId", authMiddleware, async (req, res) => {
+  try {
+    const sessionId = Number(req.params.sessionId);
+    const fileId = Number(req.params.fileId);
+    if (isNaN(sessionId) || isNaN(fileId)) {
+      res.status(400).json({ error: "bad_request", message: "Invalid IDs" });
+      return;
+    }
+
+    const [file] = await db
+      .select()
+      .from(bulkImportFilesTable)
+      .where(and(eq(bulkImportFilesTable.id, fileId), eq(bulkImportFilesTable.sessionId, sessionId)));
+
+    if (!file) {
+      res.status(404).json({ error: "not_found", message: "Datei nicht gefunden" });
+      return;
+    }
+
+    if (!file.pdfStoragePath) {
+      res.status(400).json({ error: "bad_request", message: "PDF nicht mehr verfügbar — kein Retry möglich" });
+      return;
+    }
+
+    const [session] = await db
+      .select()
+      .from(bulkImportSessionsTable)
+      .where(eq(bulkImportSessionsTable.id, sessionId));
+
+    if (!session) {
+      res.status(404).json({ error: "not_found", message: "Session nicht gefunden" });
+      return;
+    }
+
+    await db
+      .update(bulkImportFilesTable)
+      .set({ status: "pending", startedAt: null, finishedAt: null, errorText: null, pageImageUrls: [] as unknown as string[] })
+      .where(eq(bulkImportFilesTable.id, fileId));
+
+    await db
+      .delete(bulkImportItemsTable)
+      .where(and(eq(bulkImportItemsTable.fileId, fileId), eq(bulkImportItemsTable.sessionId, sessionId)));
+
+    if (session.processedFiles > 0) {
+      await db
+        .update(bulkImportSessionsTable)
+        .set({
+          processedFiles: Math.max(0, session.processedFiles - 1),
+          status: "processing",
+          updatedAt: new Date(),
+        })
+        .where(eq(bulkImportSessionsTable.id, sessionId));
+    } else {
+      await db
+        .update(bulkImportSessionsTable)
+        .set({ status: "processing", updatedAt: new Date() })
+        .where(eq(bulkImportSessionsTable.id, sessionId));
+    }
+
+    const userId = req.authUser!.id;
+    await db
+      .update(usersTable)
+      .set({ activeBulkImportSessionId: sessionId })
+      .where(eq(usersTable.id, userId));
+
+    setImmediate(async () => {
+      try {
+        const buffer = await downloadPdfFromStorage(file.pdfStoragePath!);
+        const base64 = buffer.toString("base64");
+        await processPdfFile(fileId, sessionId, file.fileName, buffer, base64);
+
+        const [updatedSession] = await db
+          .select()
+          .from(bulkImportSessionsTable)
+          .where(eq(bulkImportSessionsTable.id, sessionId));
+
+        const newProcessed = (updatedSession?.processedFiles ?? 0) + 1;
+        await db
+          .update(bulkImportSessionsTable)
+          .set({ processedFiles: newProcessed, updatedAt: new Date() })
+          .where(eq(bulkImportSessionsTable.id, sessionId));
+
+        const allFiles = await db
+          .select()
+          .from(bulkImportFilesTable)
+          .where(eq(bulkImportFilesTable.sessionId, sessionId));
+
+        const stillPending = allFiles.some((f) => f.status === "pending" || f.status === "processing");
+        if (!stillPending) {
+          await db
+            .update(bulkImportSessionsTable)
+            .set({ status: "done", currentFile: null, updatedAt: new Date() })
+            .where(eq(bulkImportSessionsTable.id, sessionId));
+          await db
+            .update(usersTable)
+            .set({ activeBulkImportSessionId: null })
+            .where(eq(usersTable.id, userId));
+        }
+      } catch (err) {
+        console.error(`Failed to retry file ${fileId}:`, err);
+        const errMsg = err instanceof Error ? err.message : "Retry fehlgeschlagen";
+        await db
+          .update(bulkImportFilesTable)
+          .set({ status: "failed", errorText: errMsg, finishedAt: new Date() })
+          .where(eq(bulkImportFilesTable.id, fileId));
+      }
+    });
+
+    res.json({ success: true, message: "Datei wird erneut verarbeitet" });
+  } catch (err) {
+    req.log.error({ err }, "Failed to retry file");
+    res.status(500).json({ error: "internal_error", message: "Retry fehlgeschlagen" });
   }
 });
 
@@ -645,6 +1059,16 @@ router.delete("/bulk-import/:sessionId", authMiddleware, async (req, res) => {
     if (isNaN(sessionId)) {
       res.status(400).json({ error: "bad_request", message: "Invalid sessionId" });
       return;
+    }
+
+    const userId = req.authUser!.id;
+
+    const [user] = await db.select().from(usersTable).where(eq(usersTable.id, userId));
+    if (user?.activeBulkImportSessionId === sessionId) {
+      await db
+        .update(usersTable)
+        .set({ activeBulkImportSessionId: null })
+        .where(eq(usersTable.id, userId));
     }
 
     await db

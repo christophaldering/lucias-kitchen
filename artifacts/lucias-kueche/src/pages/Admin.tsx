@@ -5,6 +5,7 @@ import {
   X, Plus, ChevronsUpDown
 } from "lucide-react";
 import { useRecipes } from "@/hooks/useRecipes";
+import type { RecipeUpdatePayload } from "@/hooks/useRecipes";
 import type { Recipe } from "@/types/recipe";
 import RecipeEditModal from "@/components/RecipeEditModal";
 import { formatIngredient } from "@/types/recipe";
@@ -80,8 +81,9 @@ function RecipeTable({
             const isSel = selected.has(r.id);
             return (
               <tr key={r.id}
-                className={`border-b border-border/50 transition-colors ${isSel ? "bg-[#4A7C59]/5" : i % 2 === 0 ? "bg-white" : "bg-gray-50/50"} hover:bg-[#4A7C59]/8`}>
-                <td className="px-4 py-3">
+                onClick={() => onEdit(r)}
+                className={`border-b border-border/50 transition-colors cursor-pointer ${isSel ? "bg-[#4A7C59]/5" : i % 2 === 0 ? "bg-white" : "bg-gray-50/50"} hover:bg-[#4A7C59]/10`}>
+                <td className="px-4 py-3" onClick={(e) => e.stopPropagation()}>
                   <input type="checkbox" checked={isSel} onChange={() => onToggle(r.id)}
                     className="w-4 h-4 rounded accent-[#4A7C59] cursor-pointer" />
                 </td>
@@ -110,7 +112,7 @@ function RecipeTable({
                   {r.cookedCount ? `🍳 ${r.cookedCount}×` : "–"}
                   {r.lastCooked ? <span className="block">{r.lastCooked}</span> : null}
                 </td>
-                <td className="px-4 py-3 text-center">
+                <td className="px-4 py-3 text-center" onClick={(e) => e.stopPropagation()}>
                   <button onClick={() => onEdit(r)}
                     className="p-1.5 rounded-lg hover:bg-[#C1693A]/10 text-muted-foreground hover:text-[#C1693A] transition-colors">
                     <Edit2 className="w-4 h-4" />
@@ -354,13 +356,26 @@ function BulkActionsBar({
   );
 }
 
-function CategoryManager({ recipes, patchRecipe, refetch, updateRecipe }: {
+const LK_CUSTOM_CATEGORIES_KEY = "lk_customCategories";
+
+function loadCustomCategories(): string[] {
+  try {
+    const stored = localStorage.getItem(LK_CUSTOM_CATEGORIES_KEY);
+    return stored ? JSON.parse(stored) : [];
+  } catch { return []; }
+}
+
+function saveCustomCategories(cats: string[]) {
+  localStorage.setItem(LK_CUSTOM_CATEGORIES_KEY, JSON.stringify(cats));
+}
+
+function CategoryManager({ recipes, patchRecipe, refetch }: {
   recipes: Recipe[];
   patchRecipe: (id: number, patch: Record<string, unknown>) => Promise<void>;
   refetch: () => Promise<void>;
-  updateRecipe: (id: number, data: Partial<Recipe>) => Promise<void>;
 }) {
   const [newCat, setNewCat] = useState("");
+  const [customCategories, setCustomCategories] = useState<string[]>(loadCustomCategories);
   const [renaming, setRenaming] = useState<string | null>(null);
   const [renameVal, setRenameVal] = useState("");
   const [mergeSrc, setMergeSrc] = useState("");
@@ -372,7 +387,15 @@ function CategoryManager({ recipes, patchRecipe, refetch, updateRecipe }: {
     acc[r.category] = (acc[r.category] || 0) + 1;
     return acc;
   }, {});
-  const categories = Object.keys(categoryCounts).sort();
+
+  const persistCustomCats = (cats: string[]) => {
+    setCustomCategories(cats);
+    saveCustomCategories(cats);
+  };
+
+  const allCategories = Array.from(
+    new Set([...Object.keys(categoryCounts), ...customCategories])
+  ).sort();
 
   const doRename = async (from: string, to: string) => {
     if (!to.trim() || to === from) return;
@@ -380,6 +403,10 @@ function CategoryManager({ recipes, patchRecipe, refetch, updateRecipe }: {
     setBusy(true);
     try {
       await Promise.all(affected.map((r) => patchRecipe(r.id, { category: to.trim() })));
+      if (customCategories.includes(from)) {
+        const next = customCategories.map((c) => c === from ? to.trim() : c);
+        persistCustomCats(next);
+      }
       toast(`Kategorie "${from}" → "${to.trim()}" umbenannt`);
       setRenaming(null);
     } catch { toast("Fehler beim Umbenennen", "err"); }
@@ -392,6 +419,9 @@ function CategoryManager({ recipes, patchRecipe, refetch, updateRecipe }: {
     setBusy(true);
     try {
       await Promise.all(affected.map((r) => patchRecipe(r.id, { category: mergeDst })));
+      if (customCategories.includes(mergeSrc)) {
+        persistCustomCats(customCategories.filter((c) => c !== mergeSrc));
+      }
       toast(`"${mergeSrc}" wurde in "${mergeDst}" zusammengeführt`);
       setMergeSrc(""); setMergeDst("");
     } catch { toast("Fehler beim Zusammenführen", "err"); }
@@ -400,8 +430,10 @@ function CategoryManager({ recipes, patchRecipe, refetch, updateRecipe }: {
 
   const doAddCategory = () => {
     const name = newCat.trim();
-    if (!name || categories.includes(name)) { toast("Kategorie existiert bereits oder ungültig", "err"); return; }
-    toast(`Kategorie "${name}" hinzugefügt — weisen Sie Rezepte zu, um sie zu aktivieren`);
+    if (!name) return;
+    if (allCategories.includes(name)) { toast("Kategorie existiert bereits", "err"); return; }
+    persistCustomCats([...customCategories, name]);
+    toast(`Kategorie "${name}" erstellt`);
     setNewCat("");
   };
 
@@ -411,7 +443,10 @@ function CategoryManager({ recipes, patchRecipe, refetch, updateRecipe }: {
       setDeleteCandidate(cat);
       return;
     }
-    toast(`Kategorie "${cat}" entfernt (war leer)`);
+    if (customCategories.includes(cat)) {
+      persistCustomCats(customCategories.filter((c) => c !== cat));
+    }
+    toast(`Kategorie "${cat}" gelöscht`);
     setDeleteCandidate(null);
   };
 
@@ -433,7 +468,7 @@ function CategoryManager({ recipes, patchRecipe, refetch, updateRecipe }: {
               <select value={mergeDst} onChange={(e) => setMergeDst(e.target.value)}
                 className="w-full px-3 py-2 rounded-xl border border-border bg-white text-sm focus:outline-none">
                 <option value="">Kategorie wählen…</option>
-                {categories.filter((c) => c !== deleteCandidate).map((c) => <option key={c} value={c}>{c}</option>)}
+                {allCategories.filter((c) => c !== deleteCandidate).map((c) => <option key={c} value={c}>{c}</option>)}
               </select>
             </div>
             <div className="flex gap-3">
@@ -483,7 +518,7 @@ function CategoryManager({ recipes, patchRecipe, refetch, updateRecipe }: {
       <div className="bg-white rounded-2xl border border-border shadow-sm p-6">
         <h3 className="font-serif font-semibold text-lg mb-4">🗂️ Vorhandene Kategorien</h3>
         <div className="space-y-2">
-          {categories.map((cat) => (
+          {allCategories.map((cat) => (
             <div key={cat} className="flex items-center gap-3 p-3 rounded-xl bg-gray-50 border border-border/50">
               <span className="text-lg">{CATEGORY_EMOJIS[cat] ?? "🍽️"}</span>
               {renaming === cat ? (
@@ -502,7 +537,7 @@ function CategoryManager({ recipes, patchRecipe, refetch, updateRecipe }: {
               ) : (
                 <>
                   <span className="flex-1 font-medium text-sm">{cat}</span>
-                  <span className="text-xs text-muted-foreground">{categoryCounts[cat]} Rezept{categoryCounts[cat] !== 1 ? "e" : ""}</span>
+                  <span className="text-xs text-muted-foreground">{categoryCounts[cat] ?? 0} Rezept{(categoryCounts[cat] ?? 0) !== 1 ? "e" : ""}</span>
                   <button onClick={() => { setRenaming(cat); setRenameVal(cat); }}
                     className="p-1.5 rounded-lg hover:bg-[#4A7C59]/10 text-muted-foreground hover:text-[#4A7C59] transition-colors"
                     title="Umbenennen">
@@ -517,7 +552,7 @@ function CategoryManager({ recipes, patchRecipe, refetch, updateRecipe }: {
               )}
             </div>
           ))}
-          {categories.length === 0 && (
+          {allCategories.length === 0 && (
             <p className="text-sm text-muted-foreground text-center py-4">Keine Kategorien vorhanden.</p>
           )}
         </div>
@@ -532,7 +567,7 @@ function CategoryManager({ recipes, patchRecipe, refetch, updateRecipe }: {
             <select value={mergeSrc} onChange={(e) => setMergeSrc(e.target.value)}
               className="w-full px-3 py-2 rounded-xl border border-border bg-white text-sm focus:outline-none">
               <option value="">Kategorie wählen…</option>
-              {categories.map((c) => <option key={c} value={c}>{c}</option>)}
+              {allCategories.map((c) => <option key={c} value={c}>{c}</option>)}
             </select>
           </div>
           <ChevronsUpDown className="w-4 h-4 text-muted-foreground rotate-90 mb-3 flex-shrink-0" />
@@ -541,7 +576,7 @@ function CategoryManager({ recipes, patchRecipe, refetch, updateRecipe }: {
             <select value={mergeDst} onChange={(e) => setMergeDst(e.target.value)}
               className="w-full px-3 py-2 rounded-xl border border-border bg-white text-sm focus:outline-none">
               <option value="">Kategorie wählen…</option>
-              {categories.filter((c) => c !== mergeSrc).map((c) => <option key={c} value={c}>{c}</option>)}
+              {allCategories.filter((c) => c !== mergeSrc).map((c) => <option key={c} value={c}>{c}</option>)}
             </select>
           </div>
           <button onClick={doMerge} disabled={busy || !mergeSrc || !mergeDst}
@@ -812,7 +847,7 @@ export default function Admin() {
     else setSelected(new Set(recipes.map((r) => r.id)));
   };
 
-  const handleSaveEdit = async (id: number, data: Partial<Recipe>) => {
+  const handleSaveEdit = async (id: number, data: RecipeUpdatePayload) => {
     await updateRecipe(id, data);
   };
 
@@ -878,7 +913,7 @@ export default function Admin() {
       )}
 
       {section === "categories" && (
-        <CategoryManager recipes={recipes} patchRecipe={patchRecipe} refetch={refetch} updateRecipe={updateRecipe} />
+        <CategoryManager recipes={recipes} patchRecipe={patchRecipe} refetch={refetch} />
       )}
 
       {section === "backup" && (

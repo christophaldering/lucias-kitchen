@@ -11,7 +11,7 @@ const ingredientSchema = z.object({
   amount: z.string().default(""),
   unit: z.string().default(""),
   name: z.string().min(1),
-  note: z.string().optional(),
+  note: z.string().optional().nullable(),
 });
 
 const recipeBodySchema = z.object({

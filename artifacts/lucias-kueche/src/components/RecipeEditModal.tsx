@@ -1,11 +1,12 @@
 import { useState } from "react";
 import { X, Plus, Trash2, ChevronUp, ChevronDown, Save, Loader2 } from "lucide-react";
-import type { Recipe, RecipeIngredient } from "@/types/recipe";
+import type { Recipe, IngredientInput } from "@/types/recipe";
+import type { RecipeUpdatePayload } from "@/hooks/useRecipes";
 
 interface Props {
   recipe: Recipe;
   onClose: () => void;
-  onSave: (id: number, data: Partial<Recipe>) => Promise<void>;
+  onSave: (id: number, data: RecipeUpdatePayload) => Promise<void>;
 }
 
 const CATEGORIES = ["Fisch", "Geflügel", "Fleisch", "Vegetarisch", "Pasta"];
@@ -69,7 +70,7 @@ export default function RecipeEditModal({ recipe, onClose, onSave }: Props) {
     setSaving(true);
     setError("");
     try {
-      await onSave(recipe.id, {
+      const payload: RecipeUpdatePayload = {
         title: title.trim(),
         category: effectiveCategory.trim(),
         difficulty,
@@ -81,8 +82,14 @@ export default function RecipeEditModal({ recipe, onClose, onSave }: Props) {
         rating: rating || null,
         notes: notes.trim() || null,
         steps: validSteps,
-        ingredients: validIngredients as unknown as RecipeIngredient[],
-      });
+        ingredients: validIngredients.map((i) => ({
+          amount: i.amount,
+          unit: i.unit,
+          name: i.name,
+          note: i.note || null,
+        })),
+      };
+      await onSave(recipe.id, payload);
       onClose();
     } catch {
       setError("Speichern fehlgeschlagen. Bitte erneut versuchen.");

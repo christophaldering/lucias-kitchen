@@ -1,5 +1,22 @@
 import { useState, useEffect, useCallback } from "react";
-import type { Recipe } from "@/types/recipe";
+import type { Recipe, IngredientInput } from "@/types/recipe";
+
+export interface RecipeUpdatePayload {
+  title: string;
+  category: string;
+  difficulty: "simpel" | "normal" | "schwer";
+  servings?: number | null;
+  prepTime?: string | null;
+  totalTime?: string | null;
+  kcalPerPortion?: number | null;
+  source?: string | null;
+  rating?: string | null;
+  lastCooked?: string | null;
+  cookedCount?: number | null;
+  notes?: string | null;
+  steps: string[];
+  ingredients: IngredientInput[];
+}
 
 const API_BASE = "/api";
 
@@ -37,39 +54,15 @@ export function useRecipes() {
     await fetchRecipes();
   }, [fetchRecipes]);
 
-  const updateRecipe = useCallback(async (id: number, data: Partial<Recipe>) => {
-    const existing = recipes.find((r) => r.id === id);
-    if (!existing) throw new Error("Recipe not found");
-    const body = {
-      title: existing.title,
-      servings: existing.servings,
-      prepTime: existing.prepTime,
-      totalTime: existing.totalTime,
-      difficulty: existing.difficulty,
-      category: existing.category,
-      rating: existing.rating,
-      kcalPerPortion: existing.kcalPerPortion,
-      source: existing.source,
-      lastCooked: existing.lastCooked,
-      cookedCount: existing.cookedCount,
-      notes: existing.notes,
-      steps: existing.steps,
-      ingredients: existing.ingredients.map((ing) => ({
-        amount: ing.amount,
-        unit: ing.unit,
-        name: ing.name,
-        note: ing.note,
-      })),
-      ...data,
-    };
+  const updateRecipe = useCallback(async (id: number, data: RecipeUpdatePayload) => {
     const res = await fetch(`${API_BASE}/recipes/${id}`, {
       method: "PUT",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(body),
+      body: JSON.stringify(data),
     });
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
     await fetchRecipes();
-  }, [recipes, fetchRecipes]);
+  }, [fetchRecipes]);
 
   const patchRecipe = useCallback(async (id: number, patch: Record<string, unknown>) => {
     const res = await fetch(`${API_BASE}/recipes/${id}`, {

@@ -7,6 +7,13 @@ export interface RecipeIngredient {
   note: string | null;
 }
 
+export interface IngredientInput {
+  amount: string;
+  unit: string;
+  name: string;
+  note: string | null;
+}
+
 export interface Recipe {
   id: number;
   title: string;

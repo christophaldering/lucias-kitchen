@@ -206,13 +206,17 @@ export async function extractUrlRecipes(
 }
 
 export async function extractImageRecipes(
-  base64Image: string,
+  images: Array<{ base64: string; mimeType: string }> | string,
   mimeType: string = "image/jpeg"
 ): Promise<{ recipes: Partial<Recipe>[]; modelUsed: "openai" }> {
+  const body = Array.isArray(images)
+    ? { images }
+    : { image: images, mimeType };
+
   const res = await fetch(`${API_BASE}/extract-image`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ image: base64Image, mimeType }),
+    body: JSON.stringify(body),
   });
   if (!res.ok) {
     const err = await res.json().catch(() => ({}));

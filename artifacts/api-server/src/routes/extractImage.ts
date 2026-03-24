@@ -6,16 +6,45 @@ const router: IRouter = Router();
 
 const ALLOWED_TYPES = ["image/jpeg", "image/png", "image/webp", "image/gif"];
 
+type ImageEntry = { base64: string; mimeType: string };
+
 router.post("/extract-image", async (req, res) => {
   try {
-    const { image, mimeType } = req.body as { image?: string; mimeType?: string };
+    const body = req.body as {
+      image?: string;
+      mimeType?: string;
+      images?: Array<{ base64: string; mimeType?: string }>;
+    };
 
-    if (!image || typeof image !== "string") {
-      res.status(400).json({ error: "bad_request", message: "Field 'image' (base64 string) is required" });
+    let imageEntries: ImageEntry[];
+
+    if (Array.isArray(body.images) && body.images.length > 0) {
+      imageEntries = body.images.map((img) => ({
+        base64: img.base64,
+        mimeType: (img.mimeType && ALLOWED_TYPES.includes(img.mimeType)) ? img.mimeType : "image/jpeg",
+      }));
+    } else if (body.image && typeof body.image === "string") {
+      const resolvedMime = (body.mimeType && ALLOWED_TYPES.includes(body.mimeType)) ? body.mimeType : "image/jpeg";
+      imageEntries = [{ base64: body.image, mimeType: resolvedMime }];
+    } else {
+      res.status(400).json({ error: "bad_request", message: "Field 'image' or 'images' is required" });
       return;
     }
 
-    const resolvedMime = (mimeType && ALLOWED_TYPES.includes(mimeType)) ? mimeType : "image/jpeg";
+    const imageContent = imageEntries.map((img) => ({
+      type: "image_url" as const,
+      image_url: {
+        url: `data:${img.mimeType};base64,${img.base64}`,
+        detail: "high" as const,
+      },
+    }));
+
+    const textContent = {
+      type: "text" as const,
+      text: imageEntries.length > 1
+        ? `Bitte extrahiere alle Rezepte aus diesen ${imageEntries.length} Bildern, die zusammen ein einzelnes Rezept zeigen.`
+        : "Bitte extrahiere alle Rezepte aus diesem Bild.",
+    };
 
     const response = await openai.chat.completions.create({
       model: "gpt-4o",
@@ -24,19 +53,7 @@ router.post("/extract-image", async (req, res) => {
         { role: "system", content: RECIPE_EXTRACTION_SYSTEM_PROMPT },
         {
           role: "user",
-          content: [
-            {
-              type: "image_url",
-              image_url: {
-                url: `data:${resolvedMime};base64,${image}`,
-                detail: "high",
-              },
-            },
-            {
-              type: "text",
-              text: "Bitte extrahiere alle Rezepte aus diesem Bild.",
-            },
-          ],
+          content: [...imageContent, textContent],
         },
       ],
     });

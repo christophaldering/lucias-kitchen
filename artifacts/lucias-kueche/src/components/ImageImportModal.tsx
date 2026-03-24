@@ -1,5 +1,5 @@
-import { useState, useRef, useEffect } from "react";
-import { X, Camera, ImageIcon, FileText, Check, Loader2, Bot } from "lucide-react";
+import { useState, useRef, useEffect, useCallback } from "react";
+import { X, Camera, ImageIcon, FileText, Check, Loader2, Bot, Plus, Trash2 } from "lucide-react";
 import type { Recipe } from "@/types/recipe";
 import { extractImageRecipes } from "@/hooks/useRecipes";
 
@@ -12,27 +12,67 @@ type Step = "upload" | "loading" | "review" | "saving" | "done" | "error";
 
 const ALLOWED_MIME = ["image/jpeg", "image/png", "image/webp", "image/gif"];
 
+interface PhotoEntry {
+  objectUrl: string;
+  base64: string;
+  mimeType: string;
+}
+
 export default function ImageImportModal({ onClose, onAdd }: Props) {
   const [step, setStep] = useState<Step>("upload");
+  const [photos, setPhotos] = useState<PhotoEntry[]>([]);
   const [extracted, setExtracted] = useState<Partial<Recipe>[]>([]);
   const [selected, setSelected] = useState<Set<number>>(new Set());
   const [errorMsg, setErrorMsg] = useState("");
-  const [previewUrl, setPreviewUrl] = useState<string | null>(null);
 
   const galleryRef = useRef<HTMLInputElement>(null);
   const cameraRef = useRef<HTMLInputElement>(null);
+  const addGalleryRef = useRef<HTMLInputElement>(null);
+  const addCameraRef = useRef<HTMLInputElement>(null);
+  const photosRef = useRef<PhotoEntry[]>([]);
+
+  useEffect(() => {
+    photosRef.current = photos;
+  }, [photos]);
 
   useEffect(() => {
     return () => {
-      if (previewUrl) URL.revokeObjectURL(previewUrl);
+      photosRef.current.forEach((p) => URL.revokeObjectURL(p.objectUrl));
     };
-  }, [previewUrl]);
+  }, []);
 
   const handleClose = () => {
-    if (previewUrl) URL.revokeObjectURL(previewUrl);
+    photosRef.current.forEach((p) => URL.revokeObjectURL(p.objectUrl));
     onClose();
   };
-  const handleFile = async (file: File) => {
+
+  const readFileAsBase64 = (file: File): Promise<{ base64: string; mimeType: string }> =>
+    new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = () => {
+        const dataUrl = reader.result as string;
+        const base64 = dataUrl.split(",")[1];
+        resolve({ base64, mimeType: file.type || "image/jpeg" });
+      };
+      reader.onerror = () => reject(new Error("Bild konnte nicht gelesen werden."));
+      reader.readAsDataURL(file);
+    });
+
+  const runAnalysis = useCallback(async (imageList: PhotoEntry[]) => {
+    setStep("loading");
+    try {
+      const images = imageList.map((p) => ({ base64: p.base64, mimeType: p.mimeType }));
+      const { recipes } = await extractImageRecipes(images);
+      setExtracted(recipes);
+      setSelected(new Set(recipes.map((_, i) => i)));
+      setStep("review");
+    } catch (err) {
+      setErrorMsg(err instanceof Error ? err.message : "Extraktion fehlgeschlagen.");
+      setStep("error");
+    }
+  }, []);
+
+  const handleFile = async (file: File, isAdditional = false) => {
     const mimeType = file.type || "image/jpeg";
     if (!ALLOWED_MIME.includes(mimeType)) {
       setErrorMsg("Bitte nur JPEG-, PNG-, WebP- oder GIF-Bilder hochladen.");
@@ -45,35 +85,48 @@ export default function ImageImportModal({ onClose, onAdd }: Props) {
       return;
     }
 
-    const objectUrl = URL.createObjectURL(file);
-    setPreviewUrl(objectUrl);
-    setStep("loading");
+    try {
+      const objectUrl = URL.createObjectURL(file);
+      const { base64 } = await readFileAsBase64(file);
+      const newPhoto: PhotoEntry = { objectUrl, base64, mimeType };
 
-    const reader = new FileReader();
-    reader.onload = async () => {
-      try {
-        const dataUrl = reader.result as string;
-        const base64 = dataUrl.split(",")[1];
-        const { recipes } = await extractImageRecipes(base64, mimeType);
-        setExtracted(recipes);
-        setSelected(new Set(recipes.map((_, i) => i)));
-        setStep("review");
-      } catch (err) {
-        setErrorMsg(err instanceof Error ? err.message : "Extraktion fehlgeschlagen.");
-        setStep("error");
+      if (isAdditional) {
+        setPhotos((prev) => {
+          const updated = [...prev, newPhoto];
+          runAnalysis(updated);
+          return updated;
+        });
+      } else {
+        photosRef.current.forEach((p) => URL.revokeObjectURL(p.objectUrl));
+        const firstList = [newPhoto];
+        setPhotos(firstList);
+        runAnalysis(firstList);
       }
-    };
-    reader.onerror = () => {
-      setErrorMsg("Bild konnte nicht gelesen werden.");
+    } catch (err) {
+      setErrorMsg(err instanceof Error ? err.message : "Bild konnte nicht gelesen werden.");
       setStep("error");
-    };
-    reader.readAsDataURL(file);
+    }
   };
 
   const handleDrop = (e: React.DragEvent) => {
     e.preventDefault();
     const file = e.dataTransfer.files[0];
-    if (file) handleFile(file);
+    if (file) handleFile(file, false);
+  };
+
+  const removePhoto = (index: number) => {
+    setPhotos((prev) => {
+      URL.revokeObjectURL(prev[index].objectUrl);
+      const updated = prev.filter((_, i) => i !== index);
+      if (updated.length > 0) {
+        runAnalysis(updated);
+      } else {
+        setStep("upload");
+        setExtracted([]);
+        setSelected(new Set());
+      }
+      return updated;
+    });
   };
 
   const toggleSelect = (i: number) => {
@@ -99,14 +152,12 @@ export default function ImageImportModal({ onClose, onAdd }: Props) {
   };
 
   const reset = () => {
+    photosRef.current.forEach((p) => URL.revokeObjectURL(p.objectUrl));
     setStep("upload");
     setErrorMsg("");
     setExtracted([]);
     setSelected(new Set());
-    if (previewUrl) {
-      URL.revokeObjectURL(previewUrl);
-      setPreviewUrl(null);
-    }
+    setPhotos([]);
   };
 
   return (
@@ -149,7 +200,7 @@ export default function ImageImportModal({ onClose, onAdd }: Props) {
                   type="file"
                   accept="image/jpeg,image/png,image/webp,image/gif"
                   className="hidden"
-                  onChange={(e) => e.target.files?.[0] && handleFile(e.target.files[0])}
+                  onChange={(e) => e.target.files?.[0] && handleFile(e.target.files[0], false)}
                 />
               </div>
 
@@ -167,7 +218,7 @@ export default function ImageImportModal({ onClose, onAdd }: Props) {
                 accept="image/*"
                 capture="environment"
                 className="hidden"
-                onChange={(e) => e.target.files?.[0] && handleFile(e.target.files[0])}
+                onChange={(e) => e.target.files?.[0] && handleFile(e.target.files[0], false)}
               />
 
               <p className="text-xs text-muted-foreground text-center">
@@ -179,15 +230,22 @@ export default function ImageImportModal({ onClose, onAdd }: Props) {
           {/* STEP: Loading */}
           {step === "loading" && (
             <div className="flex flex-col items-center gap-4 py-12">
-              {previewUrl && (
-                <img
-                  src={previewUrl}
-                  alt="Vorschau"
-                  className="w-32 h-32 object-cover rounded-xl shadow-md mb-2"
-                />
+              {photos.length > 0 && (
+                <div className="flex gap-2 justify-center flex-wrap mb-2">
+                  {photos.map((photo, index) => (
+                    <img
+                      key={index}
+                      src={photo.objectUrl}
+                      alt={`Vorschau ${index + 1}`}
+                      className="w-20 h-20 object-cover rounded-xl shadow-md"
+                    />
+                  ))}
+                </div>
               )}
               <Loader2 className="w-10 h-10 text-[#4A7C59] animate-spin" />
-              <p className="font-serif text-lg text-foreground">KI analysiert das Foto…</p>
+              <p className="font-serif text-lg text-foreground">
+                KI analysiert {photos.length > 1 ? `${photos.length} Fotos` : "das Foto"}…
+              </p>
               <p className="text-sm text-muted-foreground">Das kann einen Moment dauern.</p>
             </div>
           )}
@@ -200,12 +258,81 @@ export default function ImageImportModal({ onClose, onAdd }: Props) {
                 GPT-4o Vision (Foto-Analyse)
               </div>
 
-              {previewUrl && (
-                <img
-                  src={previewUrl}
-                  alt="Analysiertes Foto"
-                  className="w-full max-h-40 object-cover rounded-xl shadow-sm mb-4"
-                />
+              {/* Photo thumbnails with delete + add more */}
+              {photos.length > 0 && (
+                <div className="mb-4">
+                  <div className="flex flex-wrap gap-2 items-start">
+                    {photos.map((photo, index) => (
+                      <div key={index} className="relative group">
+                        <img
+                          src={photo.objectUrl}
+                          alt={`Foto ${index + 1}`}
+                          className="w-20 h-20 object-cover rounded-xl border border-border shadow-sm"
+                        />
+                        <button
+                          onClick={() => removePhoto(index)}
+                          aria-label={`Foto ${index + 1} entfernen`}
+                          className="absolute -top-1.5 -right-1.5 w-5 h-5 bg-red-500 text-white rounded-full flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity shadow-sm"
+                        >
+                          <Trash2 className="w-3 h-3" />
+                        </button>
+                        <span className="absolute bottom-1 left-1 text-[10px] bg-black/50 text-white rounded px-1">
+                          {index + 1}
+                        </span>
+                      </div>
+                    ))}
+
+                    {/* Add more buttons */}
+                    <div className="flex flex-col gap-1.5">
+                      <button
+                        onClick={() => addGalleryRef.current?.click()}
+                        className="w-20 h-9 border border-dashed border-[#4A7C59]/50 text-[#4A7C59] rounded-xl flex items-center justify-center gap-1 text-xs font-medium hover:bg-[#4A7C59]/5 transition-colors"
+                        title="Weiteres Foto aus Galerie"
+                      >
+                        <Plus className="w-3.5 h-3.5" />
+                        Foto
+                      </button>
+                      <button
+                        onClick={() => addCameraRef.current?.click()}
+                        className="w-20 h-9 border border-dashed border-[#4A7C59]/50 text-[#4A7C59] rounded-xl flex items-center justify-center gap-1 text-xs font-medium hover:bg-[#4A7C59]/5 transition-colors"
+                        title="Weiteres Foto mit Kamera"
+                      >
+                        <Camera className="w-3.5 h-3.5" />
+                        Kamera
+                      </button>
+                    </div>
+                  </div>
+                  <input
+                    ref={addGalleryRef}
+                    type="file"
+                    accept="image/jpeg,image/png,image/webp,image/gif"
+                    className="hidden"
+                    onChange={(e) => {
+                      if (e.target.files?.[0]) {
+                        handleFile(e.target.files[0], true);
+                        e.target.value = "";
+                      }
+                    }}
+                  />
+                  <input
+                    ref={addCameraRef}
+                    type="file"
+                    accept="image/*"
+                    capture="environment"
+                    className="hidden"
+                    onChange={(e) => {
+                      if (e.target.files?.[0]) {
+                        handleFile(e.target.files[0], true);
+                        e.target.value = "";
+                      }
+                    }}
+                  />
+                  {photos.length > 1 && (
+                    <p className="text-xs text-muted-foreground mt-2">
+                      {photos.length} Fotos · Ergebnis wird bei Änderungen neu analysiert
+                    </p>
+                  )}
+                </div>
               )}
 
               {extracted.length === 0 ? (

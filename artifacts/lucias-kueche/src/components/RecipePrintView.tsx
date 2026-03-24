@@ -46,6 +46,11 @@ export default function RecipePrintView({ recipe }: Props) {
         @import url('https://fonts.googleapis.com/css2?family=Dancing+Script:wght@700&display=swap');
 
         @media print {
+          html, body {
+            background: #fff !important;
+            -webkit-print-color-adjust: exact;
+            print-color-adjust: exact;
+          }
           body > *:not(.print-only) {
             display: none !important;
           }
@@ -55,6 +60,7 @@ export default function RecipePrintView({ recipe }: Props) {
           @page {
             margin: 18mm 16mm 18mm 16mm;
             size: A4 portrait;
+            background: #fff;
           }
           .print-step-num {
             -webkit-print-color-adjust: exact;

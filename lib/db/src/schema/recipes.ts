@@ -1,8 +1,7 @@
-import { pgTable, text, serial, integer, jsonb, date, unique, timestamp } from "drizzle-orm/pg-core";
+import { pgTable, text, serial, integer, jsonb, date, unique, timestamp, pgEnum } from "drizzle-orm/pg-core";
 import { usersTable } from "./users";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod/v4";
-import { usersTable } from "./users";
 
 export const recipesTable = pgTable("recipes", {
   id: serial("id").primaryKey(),
@@ -86,3 +85,17 @@ export const cookingLogTable = pgTable("cooking_log", {
 });
 
 export type CookingLog = typeof cookingLogTable.$inferSelect;
+
+export const recipeSuggestionStatusEnum = pgEnum("recipe_suggestion_status", ["pending", "saved", "ignored"]);
+
+export const recipeSuggestionsTable = pgTable("recipe_suggestions", {
+  id: serial("id").primaryKey(),
+  senderId: integer("sender_id").notNull().references(() => usersTable.id, { onDelete: "cascade" }),
+  recipientId: integer("recipient_id").notNull().references(() => usersTable.id, { onDelete: "cascade" }),
+  recipeId: integer("recipe_id").notNull().references(() => recipesTable.id, { onDelete: "cascade" }),
+  message: text("message"),
+  status: recipeSuggestionStatusEnum("status").notNull().default("pending"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+});
+
+export type RecipeSuggestion = typeof recipeSuggestionsTable.$inferSelect;

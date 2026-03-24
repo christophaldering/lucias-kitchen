@@ -1,6 +1,6 @@
 import { useState } from "react";
 import type { Recipe } from "@/types/recipe";
-import { X, Clock, ChefHat, CalendarPlus, Users, Flame, BookOpen, Check, Printer, UtensilsCrossed, Minus, Plus, Star, ChevronDown, Copy } from "lucide-react";
+import { X, Clock, ChefHat, CalendarPlus, Users, Flame, BookOpen, Check, Printer, UtensilsCrossed, Minus, Plus, Star, ChevronDown, Copy, Share2 } from "lucide-react";
 import { SEASON_ICONS, SEASON_LABELS } from "@/types/recipe";
 import type { Season } from "@/types/recipe";
 import { addMealPlanEntry } from "@/hooks/useMealPlans";
@@ -8,6 +8,7 @@ import RecipePrintView from "@/components/RecipePrintView";
 import CookingMode from "@/components/CookingMode";
 import RecipePhotoGallery from "@/components/RecipePhotoGallery";
 import CookingLogModal from "@/components/CookingLogModal";
+import RecipeSuggestModal from "@/components/RecipeSuggestModal";
 import { useCookingLog } from "@/hooks/useCookingLog";
 import { RecipeComments } from "@/components/RecipeComments";
 
@@ -165,6 +166,7 @@ export default function RecipeModal({ recipe, onClose, onAddToWeek, onToggleFavo
   const [showCookingLogModal, setShowCookingLogModal] = useState(false);
   const [showAllLogEntries, setShowAllLogEntries] = useState(false);
   const [localCookedCount, setLocalCookedCount] = useState(recipe.cookedCount ?? 0);
+  const [showSuggestModal, setShowSuggestModal] = useState(false);
 
   const { entries: logEntries, refetch: refetchLog } = useCookingLog(recipe.id, showAllLogEntries ? undefined : 3);
 
@@ -606,6 +608,15 @@ export default function RecipeModal({ recipe, onClose, onAddToWeek, onToggleFavo
               )}
 
               <button
+                onClick={() => setShowSuggestModal(true)}
+                className="flex items-center gap-2 px-4 py-2.5 bg-secondary text-foreground border border-border rounded-xl text-sm font-semibold hover:bg-secondary/80 transition-colors"
+                title="An Familienmitglied vorschlagen"
+              >
+                <Share2 className="w-4 h-4" />
+                Vorschlagen
+              </button>
+
+              <button
                 onClick={onClose}
                 className="px-4 py-2.5 border border-border rounded-xl text-sm font-medium hover:bg-secondary transition-colors"
               >
@@ -623,6 +634,18 @@ export default function RecipeModal({ recipe, onClose, onAddToWeek, onToggleFavo
         recipe={recipe}
         onClose={() => setShowCookingLogModal(false)}
         onSaved={handleCookingLogSaved}
+      />
+    )}
+
+    {showSuggestModal && (
+      <RecipeSuggestModal
+        recipeId={recipe.id}
+        recipeTitle={recipe.title}
+        onClose={() => setShowSuggestModal(false)}
+        onSent={() => {
+          setShowSuggestModal(false);
+          showToast("Vorschlag gesendet");
+        }}
       />
     )}
     </>

@@ -1,18 +1,21 @@
 import { useState } from "react";
 import type { Recipe } from "@/types/recipe";
-import { X, Clock, ChefHat, CalendarPlus, Users, Flame, BookOpen, Check, Printer, UtensilsCrossed, Minus, Plus, Star } from "lucide-react";
+import { X, Clock, ChefHat, CalendarPlus, Users, Flame, BookOpen, Check, Printer, UtensilsCrossed, Minus, Plus, Star, ChevronDown } from "lucide-react";
 import { SEASON_ICONS, SEASON_LABELS } from "@/types/recipe";
 import type { Season } from "@/types/recipe";
 import { addMealPlanEntry } from "@/hooks/useMealPlans";
 import RecipePrintView from "@/components/RecipePrintView";
 import CookingMode from "@/components/CookingMode";
 import RecipePhotoGallery from "@/components/RecipePhotoGallery";
+import CookingLogModal from "@/components/CookingLogModal";
+import { useCookingLog } from "@/hooks/useCookingLog";
 
 interface Props {
   recipe: Recipe;
   onClose: () => void;
   onAddToWeek?: (id: number) => void;
   onToggleFavorite?: (id: number, isFavorite: boolean) => void;
+  onRecipeUpdated?: (updatedRecipe: unknown) => void;
 }
 
 const CATEGORY_EMOJIS: Record<string, string> = {
@@ -140,7 +143,12 @@ function showToast(message: string, type: "success" | "error" = "success") {
   setTimeout(() => el.remove(), 3000);
 }
 
-export default function RecipeModal({ recipe, onClose, onAddToWeek, onToggleFavorite }: Props) {
+function formatDate(dateStr: string): string {
+  const [year, month, day] = dateStr.split("-");
+  return `${day}.${month}.${year}`;
+}
+
+export default function RecipeModal({ recipe, onClose, onAddToWeek, onToggleFavorite, onRecipeUpdated }: Props) {
   const emoji = CATEGORY_EMOJIS[recipe.category] ?? "🍽️";
   const today = toIsoDate(new Date());
 
@@ -150,6 +158,11 @@ export default function RecipeModal({ recipe, onClose, onAddToWeek, onToggleFavo
   const [cookingMode, setCookingMode] = useState(false);
   const [currentServings, setCurrentServings] = useState(recipe.servings ?? 4);
   const [favLoading, setFavLoading] = useState(false);
+  const [showCookingLogModal, setShowCookingLogModal] = useState(false);
+  const [showAllLogEntries, setShowAllLogEntries] = useState(false);
+  const [localCookedCount, setLocalCookedCount] = useState(recipe.cookedCount ?? 0);
+
+  const { entries: logEntries, refetch: refetchLog } = useCookingLog(recipe.id, showAllLogEntries ? undefined : 3);
 
   const originalServings = recipe.servings ?? null;
   const scaleFactor =
@@ -181,10 +194,6 @@ export default function RecipeModal({ recipe, onClose, onAddToWeek, onToggleFavo
     }
   };
 
-  if (cookingMode) {
-    return <CookingMode recipe={recipe} onClose={() => setCookingMode(false)} />;
-  }
-
   const handleToggleFavorite = async () => {
     if (!onToggleFavorite) return;
     setFavLoading(true);
@@ -195,6 +204,12 @@ export default function RecipeModal({ recipe, onClose, onAddToWeek, onToggleFavo
     } finally {
       setFavLoading(false);
     }
+  };
+
+  const handleCookingLogSaved = (updatedRecipe: unknown) => {
+    setLocalCookedCount((prev) => prev + 1);
+    refetchLog();
+    if (onRecipeUpdated) onRecipeUpdated(updatedRecipe);
   };
 
   if (cookingMode) {
@@ -296,8 +311,8 @@ export default function RecipeModal({ recipe, onClose, onAddToWeek, onToggleFavo
             {recipe.lastCooked && (
               <span>Zuletzt gekocht: {recipe.lastCooked}</span>
             )}
-            {recipe.cookedCount != null && recipe.cookedCount > 0 && (
-              <span>🍳 {recipe.cookedCount}× gekocht</span>
+            {localCookedCount > 0 && (
+              <span>🍳 {localCookedCount}× gekocht</span>
             )}
             {recipe.seasons && recipe.seasons.length > 0 && (
               <span className="flex items-center gap-1">
@@ -403,6 +418,46 @@ export default function RecipeModal({ recipe, onClose, onAddToWeek, onToggleFavo
             <RecipePhotoGallery recipeId={recipe.id} />
           </div>
 
+          {/* Cooking log entries for this recipe */}
+          {logEntries.length > 0 && (
+            <div>
+              <h3 className="font-serif font-semibold text-lg text-foreground mb-3">
+                📓 Meine Kocheinträge
+              </h3>
+              <div className="space-y-3">
+                {logEntries.map((entry) => (
+                  <div key={entry.id} className="bg-white rounded-xl border border-border p-3 flex gap-3">
+                    {entry.photoUrl && (
+                      <img
+                        src={entry.photoUrl}
+                        alt="Foto"
+                        className="w-16 h-16 rounded-lg object-cover flex-shrink-0"
+                      />
+                    )}
+                    <div className="flex-1 min-w-0">
+                      <p className="text-xs font-semibold text-[#4A7C59]">{formatDate(entry.date)}</p>
+                      {entry.comment && (
+                        <p className="text-sm text-foreground mt-0.5 leading-snug">{entry.comment}</p>
+                      )}
+                      {!entry.comment && (
+                        <p className="text-sm text-muted-foreground mt-0.5 italic">Kein Kommentar</p>
+                      )}
+                    </div>
+                  </div>
+                ))}
+              </div>
+              {!showAllLogEntries && logEntries.length >= 3 && (
+                <button
+                  onClick={() => setShowAllLogEntries(true)}
+                  className="flex items-center gap-1.5 text-sm text-[#4A7C59] font-medium mt-3 hover:underline"
+                >
+                  <ChevronDown className="w-4 h-4" />
+                  Alle anzeigen
+                </button>
+              )}
+            </div>
+          )}
+
           {/* Actions */}
           <div className="flex flex-col gap-3 pt-2">
             {/* Calendar date picker */}
@@ -444,13 +499,22 @@ export default function RecipeModal({ recipe, onClose, onAddToWeek, onToggleFavo
                   Kochen starten
                 </button>
               )}
+
+              <button
+                onClick={() => setShowCookingLogModal(true)}
+                className="flex items-center gap-2 px-4 py-2.5 bg-[#4A7C59] text-white rounded-xl text-sm font-semibold hover:bg-[#3d6849] transition-colors"
+              >
+                <UtensilsCrossed className="w-4 h-4" />
+                Heute gekocht
+              </button>
+
               {!showDatePicker && (
                 <button
                   onClick={() => setShowDatePicker(true)}
-                  className="flex items-center gap-2 px-4 py-2.5 bg-[#4A7C59] text-white rounded-xl text-sm font-semibold hover:bg-[#3d6849] transition-colors"
+                  className="flex items-center gap-2 px-4 py-2.5 bg-secondary text-foreground border border-border rounded-xl text-sm font-semibold hover:bg-secondary/80 transition-colors"
                 >
                   <CalendarPlus className="w-4 h-4" />
-                  Zum Kalender hinzufügen
+                  Zum Kalender
                 </button>
               )}
 
@@ -490,6 +554,14 @@ export default function RecipeModal({ recipe, onClose, onAddToWeek, onToggleFavo
       </div>
     </div>
     <RecipePrintView recipe={recipe} />
+
+    {showCookingLogModal && (
+      <CookingLogModal
+        recipe={recipe}
+        onClose={() => setShowCookingLogModal(false)}
+        onSaved={handleCookingLogSaved}
+      />
+    )}
     </>
   );
 }

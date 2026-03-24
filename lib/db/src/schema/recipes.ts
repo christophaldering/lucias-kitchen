@@ -1,4 +1,5 @@
 import { pgTable, text, serial, integer, jsonb, date, unique, timestamp } from "drizzle-orm/pg-core";
+import { usersTable } from "./users";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod/v4";
 import { usersTable } from "./users";
@@ -71,3 +72,15 @@ export type RecipeIngredient = typeof recipeIngredientsTable.$inferSelect;
 
 export type MealPlan = typeof mealPlansTable.$inferSelect;
 export type RecipeFavorite = typeof recipeFavoritesTable.$inferSelect;
+
+export const cookingLogTable = pgTable("cooking_log", {
+  id: serial("id").primaryKey(),
+  userId: integer("user_id").notNull().references(() => usersTable.id, { onDelete: "cascade" }),
+  recipeId: integer("recipe_id").notNull().references(() => recipesTable.id, { onDelete: "cascade" }),
+  date: date("date").notNull(),
+  comment: text("comment"),
+  photoUrl: text("photo_url"),
+  createdAt: timestamp("created_at").defaultNow(),
+});
+
+export type CookingLog = typeof cookingLogTable.$inferSelect;

@@ -1,10 +1,16 @@
 import { useRecipes } from "@/hooks/useRecipes";
 import { useKcalHistory } from "@/hooks/useNutritionSummary";
+import { useCookingLog } from "@/hooks/useCookingLog";
 import {
   PieChart, Pie, Cell, BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer,
 } from "recharts";
 import { Loader2, Flame } from "lucide-react";
 import type { Recipe } from "@/types/recipe";
+
+function formatDate(dateStr: string): string {
+  const [year, month, day] = dateStr.split("-");
+  return `${day}.${month}.${year}`;
+}
 
 const COLORS = ["#4A7C59", "#C1693A", "#7BA05B", "#D4956A", "#5B8E7D", "#E8A96B"];
 
@@ -78,6 +84,7 @@ const insights = [
 export default function Statistiken() {
   const { recipes, loading, error } = useRecipes();
   const { history: kcalHistory, loading: kcalLoading } = useKcalHistory(4);
+  const { entries: logEntries, loading: logLoading } = useCookingLog();
 
   if (loading) {
     return (
@@ -279,6 +286,57 @@ export default function Statistiken() {
               Basierend auf geplanten Rezepten mit Kcal-Angabe im Wochenplan.
             </p>
           </>
+        )}
+      </div>
+
+      {/* Koch-Tagebuch */}
+      <div className="bg-white rounded-2xl border border-border shadow-sm p-6">
+        <h3 className="font-serif font-semibold text-lg mb-4 text-foreground">
+          📓 Mein Koch-Tagebuch
+        </h3>
+        {logLoading ? (
+          <div className="flex items-center gap-2 text-muted-foreground py-4">
+            <Loader2 className="w-5 h-5 animate-spin text-[#4A7C59]" />
+            <span className="text-sm">Einträge werden geladen…</span>
+          </div>
+        ) : logEntries.length === 0 ? (
+          <div className="text-center py-8">
+            <p className="text-4xl mb-3">🍳</p>
+            <p className="font-serif text-base text-foreground font-medium">Noch keine Kocheinträge</p>
+            <p className="text-sm text-muted-foreground mt-1">
+              Klicke im Rezept-Modal auf „Heute gekocht", um deinen ersten Eintrag zu erstellen.
+            </p>
+          </div>
+        ) : (
+          <div className="space-y-4">
+            {logEntries.map((entry) => (
+              <div key={entry.id} className="flex gap-4 p-3 rounded-xl bg-[#4A7C59]/5 border border-[#4A7C59]/10">
+                {entry.photoUrl && (
+                  <img
+                    src={entry.photoUrl}
+                    alt="Foto"
+                    className="w-20 h-20 rounded-lg object-cover flex-shrink-0"
+                  />
+                )}
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <span className="text-xs font-semibold text-[#4A7C59] bg-[#4A7C59]/10 px-2 py-0.5 rounded-full">
+                      {formatDate(entry.date)}
+                    </span>
+                    <span className="text-sm font-semibold text-foreground truncate">
+                      {entry.recipeTitle ?? "Unbekanntes Rezept"}
+                    </span>
+                  </div>
+                  {entry.comment && (
+                    <p className="text-sm text-foreground mt-1.5 leading-snug">{entry.comment}</p>
+                  )}
+                  {!entry.comment && (
+                    <p className="text-sm text-muted-foreground mt-1.5 italic">Kein Kommentar</p>
+                  )}
+                </div>
+              </div>
+            ))}
+          </div>
         )}
       </div>
 

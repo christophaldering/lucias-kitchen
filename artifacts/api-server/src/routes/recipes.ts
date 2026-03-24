@@ -1,7 +1,7 @@
 import { Router, type IRouter } from "express";
 import { db } from "@workspace/db";
 import { recipesTable, recipeIngredientsTable } from "@workspace/db/schema";
-import { eq } from "drizzle-orm";
+import { eq, sql } from "drizzle-orm";
 import { z } from "zod/v4";
 import { seedRecipes } from "../db/seedRecipes";
 
@@ -264,6 +264,147 @@ router.delete("/recipes", async (req, res) => {
   } catch (err) {
     req.log.error({ err }, "Failed to delete all recipes");
     res.status(500).json({ error: "internal_error", message: "Failed to delete all recipes" });
+  }
+});
+
+router.get("/ingredients", async (req, res) => {
+  try {
+    const rows = await db
+      .selectDistinct({ name: recipeIngredientsTable.name, nameLower: sql<string>`lower(${recipeIngredientsTable.name})` })
+      .from(recipeIngredientsTable)
+      .orderBy(sql`lower(${recipeIngredientsTable.name})`);
+    const seenLower = new Set<string>();
+    const ingredients = rows
+      .map((r) => r.name.trim())
+      .filter((name) => {
+        if (name.length === 0 || /^[,;.]+$/.test(name)) return false;
+        const lower = name.toLowerCase();
+        if (seenLower.has(lower)) return false;
+        seenLower.add(lower);
+        return true;
+      });
+    res.json({ ingredients });
+  } catch (err) {
+    req.log.error({ err }, "Failed to fetch ingredients");
+    res.status(500).json({ error: "internal_error", message: "Failed to fetch ingredients" });
+  }
+});
+
+function parseTotalMinutes(totalTime: string | null): number {
+  if (!totalTime) return Infinity;
+  const match = totalTime.match(/(\d+)/g);
+  if (!match) return Infinity;
+  const nums = match.map(Number);
+  if (nums.length === 1) return nums[0];
+  return nums[0] * 60 + (nums[1] ?? 0);
+}
+
+const suggestBodySchema = z.object({
+  ingredients: z.array(z.string()).default([]),
+  moods: z.array(z.string()).default([]),
+  exclusions: z.array(z.string()).default([]),
+});
+
+router.post("/recipes/suggest", async (req, res) => {
+  try {
+    const { ingredients, moods, exclusions } = suggestBodySchema.parse(req.body);
+    const allRecipes = await getRecipesWithIngredients();
+
+    const QUICK_MAX_MINUTES = 30;
+    const MEDIUM_MAX_MINUTES = 60;
+
+    const MOOD_CATEGORIES: Record<string, string> = {
+      pasta: "Pasta",
+      fisch: "Fisch",
+      vegetarisch: "Vegetarisch",
+      geflügel: "Geflügel",
+      fleisch: "Fleisch",
+    };
+
+    const normalizeIngredient = (name: string) => name.toLowerCase().trim();
+    const userIngredients = ingredients.map(normalizeIngredient);
+    const userMoods = moods.map((m) => m.toLowerCase().trim());
+    const userExclusions = exclusions.map((e) => e.toLowerCase().trim());
+
+    const scoredRecipes = allRecipes
+      .map((recipe) => {
+        const recipeIngredients = recipe.ingredients.map((i) => normalizeIngredient(i.name));
+        const category = recipe.category.toLowerCase();
+        const totalMins = parseTotalMinutes(recipe.totalTime ?? null);
+
+        let score = 0;
+        let ingredientMatches = 0;
+
+        for (const userIng of userIngredients) {
+          for (const recipeIng of recipeIngredients) {
+            if (recipeIng.includes(userIng) || userIng.includes(recipeIng)) {
+              ingredientMatches++;
+              break;
+            }
+          }
+        }
+        score += ingredientMatches * 10;
+
+        let moodMatch = false;
+        for (const mood of userMoods) {
+          if (mood === "schnell" && totalMins <= QUICK_MAX_MINUTES) {
+            score += 5;
+            moodMatch = true;
+          } else if (mood === "mittel" && totalMins <= MEDIUM_MAX_MINUTES) {
+            score += 3;
+            moodMatch = true;
+          } else if (mood === "aufwändig" && totalMins > MEDIUM_MAX_MINUTES) {
+            score += 3;
+            moodMatch = true;
+          } else if (MOOD_CATEGORIES[mood] && MOOD_CATEGORIES[mood].toLowerCase() === category) {
+            score += 5;
+            moodMatch = true;
+          }
+        }
+
+        for (const exclusion of userExclusions) {
+          if (MOOD_CATEGORIES[exclusion] && MOOD_CATEGORIES[exclusion].toLowerCase() === category) {
+            return null;
+          }
+          if (exclusion === "schnell" && totalMins <= QUICK_MAX_MINUTES) return null;
+          if (exclusion === "mittel" && totalMins > QUICK_MAX_MINUTES && totalMins <= MEDIUM_MAX_MINUTES) return null;
+          if (exclusion === "aufwändig" && totalMins > MEDIUM_MAX_MINUTES) return null;
+        }
+
+        const hasOnlyExclusions = ingredients.length === 0 && moods.length === 0 && exclusions.length > 0;
+        if (hasOnlyExclusions) {
+          return { recipe, score: 1, ingredientMatches: 0 };
+        }
+
+        if (ingredients.length === 0 && moods.length === 0) return null;
+        if (score === 0) {
+          if (moods.length > 0 && moodMatch) {
+            // keep with 0 ingredient matches but mood match counted already
+          } else if (ingredients.length > 0) {
+            return null;
+          }
+        }
+
+        return { recipe, score, ingredientMatches };
+      })
+      .filter(Boolean) as { recipe: (typeof allRecipes)[number]; score: number; ingredientMatches: number }[];
+
+    scoredRecipes.sort((a, b) => b.score - a.score);
+
+    const results = scoredRecipes.slice(0, 20).map(({ recipe, score, ingredientMatches }) => ({
+      ...recipe,
+      matchScore: score,
+      ingredientMatches,
+    }));
+
+    res.json({ recipes: results });
+  } catch (err) {
+    if (err instanceof z.ZodError) {
+      res.status(400).json({ error: "validation_error", issues: err.issues });
+      return;
+    }
+    req.log.error({ err }, "Failed to suggest recipes");
+    res.status(500).json({ error: "internal_error", message: "Failed to suggest recipes" });
   }
 });
 

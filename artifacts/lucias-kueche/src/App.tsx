@@ -1,6 +1,6 @@
 import { useState, useRef, useEffect } from "react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { Utensils, CalendarDays, BarChart3, Settings, UserCircle, LogOut, ChevronDown, User, BookOpen } from "lucide-react";
+import { Utensils, CalendarDays, BarChart3, Settings, UserCircle, LogOut, ChevronDown, User, BookOpen, Lightbulb } from "lucide-react";
 import MeineRezepte from "@/pages/MeineRezepte";
 import Wochenplan from "@/pages/Wochenplan";
 import Statistiken from "@/pages/Statistiken";
@@ -8,14 +8,16 @@ import Admin from "@/pages/Admin";
 import Profil from "@/pages/Profil";
 import Login from "@/pages/Login";
 import Onboarding from "@/pages/Onboarding";
+import WasKocheIch from "@/pages/WasKocheIch";
 import { AuthProvider, useAuth } from "@/contexts/AuthContext";
 
 const queryClient = new QueryClient();
 
-type Tab = "rezepte" | "wochenplan" | "statistiken" | "admin" | "profil";
+type Tab = "rezepte" | "wochenplan" | "statistiken" | "admin" | "profil" | "was-koche-ich";
 
 const NAV_TABS: { id: Tab; label: string; icon: React.ReactNode }[] = [
   { id: "rezepte", label: "Rezepte", icon: <BookOpen className="w-5 h-5" /> },
+  { id: "was-koche-ich", label: "Kochidee", icon: <Lightbulb className="w-5 h-5" /> },
   { id: "wochenplan", label: "Wochenplan", icon: <CalendarDays className="w-5 h-5" /> },
   { id: "statistiken", label: "Statistiken", icon: <BarChart3 className="w-5 h-5" /> },
 ];
@@ -208,6 +210,7 @@ function AppShell() {
       {/* Main content with bottom padding for nav */}
       <main className="min-h-screen pb-24" style={{ minHeight: "calc(100vh - 56px)" }}>
         {activeTab === "rezepte" && <MeineRezepte onNavigate={(tab) => setActiveTab(tab as Tab)} />}
+        {activeTab === "was-koche-ich" && <WasKocheIch />}
         {activeTab === "wochenplan" && <Wochenplan />}
         {activeTab === "statistiken" && <Statistiken />}
         {activeTab === "admin" && <Admin />}

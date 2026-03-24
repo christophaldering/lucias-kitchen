@@ -224,7 +224,7 @@ function RecipeTableRow({
   );
 }
 
-type PageMode = "galerie" | "verwalten";
+type ViewMode = "galerie" | "tabelle" | "verwalten";
 
 interface MeineRezepteProps {
   onNavigate?: (tab: string) => void;
@@ -233,19 +233,34 @@ interface MeineRezepteProps {
 export default function MeineRezepte({ onNavigate: _onNavigate }: MeineRezepteProps) {
   const { recipes, loading, error, addRecipes, refetch, patchRecipeSilent, deleteRecipeSilent, updateRecipe } = useRecipes();
 
-  const defaultView = useLocalStorage<"kacheln" | "tabelle">("lk_defaultView", "kacheln");
+  const defaultViewRaw = useLocalStorage<string>("lk_viewMode", "");
+  const defaultView = ((): ViewMode => {
+    if (["galerie", "tabelle", "verwalten"].includes(defaultViewRaw)) return defaultViewRaw as ViewMode;
+    try {
+      const legacy = localStorage.getItem("lk_defaultView");
+      const legacyParsed = legacy !== null ? JSON.parse(legacy) : null;
+      if (legacyParsed === "kacheln") return "galerie";
+      if (legacyParsed === "tabelle") return "tabelle";
+    } catch {}
+    return "galerie";
+  })();
   const savedSortOrder = useLocalStorage<string>("lk_sortOrder", "alphabetisch");
   const showNotes = useLocalStorage<boolean>("lk_showNotes", true);
   const showCookCount = useLocalStorage<boolean>("lk_showCookCount", true);
 
-  const [pageMode, setPageMode] = useState<PageMode>("galerie");
+  const [viewMode, setViewModeState] = useState<ViewMode>(defaultView);
+
+  const setViewMode = (mode: ViewMode) => {
+    setViewModeState(mode);
+    try { localStorage.setItem("lk_viewMode", JSON.stringify(mode)); } catch {}
+  };
+
   const [search, setSearch] = useState("");
   const [searchResults, setSearchResults] = useState<Recipe[] | null>(null);
   const [searchLoading, setSearchLoading] = useState(false);
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [activeCategory, setActiveCategory] = useState("Alle");
   const [timeFilter, setTimeFilter] = useState("Alle");
-  const [viewMode, setViewMode] = useState<"kacheln" | "tabelle">(defaultView);
   const [selected, setSelected] = useState<Recipe | null>(null);
   const [showPdfModal, setShowPdfModal] = useState(false);
   const [showUrlModal, setShowUrlModal] = useState(false);
@@ -422,15 +437,22 @@ export default function MeineRezepte({ onNavigate: _onNavigate }: MeineRezeptePr
       <div className="mb-5 flex items-center gap-2">
         <div className="flex gap-1 bg-white border border-border rounded-xl p-1">
           <button
-            onClick={() => setPageMode("galerie")}
-            className={`flex items-center gap-1.5 px-3 py-2 rounded-lg text-sm font-medium transition-colors min-h-[40px] ${pageMode === "galerie" ? "bg-[#3d6849] text-white" : "text-muted-foreground hover:text-foreground"}`}
+            onClick={() => setViewMode("galerie")}
+            className={`flex items-center gap-1.5 px-3 py-2 rounded-lg text-sm font-medium transition-colors min-h-[40px] ${viewMode === "galerie" ? "bg-[#3d6849] text-white" : "text-muted-foreground hover:text-foreground"}`}
           >
             <LayoutGrid className="w-4 h-4" />
             Galerie
           </button>
           <button
-            onClick={() => setPageMode("verwalten")}
-            className={`flex items-center gap-1.5 px-3 py-2 rounded-lg text-sm font-medium transition-colors min-h-[40px] ${pageMode === "verwalten" ? "bg-[#3d6849] text-white" : "text-muted-foreground hover:text-foreground"}`}
+            onClick={() => setViewMode("tabelle")}
+            className={`flex items-center gap-1.5 px-3 py-2 rounded-lg text-sm font-medium transition-colors min-h-[40px] ${viewMode === "tabelle" ? "bg-[#3d6849] text-white" : "text-muted-foreground hover:text-foreground"}`}
+          >
+            <Table className="w-4 h-4" />
+            Tabelle
+          </button>
+          <button
+            onClick={() => setViewMode("verwalten")}
+            className={`flex items-center gap-1.5 px-3 py-2 rounded-lg text-sm font-medium transition-colors min-h-[40px] ${viewMode === "verwalten" ? "bg-[#3d6849] text-white" : "text-muted-foreground hover:text-foreground"}`}
           >
             <Settings2 className="w-4 h-4" />
             Verwalten
@@ -438,7 +460,7 @@ export default function MeineRezepte({ onNavigate: _onNavigate }: MeineRezeptePr
         </div>
       </div>
 
-      {pageMode === "verwalten" ? (
+      {viewMode === "verwalten" ? (
         <>
           {loading && (
             <div className="flex flex-col items-center py-20 gap-3 text-muted-foreground">
@@ -471,7 +493,7 @@ export default function MeineRezepte({ onNavigate: _onNavigate }: MeineRezeptePr
       ) : (
         <>
           <div className="mb-6 space-y-3">
-            {/* Search + view toggle row */}
+            {/* Search row */}
             <div className="flex items-center gap-3 flex-wrap">
               <div className="relative flex-1 min-w-[180px]">
                 <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
@@ -483,22 +505,6 @@ export default function MeineRezepte({ onNavigate: _onNavigate }: MeineRezeptePr
                   className="w-full pl-10 pr-4 py-3 rounded-xl border border-border bg-white text-sm focus:outline-none focus:ring-2 focus:ring-[#4A7C59]/30 min-h-[48px]"
                 />
               </div>
-
-              <div className="flex gap-1 bg-white border border-border rounded-xl p-1">
-                <button
-                  onClick={() => setViewMode("kacheln")}
-                  className={`p-2 rounded-lg transition-colors min-h-[40px] min-w-[40px] ${viewMode === "kacheln" ? "bg-[#3d6849] text-white" : "text-muted-foreground hover:text-foreground"}`}
-                  title="Kachelansicht">
-                  <LayoutGrid className="w-4 h-4" />
-                </button>
-                <button
-                  onClick={() => setViewMode("tabelle")}
-                  className={`p-2 rounded-lg transition-colors min-h-[40px] min-w-[40px] ${viewMode === "tabelle" ? "bg-[#3d6849] text-white" : "text-muted-foreground hover:text-foreground"}`}
-                  title="Tabellenansicht">
-                  <Table className="w-4 h-4" />
-                </button>
-              </div>
-
             </div>
 
             {/* Combined filter chips — single scrollable row */}
@@ -576,7 +582,7 @@ export default function MeineRezepte({ onNavigate: _onNavigate }: MeineRezeptePr
                   <p className="text-4xl mb-4">🔍</p>
                   <p className="font-serif text-lg">Kein Rezept gefunden.</p>
                 </div>
-              ) : viewMode === "kacheln" ? (
+              ) : viewMode === "galerie" ? (
                 <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-5">
                   {filtered.map((recipe) => (
                     <RecipeCard

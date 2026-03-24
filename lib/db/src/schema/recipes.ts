@@ -1,4 +1,4 @@
-import { pgTable, text, serial, integer, jsonb, date, unique, timestamp, pgEnum } from "drizzle-orm/pg-core";
+import { pgTable, text, serial, integer, jsonb, date, unique, timestamp, pgEnum, boolean } from "drizzle-orm/pg-core";
 import { usersTable } from "./users";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod/v4";
@@ -100,3 +100,45 @@ export const recipeSuggestionsTable = pgTable("recipe_suggestions", {
 });
 
 export type RecipeSuggestion = typeof recipeSuggestionsTable.$inferSelect;
+
+export const bulkImportSessionStatusEnum = pgEnum("bulk_import_session_status", ["pending", "processing", "done", "failed"]);
+export const bulkImportItemStatusEnum = pgEnum("bulk_import_item_status", ["pending", "done", "uncertain", "handwriting", "failed"]);
+
+export const bulkImportSessionsTable = pgTable("bulk_import_sessions", {
+  id: serial("id").primaryKey(),
+  status: bulkImportSessionStatusEnum("status").notNull().default("pending"),
+  totalFiles: integer("total_files").notNull().default(0),
+  processedFiles: integer("processed_files").notNull().default(0),
+  currentFile: text("current_file"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+});
+
+export const bulkImportFilesTable = pgTable("bulk_import_files", {
+  id: serial("id").primaryKey(),
+  sessionId: integer("session_id").notNull().references(() => bulkImportSessionsTable.id, { onDelete: "cascade" }),
+  fileName: text("file_name").notNull(),
+  pageImageUrls: jsonb("page_image_urls").notNull().default([]),
+  status: bulkImportSessionStatusEnum("status").notNull().default("pending"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+});
+
+export const bulkImportItemsTable = pgTable("bulk_import_items", {
+  id: serial("id").primaryKey(),
+  sessionId: integer("session_id").notNull().references(() => bulkImportSessionsTable.id, { onDelete: "cascade" }),
+  fileId: integer("file_id").notNull().references(() => bulkImportFilesTable.id, { onDelete: "cascade" }),
+  fileName: text("file_name").notNull(),
+  status: bulkImportItemStatusEnum("status").notNull().default("pending"),
+  recipeData: jsonb("recipe_data"),
+  pageNumbers: jsonb("page_numbers").notNull().default([]),
+  pageImageUrls: jsonb("page_image_urls").notNull().default([]),
+  hasHandwriting: boolean("has_handwriting").notNull().default(false),
+  errorText: text("error_text"),
+  rejected: boolean("rejected").notNull().default(false),
+  savedRecipeId: integer("saved_recipe_id"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+});
+
+export type BulkImportSession = typeof bulkImportSessionsTable.$inferSelect;
+export type BulkImportFile = typeof bulkImportFilesTable.$inferSelect;
+export type BulkImportItem = typeof bulkImportItemsTable.$inferSelect;

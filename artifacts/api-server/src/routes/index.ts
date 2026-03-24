@@ -17,6 +17,8 @@ import commentsRouter from "./comments";
 import notificationsRouter from "./notifications";
 import recipeSuggestionsRouter from "./recipeSuggestions";
 import mealInvitationsRouter from "./mealInvitations";
+import bulkImportRouter from "./bulkImport";
+import storageRouter from "./storage";
 
 const router: IRouter = Router();
 
@@ -38,5 +40,7 @@ router.use(commentsRouter);
 router.use(notificationsRouter);
 router.use(recipeSuggestionsRouter);
 router.use(mealInvitationsRouter);
+router.use(bulkImportRouter);
+router.use(storageRouter);
 
 export default router;

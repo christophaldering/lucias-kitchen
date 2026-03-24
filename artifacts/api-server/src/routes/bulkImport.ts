@@ -658,6 +658,227 @@ router.get("/bulk-import/history", authMiddleware, async (req, res) => {
   }
 });
 
+const CHUNK_TTL_MS = 10 * 60 * 1000;
+
+const chunkBuffer = new Map<
+  string,
+  { chunks: (Buffer | null)[]; totalChunks: number; fileName: string; expiresAt: number }
+>();
+
+function evictExpiredChunks() {
+  const now = Date.now();
+  for (const [key, entry] of chunkBuffer) {
+    if (entry.expiresAt < now) {
+      chunkBuffer.delete(key);
+    }
+  }
+}
+
+setInterval(evictExpiredChunks, 60_000);
+
+router.post(
+  "/bulk-import/upload-chunk",
+  authMiddleware,
+  async (req, res) => {
+    try {
+      const { fileName, chunkIndex, totalChunks, data, sessionId, uploadId } = req.body as {
+        fileName: string;
+        chunkIndex: number;
+        totalChunks: number;
+        data: string;
+        sessionId?: number;
+        uploadId: string;
+      };
+
+      if (!fileName || !uploadId || chunkIndex == null || totalChunks == null || !data) {
+        res.status(400).json({ error: "bad_request", message: "Fehlende Parameter" });
+        return;
+      }
+
+      const userId = req.authUser!.id;
+      const key = `${userId}:${uploadId}`;
+
+      if (!chunkBuffer.has(key)) {
+        chunkBuffer.set(key, {
+          chunks: new Array(totalChunks).fill(null),
+          totalChunks,
+          fileName,
+          expiresAt: Date.now() + CHUNK_TTL_MS,
+        });
+      }
+
+      const entry = chunkBuffer.get(key)!;
+      entry.expiresAt = Date.now() + CHUNK_TTL_MS;
+      entry.chunks[chunkIndex] = Buffer.from(data, "base64");
+
+      const received = entry.chunks.filter((c) => c !== null).length;
+      const isComplete = received === totalChunks;
+
+      if (!isComplete) {
+        res.json({ received, totalChunks, complete: false });
+        return;
+      }
+
+      const fullBuffer = Buffer.concat(entry.chunks as Buffer[]);
+      chunkBuffer.delete(key);
+
+      const isFirstFile = sessionId == null;
+
+      if (isFirstFile) {
+        const [session] = await db
+          .insert(bulkImportSessionsTable)
+          .values({
+            userId,
+            status: "pending",
+            totalFiles: 1,
+            processedFiles: 0,
+          })
+          .returning();
+
+        await db
+          .update(usersTable)
+          .set({ activeBulkImportSessionId: session.id })
+          .where(eq(usersTable.id, userId));
+
+        let pdfStoragePath: string | null = null;
+        try {
+          pdfStoragePath = await storageService.uploadBuffer(fullBuffer, "application/pdf", "bulk-import/pdfs");
+        } catch (uploadErr) {
+          console.error("Failed to persist PDF to storage:", uploadErr);
+        }
+
+        const [fileRecord] = await db
+          .insert(bulkImportFilesTable)
+          .values({
+            sessionId: session.id,
+            fileName,
+            status: "pending",
+            pageImageUrls: [] as unknown as string[],
+            pdfStoragePath,
+          })
+          .returning();
+
+        const fileBase64 = fullBuffer.toString("base64");
+
+        setImmediate(() => {
+          runQueue(session.id, [{ id: fileRecord.id, name: fileName, buffer: fullBuffer, base64: fileBase64 }], userId).catch(console.error);
+        });
+
+        res.json({ complete: true, sessionId: session.id });
+      } else {
+        const [session] = await db
+          .select()
+          .from(bulkImportSessionsTable)
+          .where(eq(bulkImportSessionsTable.id, sessionId));
+
+        if (!session) {
+          res.status(404).json({ error: "not_found", message: "Session nicht gefunden" });
+          return;
+        }
+
+        if (session.userId !== userId) {
+          res.status(403).json({ error: "forbidden", message: "Zugriff verweigert" });
+          return;
+        }
+
+        let pdfStoragePath: string | null = null;
+        try {
+          pdfStoragePath = await storageService.uploadBuffer(fullBuffer, "application/pdf", "bulk-import/pdfs");
+        } catch (uploadErr) {
+          console.error("Failed to persist PDF to storage:", uploadErr);
+        }
+
+        const [fileRecord] = await db
+          .insert(bulkImportFilesTable)
+          .values({
+            sessionId,
+            fileName,
+            status: "pending",
+            pageImageUrls: [] as unknown as string[],
+            pdfStoragePath,
+          })
+          .returning();
+
+        await db
+          .update(bulkImportSessionsTable)
+          .set({
+            totalFiles: sql`${bulkImportSessionsTable.totalFiles} + 1`,
+            status: "processing",
+            updatedAt: new Date(),
+          })
+          .where(eq(bulkImportSessionsTable.id, sessionId));
+
+        res.json({ complete: true, sessionId, fileId: fileRecord.id });
+
+        const fileBase64 = fullBuffer.toString("base64");
+
+        setImmediate(async () => {
+          try {
+            await processPdfFile(fileRecord.id, sessionId, fileName, fullBuffer, fileBase64);
+
+            const [updated] = await db
+              .update(bulkImportSessionsTable)
+              .set({
+                processedFiles: sql`${bulkImportSessionsTable.processedFiles} + 1`,
+                updatedAt: new Date(),
+              })
+              .where(eq(bulkImportSessionsTable.id, sessionId))
+              .returning();
+
+            if ((updated?.processedFiles ?? 0) >= (updated?.totalFiles ?? 1)) {
+              await db
+                .update(bulkImportSessionsTable)
+                .set({ status: "done", currentFile: null, updatedAt: new Date() })
+                .where(eq(bulkImportSessionsTable.id, sessionId));
+
+              await db
+                .update(usersTable)
+                .set({ activeBulkImportSessionId: null })
+                .where(eq(usersTable.id, userId));
+
+              const allItems = await db
+                .select()
+                .from(bulkImportItemsTable)
+                .where(eq(bulkImportItemsTable.sessionId, sessionId));
+
+              const [finalSession] = await db
+                .select()
+                .from(bulkImportSessionsTable)
+                .where(eq(bulkImportSessionsTable.id, sessionId));
+
+              const totalRecipes = allItems.filter((i) => i.status !== "failed").length;
+              const totalFilesCount = finalSession?.totalFiles ?? 1;
+
+              await db.insert(notificationsTable).values({
+                userId,
+                type: "bulk_import_done",
+                payload: {
+                  sessionId,
+                  totalRecipes,
+                  totalFiles: totalFilesCount,
+                  message: `Import abgeschlossen: ${totalRecipes} Rezepte aus ${totalFilesCount} Datei${totalFilesCount !== 1 ? "en" : ""} extrahiert`,
+                },
+              });
+            }
+          } catch (procErr) {
+            console.error("upload-chunk add-file processing failed:", procErr);
+            await db
+              .update(bulkImportSessionsTable)
+              .set({
+                processedFiles: sql`${bulkImportSessionsTable.processedFiles} + 1`,
+                updatedAt: new Date(),
+              })
+              .where(eq(bulkImportSessionsTable.id, sessionId));
+          }
+        });
+      }
+    } catch (err) {
+      req.log.error({ err }, "Failed to handle chunk upload");
+      res.status(500).json({ error: "internal_error", message: "Chunk-Upload fehlgeschlagen" });
+    }
+  }
+);
+
 router.post(
   "/bulk-import/start",
   authMiddleware,

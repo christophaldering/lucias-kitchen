@@ -725,7 +725,7 @@ function ImportHistory() {
 export default function BulkImportTab() {
   const [files, setFiles] = useState<File[]>([]);
   const [uploading, setUploading] = useState(false);
-  const [uploadProgress, setUploadProgress] = useState<{ current: number; total: number } | null>(null);
+  const [uploadProgress, setUploadProgress] = useState<{ current: number; total: number; label?: string } | null>(null);
   const [sessionId, setSessionId] = useState<number | null>(() => {
     try {
       const stored = localStorage.getItem("lk_bulk_import_session");
@@ -785,51 +785,84 @@ export default function BulkImportTab() {
     return `${(bytes / 1024).toFixed(0)} KB`;
   };
 
+  const CHUNK_SIZE = 4 * 1024 * 1024;
+
+  const uploadFileInChunks = async (
+    file: File,
+    sessionId: number | null,
+    onProgress: (chunk: number, total: number) => void
+  ): Promise<{ sessionId: number }> => {
+    const arrayBuffer = await file.arrayBuffer();
+    const bytes = new Uint8Array(arrayBuffer);
+    const totalChunks = Math.ceil(bytes.byteLength / CHUNK_SIZE) || 1;
+    const uploadId = `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+
+    let currentSessionId = sessionId;
+
+    for (let i = 0; i < totalChunks; i++) {
+      onProgress(i + 1, totalChunks);
+      const slice = bytes.slice(i * CHUNK_SIZE, (i + 1) * CHUNK_SIZE);
+      let binary = "";
+      for (let j = 0; j < slice.length; j++) binary += String.fromCharCode(slice[j]);
+      const base64 = btoa(binary);
+
+      const body: Record<string, unknown> = {
+        fileName: file.name,
+        uploadId,
+        chunkIndex: i,
+        totalChunks,
+        data: base64,
+      };
+      if (currentSessionId != null) body.sessionId = currentSessionId;
+
+      const res = await fetch(`${API_BASE}/bulk-import/upload-chunk`, {
+        method: "POST",
+        headers: { ...authHeaders(), "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      });
+
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        throw new Error(`Datei "${file.name}": ${(err as { message?: string }).message ?? `HTTP ${res.status}`}`);
+      }
+
+      const result = await res.json() as { complete: boolean; sessionId?: number };
+      if (result.complete && result.sessionId != null) {
+        currentSessionId = result.sessionId;
+      }
+    }
+
+    return { sessionId: currentSessionId! };
+  };
+
   const handleStart = async () => {
     if (files.length === 0) return;
     setUploading(true);
     setError(null);
-    setUploadProgress({ current: 0, total: files.length });
+
+    const totalChunksAll = files.reduce((sum, f) => sum + (Math.ceil(f.size / CHUNK_SIZE) || 1), 0);
+    let chunksUploaded = 0;
+
+    setUploadProgress({ current: 0, total: totalChunksAll, label: files[0].name });
 
     try {
-      // Upload first file to create the session
-      const firstForm = new FormData();
-      firstForm.append("pdfs", files[0]);
+      let currentSessionId: number | null = null;
 
-      setUploadProgress({ current: 1, total: files.length });
-      const firstRes = await fetch(`${API_BASE}/bulk-import/start`, {
-        method: "POST",
-        headers: authHeaders(),
-        body: firstForm,
-      });
-
-      if (!firstRes.ok) {
-        const err = await firstRes.json().catch(() => ({}));
-        throw new Error((err as { message?: string }).message ?? `HTTP ${firstRes.status}`);
-      }
-
-      const { sessionId: newSessionId } = await firstRes.json() as { sessionId: number };
-      localStorage.setItem("lk_bulk_import_session", String(newSessionId));
-
-      // Upload remaining files one at a time to avoid proxy size limits
-      for (let i = 1; i < files.length; i++) {
-        setUploadProgress({ current: i + 1, total: files.length });
-        const form = new FormData();
-        form.append("pdf", files[i]);
-
-        const res = await fetch(`${API_BASE}/bulk-import/${newSessionId}/add-file`, {
-          method: "POST",
-          headers: authHeaders(),
-          body: form,
+      for (let i = 0; i < files.length; i++) {
+        const file = files[i];
+        const result = await uploadFileInChunks(file, currentSessionId, (chunk, total) => {
+          setUploadProgress({
+            current: chunksUploaded + chunk,
+            total: totalChunksAll,
+            label: file.name,
+          });
+          if (chunk === total) chunksUploaded += total;
         });
-
-        if (!res.ok) {
-          const err = await res.json().catch(() => ({}));
-          throw new Error(`Datei "${files[i].name}": ${(err as { message?: string }).message ?? `HTTP ${res.status}`}`);
-        }
+        currentSessionId = result.sessionId;
       }
 
-      setSessionId(newSessionId);
+      localStorage.setItem("lk_bulk_import_session", String(currentSessionId));
+      setSessionId(currentSessionId);
       setFiles([]);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Upload fehlgeschlagen");
@@ -922,7 +955,9 @@ export default function BulkImportTab() {
           {uploadProgress && (
             <div className="w-full">
               <div className="flex justify-between text-xs text-muted-foreground mb-1">
-                <span>Datei {uploadProgress.current} von {uploadProgress.total} wird hochgeladen…</span>
+                <span className="truncate max-w-[70%]">
+                  {uploadProgress.label ? `„${uploadProgress.label}"` : "Dateien"} wird hochgeladen…
+                </span>
                 <span>{Math.round((uploadProgress.current / uploadProgress.total) * 100)} %</span>
               </div>
               <div className="h-1.5 w-full bg-gray-200 rounded-full overflow-hidden">
@@ -942,8 +977,8 @@ export default function BulkImportTab() {
             {uploading ? (
               <>
                 <Loader2 className="w-4 h-4 animate-spin" />
-                {uploadProgress
-                  ? `Datei ${uploadProgress.current} / ${uploadProgress.total} hochladen…`
+                {uploadProgress && uploadProgress.total > 0
+                  ? `${Math.round((uploadProgress.current / uploadProgress.total) * 100)} % hochgeladen…`
                   : "Wird hochgeladen…"}
               </>
             ) : (

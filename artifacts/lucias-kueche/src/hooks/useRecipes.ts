@@ -130,3 +130,18 @@ export async function extractPdfRecipes(
   }
   return res.json();
 }
+
+export async function extractUrlRecipes(
+  url: string
+): Promise<{ recipes: Partial<Recipe>[] }> {
+  const res = await fetch(`${API_BASE}/extract-url`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ url }),
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error(err.message ?? `HTTP ${res.status}`);
+  }
+  return res.json();
+}

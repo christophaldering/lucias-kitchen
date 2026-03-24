@@ -1,10 +1,11 @@
 import { useState, useMemo } from "react";
 import { Recipe, formatIngredient } from "@/types/recipe";
 import { useRecipes } from "@/hooks/useRecipes";
-import { Clock, Search, ChefHat, Upload, Loader2, LayoutGrid, Table, Settings2 } from "lucide-react";
+import { Clock, Search, ChefHat, Upload, Link, Loader2, LayoutGrid, Table, Settings2 } from "lucide-react";
 import RecipeModal from "@/components/RecipeModal";
 import PdfUploadModal from "@/components/PdfUploadModal";
 import RecipeManagement from "@/components/RecipeManagement";
+import UrlImportModal from "@/components/UrlImportModal";
 
 const CATEGORY_EMOJIS: Record<string, string> = {
   Fisch: "🐟",
@@ -174,6 +175,7 @@ export default function MeineRezepte() {
   const [viewMode, setViewMode] = useState<"kacheln" | "tabelle">(defaultView);
   const [selected, setSelected] = useState<Recipe | null>(null);
   const [showPdfModal, setShowPdfModal] = useState(false);
+  const [showUrlModal, setShowUrlModal] = useState(false);
 
   const [managedSelected, setManagedSelected] = useState<Set<number>>(new Set());
 
@@ -313,6 +315,13 @@ export default function MeineRezepte() {
               </div>
 
               <button
+                onClick={() => setShowUrlModal(true)}
+                className="flex items-center gap-2 px-4 py-2.5 bg-[#4A7C59] text-white rounded-xl text-sm font-semibold hover:bg-[#3d6849] transition-colors whitespace-nowrap shadow-sm"
+              >
+                <Link className="w-4 h-4" />
+                URL importieren
+              </button>
+              <button
                 onClick={() => setShowPdfModal(true)}
                 className="flex items-center gap-2 px-4 py-2.5 bg-[#C1693A] text-white rounded-xl text-sm font-semibold hover:bg-[#a8572f] transition-colors whitespace-nowrap shadow-sm"
               >
@@ -423,6 +432,15 @@ export default function MeineRezepte() {
 
           {selected && (
             <RecipeModal recipe={selected} onClose={() => setSelected(null)} />
+          )}
+
+          {showUrlModal && (
+            <UrlImportModal
+              onClose={() => setShowUrlModal(false)}
+              onAdd={async (newRecipes) => {
+                await addRecipes(newRecipes);
+              }}
+            />
           )}
 
           {showPdfModal && (

@@ -215,7 +215,23 @@ function BulkActionsBar({
         <div className="max-w-6xl mx-auto px-4 py-3">
           <div className="flex items-center gap-3 flex-wrap">
             <div className="flex items-center gap-2 mr-2">
-              <span className="font-semibold text-sm">{count} ausgewählt</span>
+              {(() => {
+                const total = recipes.length;
+                const pct = total > 0 ? count / total : 0;
+                const r = 10;
+                const circ = 2 * Math.PI * r;
+                const dash = pct * circ;
+                return (
+                  <svg width="28" height="28" viewBox="0 0 28 28" className="flex-shrink-0 -rotate-90">
+                    <circle cx="14" cy="14" r={r} fill="none" stroke="rgba(255,255,255,0.2)" strokeWidth="3" />
+                    <circle cx="14" cy="14" r={r} fill="none" stroke="white" strokeWidth="3"
+                      strokeDasharray={`${dash} ${circ}`} strokeLinecap="round" />
+                  </svg>
+                );
+              })()}
+              <span className="font-semibold text-sm">
+                {count} <span className="font-normal opacity-80">von</span> {recipes.length} <span className="font-normal opacity-80">ausgewählt</span>
+              </span>
               <button onClick={onClearSelect} className="p-0.5 hover:bg-white/20 rounded-md transition-colors">
                 <X className="w-3.5 h-3.5" />
               </button>
@@ -365,8 +381,20 @@ function RecipeTable({
               <th key={col.key}
                 onClick={() => handleSort(col.key)}
                 className={`px-4 py-3 text-left font-semibold text-foreground cursor-pointer select-none hover:text-[#4A7C59] transition-colors ${col.cls}`}>
-                {col.label}
-                <MgmtSortIcon col={col.key} sortKey={sortKey} sortDir={sortDir} />
+                {col.key === "title" ? (
+                  <span className="flex items-center gap-2">
+                    {col.label}
+                    <MgmtSortIcon col={col.key} sortKey={sortKey} sortDir={sortDir} />
+                    <span className="ml-1 inline-flex items-center px-2 py-0.5 rounded-full text-xs font-semibold bg-[#4A7C59]/10 text-[#4A7C59] border border-[#4A7C59]/20">
+                      {recipes.length}
+                    </span>
+                  </span>
+                ) : (
+                  <>
+                    {col.label}
+                    <MgmtSortIcon col={col.key} sortKey={sortKey} sortDir={sortDir} />
+                  </>
+                )}
               </th>
             ))}
             <th className="px-4 py-3 text-center font-semibold text-foreground w-24">Aktionen</th>

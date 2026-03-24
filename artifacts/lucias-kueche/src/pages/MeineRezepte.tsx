@@ -622,6 +622,8 @@ export default function MeineRezepte({ onNavigate: _onNavigate, initialOpenRecip
     return base;
   }, [filtered, tableSortKey, tableSortDir]);
 
+  const isFiltered = search.trim() !== "" || activeCategory !== "Alle" || timeFilter !== "Alle" || seasonFilter !== "Alle" || cookedFilter !== "Alle";
+
   return (
     <div className="max-w-6xl mx-auto px-4 py-6">
       <div className="mb-5 flex items-center gap-2 flex-wrap">
@@ -648,6 +650,21 @@ export default function MeineRezepte({ onNavigate: _onNavigate, initialOpenRecip
             Verwalten
           </button>
         </div>
+
+        {/* Recipe count chip */}
+        {!loading && (
+          <span className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-sm font-semibold transition-colors ${
+            isFiltered
+              ? "bg-[#C1693A]/10 text-[#C1693A] border border-[#C1693A]/30"
+              : "bg-[#4A7C59]/10 text-[#4A7C59] border border-[#4A7C59]/20"
+          }`}>
+            {isFiltered ? (
+              <><span>{filtered.length}</span><span className="font-normal text-muted-foreground">von</span><span>{recipes.length}</span><span className="font-normal">Rezepte</span></>
+            ) : (
+              <><span>{recipes.length}</span><span className="font-normal">Rezepte</span></>
+            )}
+          </span>
+        )}
 
         {/* Recipe ownership filter toggle */}
         <div className="flex gap-1 bg-white border border-border rounded-xl p-1 ml-auto">
@@ -819,23 +836,27 @@ export default function MeineRezepte({ onNavigate: _onNavigate, initialOpenRecip
 
           {!loading && !error && (
             <>
-              <p className="text-sm text-muted-foreground mb-4 flex items-center gap-2">
-                {searchLoading ? (
-                  <>
-                    <Loader2 className="w-3.5 h-3.5 animate-spin text-[#4A7C59]" />
-                    <span>Suche läuft…</span>
-                  </>
-                ) : (
-                  <>
-                    {filtered.length} von {recipes.length} Rezepten
-                    {savedSortOrder !== "alphabetisch" && (
-                      <span className="ml-2 text-xs text-muted-foreground/70">
-                        (sortiert: {savedSortOrder === "kategorie" ? "nach Kategorie" : savedSortOrder === "bewertung" ? "nach Bewertung" : savedSortOrder === "zuletzt_gekocht" ? "zuletzt gekocht" : "am häufigsten gekocht"})
-                      </span>
-                    )}
-                  </>
-                )}
-              </p>
+              {(searchLoading || isFiltered) && (
+                <p className="text-sm mb-4 flex items-center gap-2">
+                  {searchLoading ? (
+                    <>
+                      <Loader2 className="w-3.5 h-3.5 animate-spin text-[#4A7C59]" />
+                      <span className="text-muted-foreground">Suche läuft…</span>
+                    </>
+                  ) : filtered.length === 0 ? (
+                    <span className="text-muted-foreground">Keine Treffer</span>
+                  ) : (
+                    <>
+                      <span className="font-semibold text-[#C1693A]">{filtered.length} Treffer</span>
+                      {savedSortOrder !== "alphabetisch" && (
+                        <span className="text-xs text-muted-foreground/70">
+                          (sortiert: {savedSortOrder === "kategorie" ? "nach Kategorie" : savedSortOrder === "bewertung" ? "nach Bewertung" : savedSortOrder === "zuletzt_gekocht" ? "zuletzt gekocht" : "am häufigsten gekocht"})
+                        </span>
+                      )}
+                    </>
+                  )}
+                </p>
+              )}
 
               {/* Seasonal hint banner */}
               {seasonFilter === "Alle" && seasonalRecipes.length > 0 && !search && (

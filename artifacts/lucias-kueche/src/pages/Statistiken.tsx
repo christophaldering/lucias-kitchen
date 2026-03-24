@@ -6,6 +6,32 @@ import {
 } from "recharts";
 import { Loader2, Flame } from "lucide-react";
 import type { Recipe } from "@/types/recipe";
+import { useState, useEffect, useRef } from "react";
+
+function useCountUp(target: number, duration = 1200): number {
+  const [count, setCount] = useState(0);
+  const startRef = useRef<number | null>(null);
+  const rafRef = useRef<number | null>(null);
+
+  useEffect(() => {
+    if (target === 0) { setCount(0); return; }
+    startRef.current = null;
+    const animate = (ts: number) => {
+      if (startRef.current === null) startRef.current = ts;
+      const elapsed = ts - startRef.current;
+      const progress = Math.min(elapsed / duration, 1);
+      const eased = 1 - Math.pow(1 - progress, 3);
+      setCount(Math.round(eased * target));
+      if (progress < 1) {
+        rafRef.current = requestAnimationFrame(animate);
+      }
+    };
+    rafRef.current = requestAnimationFrame(animate);
+    return () => { if (rafRef.current) cancelAnimationFrame(rafRef.current); };
+  }, [target, duration]);
+
+  return count;
+}
 
 function formatDate(dateStr: string): string {
   const [year, month, day] = dateStr.split("-");
@@ -81,6 +107,26 @@ const insights = [
   "Vegetarisches passt immer öfter auf den Tisch 🌿",
 ];
 
+function RecipesHeroCard({ count }: { count: number }) {
+  const animated = useCountUp(count);
+  return (
+    <div
+      className="rounded-2xl shadow-md p-6 text-center relative overflow-hidden"
+      style={{ background: "linear-gradient(135deg, #2d5240 0%, #4A7C59 60%, #7BA05B 100%)" }}
+    >
+      <div className="absolute inset-0 opacity-10" style={{
+        backgroundImage: "radial-gradient(circle at 20% 80%, white 1px, transparent 1px), radial-gradient(circle at 80% 20%, white 1px, transparent 1px)",
+        backgroundSize: "40px 40px",
+      }} />
+      <p className="text-4xl mb-2 relative">📖</p>
+      <p className="font-serif font-bold text-white relative" style={{ fontSize: "3.5rem", lineHeight: 1 }}>
+        {animated}
+      </p>
+      <p className="text-sm font-medium text-white/80 mt-2 relative">Rezepte in deiner Küche</p>
+    </div>
+  );
+}
+
 export default function Statistiken() {
   const { recipes, loading, error } = useRecipes();
   const { history: kcalHistory, loading: kcalLoading } = useKcalHistory(4);
@@ -123,8 +169,10 @@ export default function Statistiken() {
 
       {/* Quick stats row */}
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
+        <div className="col-span-2 sm:col-span-4">
+          <RecipesHeroCard count={recipes.length} />
+        </div>
         {[
-          { label: "Rezepte gesamt", value: recipes.length, emoji: "📖" },
           { label: "\"Sehr lecker\"", value: `${sehrLeckerPct}%`, emoji: "⭐" },
           { label: "Ø Zutaten", value: avgIngredients, emoji: "🛒" },
           { label: "Kategorien", value: catData.length, emoji: "🍽️" },

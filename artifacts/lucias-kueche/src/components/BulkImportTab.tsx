@@ -256,7 +256,7 @@ function ReviewDashboard({
 }) {
   const [data, setData] = useState<BulkImportResults | null>(null);
   const [saving, setSaving] = useState(false);
-  const [saveResult, setSaveResult] = useState<{ savedCount: number } | null>(null);
+  const [saveResult, setSaveResult] = useState<{ savedCount: number; newTotal?: number } | null>(null);
   const pollingRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   const fetchResults = useCallback(async () => {
@@ -309,7 +309,16 @@ function ReviewDashboard({
         headers: authHeaders(),
       });
       const json = await res.json();
-      setSaveResult({ savedCount: json.savedCount ?? 0 });
+      const savedCount = json.savedCount ?? 0;
+      let newTotal: number | undefined;
+      try {
+        const countRes = await fetch(`${API_BASE}/recipes/count`, { headers: authHeaders() });
+        if (countRes.ok) {
+          const countJson = await countRes.json();
+          newTotal = countJson.count ?? countJson.total ?? undefined;
+        }
+      } catch { }
+      setSaveResult({ savedCount, newTotal });
       await fetchResults();
     } catch {
     } finally {
@@ -390,7 +399,12 @@ function ReviewDashboard({
         <div className="bg-green-50 border border-green-200 rounded-xl p-4 flex items-start gap-3">
           <Check className="w-5 h-5 text-green-600 flex-shrink-0 mt-0.5" />
           <div>
-            <p className="font-semibold text-green-800">{saveResult.savedCount} Rezepte gespeichert!</p>
+            <p className="font-semibold text-green-800">
+              {saveResult.savedCount} neue Rezepte importiert
+              {saveResult.newTotal !== undefined && (
+                <span className="font-normal"> – jetzt <span className="font-bold">{saveResult.newTotal}</span> Rezepte in deiner Küche</span>
+              )}
+            </p>
             <p className="text-sm text-green-700">Die Scan-Seiten wurden als Rezeptfotos hinterlegt und sind im Rezept sichtbar.</p>
           </div>
         </div>

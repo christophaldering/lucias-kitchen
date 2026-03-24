@@ -86,6 +86,18 @@ async function getRecipesWithIngredients(currentUserId?: number, filter?: string
   return result;
 }
 
+router.get("/recipes/count", async (req, res) => {
+  try {
+    const [row] = await db
+      .select({ count: sql<number>`count(*)` })
+      .from(recipesTable);
+    res.json({ count: Number(row?.count ?? 0) });
+  } catch (err) {
+    req.log.error({ err }, "Failed to count recipes");
+    res.status(500).json({ error: "internal_error" });
+  }
+});
+
 router.get("/recipes/search", async (req, res) => {
   try {
     const q = String(req.query.q ?? "").trim();

@@ -1,6 +1,7 @@
 import { useState, useMemo, useRef } from "react";
 import { X, Plus, Trash2, ChevronUp, ChevronDown, Save, Loader2, Camera, Image, XCircle, Printer } from "lucide-react";
-import type { Recipe, IngredientInput } from "@/types/recipe";
+import type { Recipe, IngredientInput, Season } from "@/types/recipe";
+import { SEASON_LABELS, SEASON_ICONS } from "@/types/recipe";
 import type { RecipeUpdatePayload } from "@/hooks/useRecipes";
 import { uploadRecipeImage } from "@/hooks/useRecipes";
 import RecipePrintView from "@/components/RecipePrintView";
@@ -16,6 +17,7 @@ const DEFAULT_CATEGORIES = ["Fisch", "Geflügel", "Fleisch", "Vegetarisch", "Pas
 const DIFFICULTIES = ["simpel", "normal", "schwer"] as const;
 const RATINGS = ["", "lecker", "sehr lecker"] as const;
 const LK_CUSTOM_CATEGORIES_KEY = "lk_customCategories";
+const ALL_SEASONS: Season[] = ["spring", "summer", "autumn", "winter"];
 
 type IngRow = { amount: string; unit: string; name: string; note: string };
 
@@ -51,6 +53,7 @@ export default function RecipeEditModal({ recipe, onClose, onSave, knownCategori
     }))
   );
   const [steps, setSteps] = useState<string[]>([...recipe.steps]);
+  const [seasons, setSeasons] = useState<Season[]>((recipe.seasons ?? []) as Season[]);
   const [imageUrl, setImageUrl] = useState<string | null>(recipe.imageUrl ?? null);
   const [imagePreview, setImagePreview] = useState<string | null>(recipe.imageUrl ?? null);
   const [uploadingImage, setUploadingImage] = useState(false);
@@ -102,6 +105,9 @@ export default function RecipeEditModal({ recipe, onClose, onSave, knownCategori
   const updateIngredient = (i: number, field: keyof IngRow, val: string) =>
     setIngredients((prev) => prev.map((row, idx) => idx === i ? { ...row, [field]: val } : row));
 
+  const toggleSeason = (s: Season) =>
+    setSeasons((prev) => prev.includes(s) ? prev.filter((x) => x !== s) : [...prev, s]);
+
   const addStep = () => setSteps((prev) => [...prev, ""]);
   const removeStep = (i: number) => setSteps((prev) => prev.filter((_, idx) => idx !== i));
   const updateStep = (i: number, val: string) =>
@@ -141,6 +147,7 @@ export default function RecipeEditModal({ recipe, onClose, onSave, knownCategori
           note: i.note || null,
         })),
         imageUrl: imageUrl ?? null,
+        seasons,
       };
       await onSave(recipe.id, payload);
       onClose();
@@ -246,6 +253,30 @@ export default function RecipeEditModal({ recipe, onClose, onSave, knownCategori
               <label className="block text-xs font-semibold text-muted-foreground mb-1 uppercase tracking-wide">Lucias Notizen</label>
               <textarea value={notes} onChange={(e) => setNotes(e.target.value)} rows={2}
                 className="w-full px-3 py-2 rounded-xl border border-border bg-white text-sm focus:outline-none focus:ring-2 focus:ring-[#C1693A]/30 resize-none" />
+            </div>
+
+            <div className="sm:col-span-2">
+              <label className="block text-xs font-semibold text-muted-foreground mb-2 uppercase tracking-wide">🌿 Saison</label>
+              <div className="flex flex-wrap gap-2">
+                {ALL_SEASONS.map((s) => {
+                  const active = seasons.includes(s);
+                  return (
+                    <button
+                      key={s}
+                      type="button"
+                      onClick={() => toggleSeason(s)}
+                      className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full text-sm font-medium border transition-colors ${
+                        active
+                          ? "bg-[#4A7C59] text-white border-[#4A7C59]"
+                          : "bg-white text-foreground border-border hover:border-[#4A7C59]/50"
+                      }`}
+                    >
+                      {SEASON_ICONS[s]} {SEASON_LABELS[s]}
+                    </button>
+                  );
+                })}
+              </div>
+              <p className="text-xs text-muted-foreground mt-1">Alle auswählen = ganzjährig</p>
             </div>
           </div>
 

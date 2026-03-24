@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from "react";
-import type { Recipe, IngredientInput } from "@/types/recipe";
+import type { Recipe, IngredientInput, Season } from "@/types/recipe";
 
 export interface RecipeUpdatePayload {
   title: string;
@@ -17,6 +17,7 @@ export interface RecipeUpdatePayload {
   steps: string[];
   ingredients: IngredientInput[];
   imageUrl?: string | null;
+  seasons?: Season[];
 }
 
 const API_BASE = "/api";

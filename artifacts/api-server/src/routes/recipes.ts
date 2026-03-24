@@ -14,6 +14,8 @@ const ingredientSchema = z.object({
   note: z.string().optional().nullable(),
 });
 
+const VALID_SEASONS = ["spring", "summer", "autumn", "winter"] as const;
+
 const recipeBodySchema = z.object({
   title: z.string().min(1),
   servings: z.number().int().positive().optional().nullable(),
@@ -30,6 +32,7 @@ const recipeBodySchema = z.object({
   steps: z.array(z.string()).default([]),
   ingredients: z.array(ingredientSchema).default([]),
   imageUrl: z.string().optional().nullable(),
+  seasons: z.array(z.enum(VALID_SEASONS)).default([]),
 });
 
 async function getRecipesWithIngredients() {
@@ -126,6 +129,7 @@ router.post("/recipes", async (req, res) => {
         notes: recipeData.notes ?? null,
         steps: recipeData.steps,
         imageUrl: recipeData.imageUrl ?? null,
+        seasons: recipeData.seasons ?? [],
       }).returning();
 
       if (ingredients.length > 0) {
@@ -187,6 +191,7 @@ router.put("/recipes/:id", async (req, res) => {
         notes: recipeData.notes ?? null,
         steps: recipeData.steps,
         imageUrl: recipeData.imageUrl ?? null,
+        seasons: recipeData.seasons ?? [],
       })
       .where(eq(recipesTable.id, id))
       .returning();

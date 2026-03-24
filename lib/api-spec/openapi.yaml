@@ -192,3 +192,99 @@ components:
       required:
         - error
         - message
+
+    Season:
+      type: string
+      enum: [spring, summer, autumn, winter]
+      description: A season identifier (spring, summer, autumn, winter)
+
+    Recipe:
+      type: object
+      properties:
+        id:
+          type: integer
+        title:
+          type: string
+        servings:
+          type: integer
+          nullable: true
+        prepTime:
+          type: string
+          nullable: true
+        totalTime:
+          type: string
+          nullable: true
+        difficulty:
+          type: string
+          enum: [simpel, normal, schwer]
+        category:
+          type: string
+        rating:
+          type: string
+          nullable: true
+        kcalPerPortion:
+          type: integer
+          nullable: true
+        source:
+          type: string
+          nullable: true
+        lastCooked:
+          type: string
+          nullable: true
+        cookedCount:
+          type: integer
+          nullable: true
+        notes:
+          type: string
+          nullable: true
+        steps:
+          type: array
+          items:
+            type: string
+        imageUrl:
+          type: string
+          nullable: true
+        createdAt:
+          type: string
+          format: date-time
+          nullable: true
+        seasons:
+          type: array
+          items:
+            $ref: "#/components/schemas/Season"
+          description: The seasons this recipe is suited for. Empty array means year-round.
+        ingredients:
+          type: array
+          items:
+            $ref: "#/components/schemas/RecipeIngredient"
+      required:
+        - id
+        - title
+        - difficulty
+        - category
+        - steps
+        - ingredients
+        - seasons
+
+    RecipeIngredient:
+      type: object
+      properties:
+        id:
+          type: integer
+        recipeId:
+          type: integer
+        amount:
+          type: string
+        unit:
+          type: string
+        name:
+          type: string
+        note:
+          type: string
+          nullable: true
+      required:
+        - id
+        - recipeId
+        - amount
+        - unit
+        - name

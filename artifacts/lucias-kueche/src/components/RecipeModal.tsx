@@ -1,5 +1,7 @@
 import { useState } from "react";
 import type { Recipe } from "@/types/recipe";
+import { SEASON_ICONS, SEASON_LABELS } from "@/types/recipe";
+import type { Season } from "@/types/recipe";
 import { X, Clock, ChefHat, CalendarPlus, Users, Flame, BookOpen, Check, Printer, UtensilsCrossed } from "lucide-react";
 import { addMealPlanEntry } from "@/hooks/useMealPlans";
 import RecipePrintView from "@/components/RecipePrintView";
@@ -167,6 +169,14 @@ export default function RecipeModal({ recipe, onClose, onAddToWeek }: Props) {
             )}
             {recipe.cookedCount != null && recipe.cookedCount > 0 && (
               <span>🍳 {recipe.cookedCount}× gekocht</span>
+            )}
+            {recipe.seasons && recipe.seasons.length > 0 && (
+              <span className="flex items-center gap-1">
+                {(recipe.seasons as Season[]).map((s) => (
+                  <span key={s} title={SEASON_LABELS[s]}>{SEASON_ICONS[s]}</span>
+                ))}
+                {(recipe.seasons as Season[]).map((s) => SEASON_LABELS[s]).join(", ")}
+              </span>
             )}
           </div>
 

@@ -9,5 +9,12 @@
       "tag": "0000_wonderful_betty_brant",
       "breakpoints": true
     }
+    ,{
+      "idx": 1,
+      "version": "7",
+      "when": 1774350942626,
+      "tag": "0001_add_seasons_to_recipes",
+      "breakpoints": true
+    }
   ]
 }

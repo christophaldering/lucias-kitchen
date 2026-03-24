@@ -19,6 +19,7 @@ export const recipesTable = pgTable("recipes", {
   steps: jsonb("steps").notNull().default([]),
   imageUrl: text("image_url"),
   createdAt: timestamp("created_at").defaultNow(),
+  seasons: text("seasons").array().default([]),
 });
 
 export const recipeIngredientsTable = pgTable("recipe_ingredients", {

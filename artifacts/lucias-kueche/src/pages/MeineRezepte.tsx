@@ -1,5 +1,7 @@
 import { useState, useMemo, useEffect, useRef } from "react";
 import { Recipe } from "@/types/recipe";
+import type { Season } from "@/types/recipe";
+import { SEASON_LABELS, SEASON_ICONS, getCurrentSeason } from "@/types/recipe";
 import { useRecipes } from "@/hooks/useRecipes";
 import { Clock, Search, ChefHat, Upload, Link, Camera, Loader2, LayoutGrid, Table, Settings2, Plus, ArrowUp, ArrowDown, ArrowUpDown, UtensilsCrossed } from "lucide-react";
 import RecipeModal from "@/components/RecipeModal";
@@ -142,6 +144,11 @@ function RecipeCard({
             {recipe.difficulty}
           </span>
           <RatingBadge rating={recipe.rating} />
+          {recipe.seasons && recipe.seasons.length > 0 && (
+            <span className="text-sm" title={(recipe.seasons as Season[]).map((s) => SEASON_LABELS[s]).join(", ")}>
+              {(recipe.seasons as Season[]).map((s) => SEASON_ICONS[s]).join("")}
+            </span>
+          )}
         </div>
 
         {showCookCount && recipe.cookedCount != null && recipe.cookedCount > 0 && (
@@ -276,6 +283,7 @@ export default function MeineRezepte({ onNavigate: _onNavigate }: MeineRezeptePr
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [activeCategory, setActiveCategory] = useState("Alle");
   const [timeFilter, setTimeFilter] = useState("Alle");
+  const [seasonFilter, setSeasonFilter] = useState<Season | "Alle">("Alle");
   const [selected, setSelected] = useState<Recipe | null>(null);
   const [cookingRecipe, setCookingRecipe] = useState<Recipe | null>(null);
   const [showPdfModal, setShowPdfModal] = useState(false);
@@ -418,10 +426,19 @@ export default function MeineRezepte({ onNavigate: _onNavigate }: MeineRezeptePr
     const matchesTime =
       timeFilter === "Alle" ? true :
       timeFilter === "Unter 30 Min" ? mins < 30 : mins < 60;
-    return matchesCat && matchesTime;
-  }), [baseList, activeCategory, timeFilter]);
+    const matchesSeason =
+      seasonFilter === "Alle" ? true :
+      (r.seasons ?? []).includes(seasonFilter as Season);
+    return matchesCat && matchesTime && matchesSeason;
+  }), [baseList, activeCategory, timeFilter, seasonFilter]);
 
   const knownCategories = useMemo(() => Array.from(new Set(recipes.map((r) => r.category))).sort(), [recipes]);
+
+  const currentSeason = getCurrentSeason();
+  const seasonalRecipes = useMemo(
+    () => recipes.filter((r) => (r.seasons ?? []).includes(currentSeason)),
+    [recipes, currentSeason]
+  );
 
   const DIFF_ORDER: Record<string, number> = { simpel: 0, normal: 1, schwer: 2 };
   const RATING_SCORE = (r: Recipe) => r.rating === "sehr lecker" ? 2 : r.rating === "lecker" ? 1 : 0;
@@ -556,6 +573,23 @@ export default function MeineRezepte({ onNavigate: _onNavigate }: MeineRezeptePr
                   {t}
                 </button>
               ))}
+
+              {/* Divider between time and season chips */}
+              <div className="flex-shrink-0 w-px bg-border mx-1 self-stretch" />
+
+              {(["Alle", "spring", "summer", "autumn", "winter"] as const).map((s) => (
+                <button
+                  key={s}
+                  onClick={() => setSeasonFilter(s)}
+                  className={`flex-shrink-0 px-3 py-1.5 rounded-full text-xs font-medium transition-colors flex items-center gap-1 min-h-[36px] ${
+                    seasonFilter === s
+                      ? "bg-[#4A7C59]/80 text-white"
+                      : "bg-white text-muted-foreground border border-border hover:border-[#4A7C59]/40"
+                  }`}
+                >
+                  {s === "Alle" ? "🌿 Saison" : `${SEASON_ICONS[s as Season]} ${SEASON_LABELS[s as Season]}`}
+                </button>
+              ))}
             </div>
           </div>
 
@@ -592,6 +626,25 @@ export default function MeineRezepte({ onNavigate: _onNavigate }: MeineRezeptePr
                   </>
                 )}
               </p>
+
+              {/* Seasonal hint banner */}
+              {seasonFilter === "Alle" && seasonalRecipes.length > 0 && !search && (
+                <div
+                  className="mb-4 flex items-center justify-between gap-3 px-4 py-3 rounded-xl border cursor-pointer hover:opacity-90 transition-opacity"
+                  style={{ background: "linear-gradient(135deg, #f5ede0, #fdf6ec)", borderColor: "#e2c9a8" }}
+                  onClick={() => setSeasonFilter(currentSeason)}
+                >
+                  <div>
+                    <p className="text-sm font-semibold text-[#4A7C59]">
+                      {SEASON_ICONS[currentSeason]} Rezepte für den {SEASON_LABELS[currentSeason]}
+                    </p>
+                    <p className="text-xs text-muted-foreground">
+                      {seasonalRecipes.length} {seasonalRecipes.length === 1 ? "Rezept" : "Rezepte"} aus deiner Sammlung passen zur aktuellen Jahreszeit
+                    </p>
+                  </div>
+                  <span className="text-xs text-[#4A7C59] font-medium whitespace-nowrap">Anzeigen →</span>
+                </div>
+              )}
 
               {!searchLoading && filtered.length === 0 ? (
                 <div className="text-center py-16 text-muted-foreground">

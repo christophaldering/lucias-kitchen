@@ -14,6 +14,30 @@ export interface IngredientInput {
   note: string | null;
 }
 
+export type Season = "spring" | "summer" | "autumn" | "winter";
+
+export const SEASON_LABELS: Record<Season, string> = {
+  spring: "Frühling",
+  summer: "Sommer",
+  autumn: "Herbst",
+  winter: "Winter",
+};
+
+export const SEASON_ICONS: Record<Season, string> = {
+  spring: "🌸",
+  summer: "🌞",
+  autumn: "🍂",
+  winter: "❄️",
+};
+
+export function getCurrentSeason(): Season {
+  const month = new Date().getMonth() + 1;
+  if (month >= 3 && month <= 5) return "spring";
+  if (month >= 6 && month <= 8) return "summer";
+  if (month >= 9 && month <= 11) return "autumn";
+  return "winter";
+}
+
 export interface Recipe {
   id: number;
   title: string;
@@ -32,6 +56,7 @@ export interface Recipe {
   ingredients: RecipeIngredient[];
   imageUrl?: string | null;
   createdAt?: string | null;
+  seasons?: Season[] | null;
 }
 
 export const ALL_CATEGORIES = [

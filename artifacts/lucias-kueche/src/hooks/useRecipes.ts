@@ -64,21 +64,29 @@ export function useRecipes() {
     await fetchRecipes();
   }, [fetchRecipes]);
 
-  const patchRecipe = useCallback(async (id: number, patch: Record<string, unknown>) => {
+  const patchRecipeSilent = useCallback(async (id: number, patch: Record<string, unknown>) => {
     const res = await fetch(`${API_BASE}/recipes/${id}`, {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(patch),
     });
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
-    await fetchRecipes();
-  }, [fetchRecipes]);
+  }, []);
 
-  const deleteRecipe = useCallback(async (id: number) => {
+  const patchRecipe = useCallback(async (id: number, patch: Record<string, unknown>) => {
+    await patchRecipeSilent(id, patch);
+    await fetchRecipes();
+  }, [fetchRecipes, patchRecipeSilent]);
+
+  const deleteRecipeSilent = useCallback(async (id: number) => {
     const res = await fetch(`${API_BASE}/recipes/${id}`, { method: "DELETE" });
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
+  }, []);
+
+  const deleteRecipe = useCallback(async (id: number) => {
+    await deleteRecipeSilent(id);
     await fetchRecipes();
-  }, [fetchRecipes]);
+  }, [fetchRecipes, deleteRecipeSilent]);
 
   const deleteAllRecipes = useCallback(async () => {
     const res = await fetch(`${API_BASE}/recipes`, { method: "DELETE" });
@@ -100,7 +108,9 @@ export function useRecipes() {
     addRecipes,
     updateRecipe,
     patchRecipe,
+    patchRecipeSilent,
     deleteRecipe,
+    deleteRecipeSilent,
     deleteAllRecipes,
     restoreDemo,
   };

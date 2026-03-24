@@ -187,16 +187,16 @@ function BulkActionsBar({
   recipes,
   selected,
   onClearSelect,
-  patchRecipe,
-  deleteRecipe,
+  patchRecipeSilent,
+  deleteRecipeSilent,
   refetch,
 }: {
   count: number;
   recipes: Recipe[];
   selected: Set<number>;
   onClearSelect: () => void;
-  patchRecipe: (id: number, patch: Record<string, unknown>) => Promise<void>;
-  deleteRecipe: (id: number) => Promise<void>;
+  patchRecipeSilent: (id: number, patch: Record<string, unknown>) => Promise<void>;
+  deleteRecipeSilent: (id: number) => Promise<void>;
   refetch: () => Promise<void>;
 }) {
   const [busy, setBusy] = useState(false);
@@ -211,7 +211,8 @@ function BulkActionsBar({
   const doBulkPatch = async (patch: Record<string, unknown>) => {
     setBusy(true);
     try {
-      await Promise.all([...selected].map((id) => patchRecipe(id, patch)));
+      await Promise.all([...selected].map((id) => patchRecipeSilent(id, patch)));
+      await refetch();
       toast(`${count} Rezept${count !== 1 ? "e" : ""} aktualisiert`);
       onClearSelect();
     } catch { toast("Fehler beim Aktualisieren", "err"); }
@@ -221,7 +222,8 @@ function BulkActionsBar({
   const doDelete = async () => {
     setBusy(true);
     try {
-      for (const id of selected) await deleteRecipe(id);
+      await Promise.all([...selected].map((id) => deleteRecipeSilent(id)));
+      await refetch();
       toast(`${count} Rezept${count !== 1 ? "e" : ""} gelöscht`);
       onClearSelect();
       setShowDeleteConfirm(false);
@@ -234,8 +236,9 @@ function BulkActionsBar({
     setBusy(true);
     try {
       await Promise.all(selectedRecipes.map((r) =>
-        patchRecipe(r.id, { lastCooked: today, cookedCount: (r.cookedCount ?? 0) + 1 })
+        patchRecipeSilent(r.id, { lastCooked: today, cookedCount: (r.cookedCount ?? 0) + 1 })
       ));
+      await refetch();
       toast(`${count} Rezept${count !== 1 ? "e" : ""} als heute gekocht markiert`);
       onClearSelect();
     } catch { toast("Fehler", "err"); }
@@ -831,7 +834,7 @@ function AppSettings() {
 }
 
 export default function Admin() {
-  const { recipes, loading, error, refetch, patchRecipe, deleteRecipe, updateRecipe, addRecipes, deleteAllRecipes, restoreDemo } = useRecipes();
+  const { recipes, loading, error, refetch, patchRecipe, patchRecipeSilent, deleteRecipe, deleteRecipeSilent, updateRecipe, addRecipes, deleteAllRecipes, restoreDemo } = useRecipes();
   const [section, setSection] = useState<SectionTab>("table");
   const [selected, setSelected] = useState<Set<number>>(new Set());
   const [editRecipe, setEditRecipe] = useState<Recipe | null>(null);
@@ -905,8 +908,8 @@ export default function Admin() {
             recipes={recipes}
             selected={selected}
             onClearSelect={() => setSelected(new Set())}
-            patchRecipe={patchRecipe}
-            deleteRecipe={deleteRecipe}
+            patchRecipeSilent={patchRecipeSilent}
+            deleteRecipeSilent={deleteRecipeSilent}
             refetch={refetch}
           />
         </div>

@@ -1,6 +1,7 @@
+import { useState } from "react";
 import type { Recipe } from "@/types/recipe";
-import { formatIngredient } from "@/types/recipe";
-import { X, Clock, ChefHat, CalendarPlus, Users, Flame, BookOpen } from "lucide-react";
+import { X, Clock, ChefHat, CalendarPlus, Users, Flame, BookOpen, Check } from "lucide-react";
+import { addMealPlanEntry } from "@/hooks/useMealPlans";
 
 interface Props {
   recipe: Recipe;
@@ -25,8 +26,27 @@ function RatingBadge({ rating }: { rating: string | null }) {
   );
 }
 
+function toIsoDate(d: Date): string {
+  return d.toISOString().split("T")[0];
+}
+
+function showToast(message: string, type: "success" | "error" = "success") {
+  const el = document.createElement("div");
+  el.className = `fixed bottom-6 right-6 z-[9999] px-5 py-3 rounded-xl shadow-lg text-white text-sm font-medium transition-all ${
+    type === "success" ? "bg-[#4A7C59]" : "bg-red-600"
+  }`;
+  el.textContent = message;
+  document.body.appendChild(el);
+  setTimeout(() => el.remove(), 3000);
+}
+
 export default function RecipeModal({ recipe, onClose, onAddToWeek }: Props) {
   const emoji = CATEGORY_EMOJIS[recipe.category] ?? "🍽️";
+  const today = toIsoDate(new Date());
+
+  const [showDatePicker, setShowDatePicker] = useState(false);
+  const [selectedDate, setSelectedDate] = useState(today);
+  const [saving, setSaving] = useState(false);
 
   const diffColor =
     recipe.difficulty === "simpel"
@@ -34,6 +54,20 @@ export default function RecipeModal({ recipe, onClose, onAddToWeek }: Props) {
       : recipe.difficulty === "normal"
       ? "bg-amber-100 text-amber-800"
       : "bg-red-100 text-red-800";
+
+  const handleAddToCalendar = async () => {
+    setSaving(true);
+    try {
+      await addMealPlanEntry(selectedDate, recipe.id);
+      const [year, month, day] = selectedDate.split("-");
+      showToast(`${recipe.title} am ${day}.${month}.${year} eingeplant!`);
+      setShowDatePicker(false);
+    } catch {
+      showToast("Fehler beim Speichern", "error");
+    } finally {
+      setSaving(false);
+    }
+  };
 
   return (
     <div
@@ -166,22 +200,61 @@ export default function RecipeModal({ recipe, onClose, onAddToWeek }: Props) {
           </div>
 
           {/* Actions */}
-          <div className="flex gap-3 pt-2">
-            {onAddToWeek && (
+          <div className="flex flex-col gap-3 pt-2">
+            {/* Calendar date picker */}
+            {showDatePicker ? (
+              <div className="flex flex-wrap items-center gap-2 p-3 bg-[#4A7C59]/5 rounded-xl border border-[#4A7C59]/20">
+                <label htmlFor="calendar-date-picker" className="text-sm font-medium text-foreground">Datum wählen:</label>
+                <input
+                  id="calendar-date-picker"
+                  type="date"
+                  value={selectedDate}
+                  min={today}
+                  onChange={(e) => setSelectedDate(e.target.value)}
+                  className="text-sm border border-border rounded-lg px-2 py-1.5 focus:outline-none focus:ring-2 focus:ring-[#4A7C59]/30 bg-white"
+                />
+                <button
+                  onClick={handleAddToCalendar}
+                  disabled={saving}
+                  className="flex items-center gap-1.5 px-3 py-1.5 bg-[#4A7C59] text-white rounded-lg text-sm font-medium hover:bg-[#3d6849] transition-colors disabled:opacity-60"
+                >
+                  <Check className="w-3.5 h-3.5" />
+                  {saving ? "Speichern…" : "Speichern"}
+                </button>
+                <button
+                  onClick={() => setShowDatePicker(false)}
+                  className="px-3 py-1.5 border border-border rounded-lg text-sm text-muted-foreground hover:bg-secondary transition-colors"
+                >
+                  Abbrechen
+                </button>
+              </div>
+            ) : null}
+
+            <div className="flex gap-3">
               <button
-                onClick={() => { onAddToWeek(recipe.id); onClose(); }}
+                onClick={() => setShowDatePicker((v) => !v)}
                 className="flex items-center gap-2 px-4 py-2.5 bg-[#4A7C59] text-white rounded-xl text-sm font-semibold hover:bg-[#3d6849] transition-colors"
               >
                 <CalendarPlus className="w-4 h-4" />
-                Zum Wochenplan
+                Zum Kalender hinzufügen
               </button>
-            )}
-            <button
-              onClick={onClose}
-              className="px-4 py-2.5 border border-border rounded-xl text-sm font-medium hover:bg-secondary transition-colors"
-            >
-              Schließen
-            </button>
+
+              {onAddToWeek && (
+                <button
+                  onClick={() => { onAddToWeek(recipe.id); onClose(); }}
+                  className="flex items-center gap-2 px-4 py-2.5 bg-secondary text-foreground border border-border rounded-xl text-sm font-semibold hover:bg-secondary/80 transition-colors"
+                >
+                  Zur Woche
+                </button>
+              )}
+
+              <button
+                onClick={onClose}
+                className="px-4 py-2.5 border border-border rounded-xl text-sm font-medium hover:bg-secondary transition-colors"
+              >
+                Schließen
+              </button>
+            </div>
           </div>
         </div>
       </div>

@@ -1,4 +1,4 @@
-import { pgTable, text, serial, integer, jsonb } from "drizzle-orm/pg-core";
+import { pgTable, text, serial, integer, jsonb, date, unique } from "drizzle-orm/pg-core";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod/v4";
 
@@ -28,6 +28,14 @@ export const recipeIngredientsTable = pgTable("recipe_ingredients", {
   note: text("note"),
 });
 
+export const mealPlansTable = pgTable("meal_plans", {
+  id: serial("id").primaryKey(),
+  date: date("date").notNull(),
+  recipeId: integer("recipe_id").notNull().references(() => recipesTable.id, { onDelete: "cascade" }),
+}, (t) => [
+  unique("meal_plans_date_unique").on(t.date),
+]);
+
 export const insertRecipeSchema = createInsertSchema(recipesTable).omit({ id: true });
 export type InsertRecipe = z.infer<typeof insertRecipeSchema>;
 export type Recipe = typeof recipesTable.$inferSelect;
@@ -35,3 +43,5 @@ export type Recipe = typeof recipesTable.$inferSelect;
 export const insertRecipeIngredientSchema = createInsertSchema(recipeIngredientsTable).omit({ id: true });
 export type InsertRecipeIngredient = z.infer<typeof insertRecipeIngredientSchema>;
 export type RecipeIngredient = typeof recipeIngredientsTable.$inferSelect;
+
+export type MealPlan = typeof mealPlansTable.$inferSelect;

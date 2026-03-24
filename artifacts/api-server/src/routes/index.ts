@@ -5,6 +5,7 @@ import reservationsRouter from "./reservations";
 import recipesRouter from "./recipes";
 import extractPdfRouter from "./extractPdf";
 import extractUrlRouter from "./extractUrl";
+import mealPlansRouter from "./mealPlans";
 
 const router: IRouter = Router();
 
@@ -14,5 +15,6 @@ router.use(reservationsRouter);
 router.use(recipesRouter);
 router.use(extractPdfRouter);
 router.use(extractUrlRouter);
+router.use(mealPlansRouter);
 
 export default router;

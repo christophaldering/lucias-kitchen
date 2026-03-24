@@ -95,7 +95,7 @@ Generated React Query hooks and fetch client from the OpenAPI spec (e.g. `useHea
 
 React + Vite recipe management SPA backed by the `@workspace/api-server`. Features:
 - **Meine Rezepte**: Recipe gallery with category/time filters, search, recipe detail modal (structured ingredients, preparation steps, metadata). "PDF hochladen" button opens the PDF upload modal.
-- **Wochenplan & Einkaufsliste**: 7-day weekly planner with selectable recipes + auto-generated grouped shopping list with checkboxes and copy-to-clipboard.
+- **Wochenplan & Einkaufsliste**: Date-based calendar weekly planner with navigation (previous/next week, "Heute" button to return to current week). Each day cell shows real calendar date. Meal plan entries are persisted in the DB (`meal_plans` table). Shopping list has date-range filter: "Diese Woche", "Nächste 7 Tage", or custom from/to date picker.
 - **Statistiken & Muster**: Pie/bar/horizontal-bar charts (Recharts) for category distribution, cooking time, difficulty, top favorites (by rating + cook count), and Lucia's cook profile.
 - **PDF Upload Modal** (`src/components/PdfUploadModal.tsx`): Drag-and-drop PDF upload → sends base64 to `/api/extract-pdf` → AI extracts recipes → user selects which ones to add.
 - All recipe data fetched from API via `src/hooks/useRecipes.ts` — no hardcoded data in the frontend.

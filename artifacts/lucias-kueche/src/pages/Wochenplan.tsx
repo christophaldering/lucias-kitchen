@@ -1,7 +1,7 @@
-import { useState } from "react";
-import { DAYS } from "@/types/recipe";
+import { useState, useMemo } from "react";
 import { useRecipes } from "@/hooks/useRecipes";
-import { X, ShoppingCart, Copy, Check, Loader2 } from "lucide-react";
+import { useMealPlans } from "@/hooks/useMealPlans";
+import { X, ShoppingCart, Copy, Check, Loader2, ChevronLeft, ChevronRight, CalendarDays } from "lucide-react";
 
 type IngCategory = "Gemüse" | "Fleisch & Fisch" | "Milchprodukte" | "Vorrat" | "Sonstiges";
 
@@ -43,44 +43,144 @@ const CATEGORY_EMOJIS: Record<string, string> = {
   Fisch: "🐟", Geflügel: "🍗", Fleisch: "🥩", Vegetarisch: "🌿", Pasta: "🍝",
 };
 
+const DAY_NAMES_SHORT = ["So", "Mo", "Di", "Mi", "Do", "Fr", "Sa"];
+const DAY_NAMES_LONG = ["Sonntag", "Montag", "Dienstag", "Mittwoch", "Donnerstag", "Freitag", "Samstag"];
+
+function getMonday(d: Date): Date {
+  const date = new Date(d);
+  const day = date.getDay();
+  const diff = day === 0 ? -6 : 1 - day;
+  date.setDate(date.getDate() + diff);
+  date.setHours(0, 0, 0, 0);
+  return date;
+}
+
+function addDays(d: Date, n: number): Date {
+  const result = new Date(d);
+  result.setDate(result.getDate() + n);
+  return result;
+}
+
+function toIsoDate(d: Date): string {
+  return d.toISOString().split("T")[0];
+}
+
+function formatDate(d: Date): string {
+  return `${DAY_NAMES_SHORT[d.getDay()]} ${d.getDate()}.${d.getMonth() + 1}.`;
+}
+
+function formatMonthYear(d: Date): string {
+  return d.toLocaleDateString("de-DE", { month: "long", year: "numeric" });
+}
+
+type ShoppingRange = "this_week" | "next_7" | "custom";
+
+function showToast(message: string, type: "success" | "error" = "success") {
+  const el = document.createElement("div");
+  el.className = `fixed bottom-6 right-6 z-[9999] px-5 py-3 rounded-xl shadow-lg text-white text-sm font-medium transition-all ${
+    type === "success" ? "bg-[#4A7C59]" : "bg-red-600"
+  }`;
+  el.textContent = message;
+  document.body.appendChild(el);
+  setTimeout(() => el.remove(), 3000);
+}
+
 export default function Wochenplan() {
-  const { recipes, loading, error } = useRecipes();
-  const [plan, setPlan] = useState<(number | null)[]>(Array(7).fill(null));
+  const { recipes, loading: recipesLoading } = useRecipes();
+
+  const today = useMemo(() => {
+    const d = new Date();
+    d.setHours(0, 0, 0, 0);
+    return d;
+  }, []);
+
+  const [weekOffset, setWeekOffset] = useState(0);
+  const [addingDay, setAddingDay] = useState<string | null>(null);
   const [checked, setChecked] = useState<Set<string>>(new Set());
   const [copied, setCopied] = useState(false);
 
-  const plannedEntries = plan
-    .map((id, dayIdx) => {
-      if (!id) return null;
-      const recipe = recipes.find((r) => r.id === id);
-      return recipe ? { recipe, dayIdx } : null;
-    })
-    .filter(Boolean) as { recipe: (typeof recipes)[0]; dayIdx: number }[];
+  const [shoppingRange, setShoppingRange] = useState<ShoppingRange>("this_week");
+  const [customFrom, setCustomFrom] = useState(toIsoDate(today));
+  const [customTo, setCustomTo] = useState(toIsoDate(addDays(today, 6)));
 
-  type ShoppingItem = { text: string; amount: string; unit: string; category: IngCategory };
+  const weekStart = useMemo(() => {
+    const monday = getMonday(today);
+    return addDays(monday, weekOffset * 7);
+  }, [today, weekOffset]);
 
-  const allItems: ShoppingItem[] = plannedEntries.flatMap((pr) =>
-    pr.recipe.ingredients.map((ing) => ({
-      text: `${[ing.amount, ing.unit, ing.name].filter(Boolean).join(" ")}`,
-      amount: ing.amount,
-      unit: ing.unit,
-      category: categorizeIngredient(ing.name),
-    }))
+  const weekEnd = useMemo(() => addDays(weekStart, 6), [weekStart]);
+
+  const weekDays = useMemo(() =>
+    Array.from({ length: 7 }, (_, i) => addDays(weekStart, i)),
+    [weekStart]
   );
 
-  const grouped = allItems.reduce<Record<IngCategory, string[]>>(
-    (acc, { text, category }) => {
-      if (!acc[category]) acc[category] = [];
-      if (!acc[category].includes(text)) acc[category].push(text);
-      return acc;
-    },
-    {} as Record<IngCategory, string[]>
+  const { plans, loading: plansLoading, addMealPlan, deleteMealPlan } = useMealPlans(
+    toIsoDate(weekStart),
+    toIsoDate(weekEnd)
   );
 
-  const handleSetRecipe = (dayIdx: number, recipeId: number | null) => {
-    const next = [...plan];
-    next[dayIdx] = recipeId;
-    setPlan(next);
+  const shoppingFrom = useMemo(() => {
+    if (shoppingRange === "this_week") return toIsoDate(getMonday(today));
+    if (shoppingRange === "next_7") return toIsoDate(today);
+    return customFrom;
+  }, [shoppingRange, today, customFrom]);
+
+  const shoppingTo = useMemo(() => {
+    if (shoppingRange === "this_week") return toIsoDate(addDays(getMonday(today), 6));
+    if (shoppingRange === "next_7") return toIsoDate(addDays(today, 6));
+    return customTo;
+  }, [shoppingRange, today, customTo]);
+
+  const { plans: shoppingPlans, loading: shoppingLoading } = useMealPlans(shoppingFrom, shoppingTo);
+
+  const planByDate = useMemo(() => {
+    const map: Record<string, typeof plans[0]> = {};
+    for (const p of plans) {
+      map[p.date] = p;
+    }
+    return map;
+  }, [plans]);
+
+  type ShoppingItem = { text: string; category: IngCategory };
+
+  const allShoppingItems: ShoppingItem[] = useMemo(() =>
+    shoppingPlans.flatMap((p) =>
+      (p.recipe?.ingredients ?? []).map((ing) => ({
+        text: `${[ing.amount, ing.unit, ing.name].filter(Boolean).join(" ")}`,
+        category: categorizeIngredient(ing.name),
+      }))
+    ),
+    [shoppingPlans]
+  );
+
+  const grouped = useMemo(() =>
+    allShoppingItems.reduce<Record<IngCategory, string[]>>(
+      (acc, { text, category }) => {
+        if (!acc[category]) acc[category] = [];
+        if (!acc[category].includes(text)) acc[category].push(text);
+        return acc;
+      },
+      {} as Record<IngCategory, string[]>
+    ),
+    [allShoppingItems]
+  );
+
+  const handleSetRecipe = async (dateStr: string, recipeId: number) => {
+    try {
+      await addMealPlan(dateStr, recipeId);
+      setAddingDay(null);
+    } catch {
+      showToast("Fehler beim Speichern", "error");
+    }
+  };
+
+  const handleRemove = async (id: number) => {
+    try {
+      await deleteMealPlan(id);
+    } catch {
+      showToast("Fehler beim Löschen", "error");
+    }
   };
 
   const toggleCheck = (key: string) => {
@@ -104,7 +204,18 @@ export default function Wochenplan() {
     setTimeout(() => setCopied(false), 2000);
   };
 
-  if (loading) {
+  const isCurrentWeek = weekOffset === 0;
+  const weekLabel = isCurrentWeek
+    ? "Diese Woche"
+    : weekOffset === 1
+    ? "Nächste Woche"
+    : weekOffset === -1
+    ? "Letzte Woche"
+    : `${formatDate(weekStart)} – ${formatDate(weekEnd)}`;
+
+  const loading = recipesLoading || plansLoading;
+
+  if (recipesLoading) {
     return (
       <div className="flex flex-col items-center py-20 gap-3 text-muted-foreground">
         <Loader2 className="w-8 h-8 animate-spin text-[#4A7C59]" />
@@ -113,86 +224,140 @@ export default function Wochenplan() {
     );
   }
 
-  if (error) {
-    return (
-      <div className="text-center py-16">
-        <p className="text-4xl mb-4">⚠️</p>
-        <p className="font-serif text-lg text-foreground">{error}</p>
-      </div>
-    );
-  }
-
   return (
     <div className="max-w-5xl mx-auto px-4 py-8">
-      <h2 className="font-serif text-2xl font-semibold text-foreground mb-6">
-        📅 Mein Wochenplan
-      </h2>
-
-      {/* Week grid */}
-      <div className="grid grid-cols-7 gap-2 mb-10">
-        {DAYS.map((day, idx) => {
-          const recipeId = plan[idx];
-          const recipe = recipeId ? recipes.find((r) => r.id === recipeId) : null;
-          const emoji = recipe ? (CATEGORY_EMOJIS[recipe.category] ?? "🍽️") : null;
-
-          return (
-            <div key={day} className="flex flex-col gap-1">
-              <p className="text-center text-xs font-bold text-[#4A7C59] uppercase tracking-wider pb-1">
-                {day}
-              </p>
-              <div
-                className={`min-h-28 rounded-xl border-2 border-dashed p-2 flex flex-col transition-colors ${
-                  recipe
-                    ? "bg-white border-[#4A7C59]/30"
-                    : "bg-white/50 border-border/50 hover:border-[#4A7C59]/30"
-                }`}
-              >
-                {recipe ? (
-                  <div className="flex flex-col h-full gap-1">
-                    <span className="text-xl text-center">{emoji}</span>
-                    <p className="text-xs font-medium text-foreground leading-tight line-clamp-3 text-center flex-1">
-                      {recipe.title}
-                    </p>
-                    <button
-                      onClick={() => handleSetRecipe(idx, null)}
-                      className="self-center mt-auto p-0.5 rounded hover:bg-red-50 text-muted-foreground hover:text-red-500 transition-colors"
-                    >
-                      <X className="w-3 h-3" />
-                    </button>
-                  </div>
-                ) : (
-                  <div className="h-full flex flex-col gap-1">
-                    <select
-                      key={`day-${idx}-${recipeId}`}
-                      defaultValue=""
-                      onChange={(e) =>
-                        handleSetRecipe(idx, e.target.value ? Number(e.target.value) : null)
-                      }
-                      className="w-full text-xs border-0 bg-transparent text-muted-foreground focus:outline-none cursor-pointer"
-                    >
-                      <option value="" disabled>+ Rezept</option>
-                      {recipes.map((r) => (
-                        <option key={r.id} value={r.id}>
-                          {CATEGORY_EMOJIS[r.category] ?? "🍽️"} {r.title}
-                        </option>
-                      ))}
-                    </select>
-                  </div>
-                )}
-              </div>
-            </div>
-          );
-        })}
+      <div className="flex items-center justify-between mb-6">
+        <h2 className="font-serif text-2xl font-semibold text-foreground">
+          📅 Mein Wochenplan
+        </h2>
+        <div className="text-sm text-muted-foreground hidden sm:block">
+          {formatMonthYear(weekStart)}
+        </div>
       </div>
 
-      {/* Shopping list */}
+      {/* Week navigation */}
+      <div className="flex items-center gap-3 mb-4">
+        <button
+          onClick={() => setWeekOffset((o) => o - 1)}
+          className="p-2 rounded-xl border border-border bg-white hover:bg-[#4A7C59]/5 hover:border-[#4A7C59]/30 transition-colors"
+        >
+          <ChevronLeft className="w-4 h-4" />
+        </button>
+
+        <div className="flex-1 text-center">
+          <span className="text-sm font-semibold text-foreground">{weekLabel}</span>
+          <span className="text-xs text-muted-foreground ml-2">
+            ({formatDate(weekStart)} – {formatDate(weekEnd)})
+          </span>
+        </div>
+
+        {!isCurrentWeek && (
+          <button
+            onClick={() => setWeekOffset(0)}
+            className="flex items-center gap-1 px-3 py-1.5 rounded-xl border border-[#4A7C59]/40 text-[#4A7C59] text-xs font-medium hover:bg-[#4A7C59]/5 transition-colors"
+          >
+            <CalendarDays className="w-3.5 h-3.5" />
+            Heute
+          </button>
+        )}
+
+        <button
+          onClick={() => setWeekOffset((o) => o + 1)}
+          className="p-2 rounded-xl border border-border bg-white hover:bg-[#4A7C59]/5 hover:border-[#4A7C59]/30 transition-colors"
+        >
+          <ChevronRight className="w-4 h-4" />
+        </button>
+      </div>
+
+      {/* Week grid */}
+      {plansLoading ? (
+        <div className="flex items-center justify-center py-12 gap-2 text-muted-foreground">
+          <Loader2 className="w-5 h-5 animate-spin text-[#4A7C59]" />
+          <span className="text-sm">Wochenplan wird geladen…</span>
+        </div>
+      ) : (
+        <div className="grid grid-cols-7 gap-2 mb-10">
+          {weekDays.map((day) => {
+            const dateStr = toIsoDate(day);
+            const isToday = toIsoDate(day) === toIsoDate(today);
+            const planEntry = planByDate[dateStr];
+            const recipe = planEntry?.recipe ?? null;
+            const emoji = recipe ? (CATEGORY_EMOJIS[recipe.category] ?? "🍽️") : null;
+            const isAddingThis = addingDay === dateStr;
+
+            return (
+              <div key={dateStr} className="flex flex-col gap-1">
+                <p className={`text-center text-xs font-bold uppercase tracking-wider pb-1 ${isToday ? "text-[#C1693A]" : "text-[#4A7C59]"}`}>
+                  {DAY_NAMES_SHORT[day.getDay()]}
+                </p>
+                <p className={`text-center text-xs pb-1 ${isToday ? "text-[#C1693A] font-semibold" : "text-muted-foreground"}`}>
+                  {day.getDate()}.{day.getMonth() + 1}.
+                  {isToday && <span className="ml-1 inline-block w-1.5 h-1.5 rounded-full bg-[#C1693A] align-middle" />}
+                </p>
+                <div
+                  className={`min-h-28 rounded-xl border-2 border-dashed p-2 flex flex-col transition-colors ${
+                    recipe
+                      ? "bg-white border-[#4A7C59]/30"
+                      : isToday
+                      ? "bg-[#C1693A]/5 border-[#C1693A]/30"
+                      : "bg-white/50 border-border/50 hover:border-[#4A7C59]/30"
+                  }`}
+                >
+                  {recipe ? (
+                    <div className="flex flex-col h-full gap-1">
+                      <span className="text-xl text-center">{emoji}</span>
+                      <p className="text-xs font-medium text-foreground leading-tight line-clamp-3 text-center flex-1">
+                        {recipe.title}
+                      </p>
+                      <button
+                        onClick={() => planEntry && handleRemove(planEntry.id)}
+                        className="self-center mt-auto p-0.5 rounded hover:bg-red-50 text-muted-foreground hover:text-red-500 transition-colors"
+                      >
+                        <X className="w-3 h-3" />
+                      </button>
+                    </div>
+                  ) : isAddingThis ? (
+                    <div className="h-full flex flex-col gap-1">
+                      <select
+                        autoFocus
+                        defaultValue=""
+                        onChange={(e) => {
+                          if (e.target.value) handleSetRecipe(dateStr, Number(e.target.value));
+                        }}
+                        onBlur={() => setAddingDay(null)}
+                        className="w-full text-xs border-0 bg-transparent text-muted-foreground focus:outline-none cursor-pointer"
+                      >
+                        <option value="" disabled>Rezept wählen…</option>
+                        {recipes.map((r) => (
+                          <option key={r.id} value={r.id}>
+                            {CATEGORY_EMOJIS[r.category] ?? "🍽️"} {r.title}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+                  ) : (
+                    <button
+                      onClick={() => setAddingDay(dateStr)}
+                      className="w-full h-full flex items-center justify-center text-xs text-muted-foreground hover:text-[#4A7C59] transition-colors"
+                    >
+                      + Rezept
+                    </button>
+                  )}
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      )}
+
+      {/* Shopping list section */}
       <div className="bg-white rounded-2xl border border-border shadow-sm p-6">
         <div className="flex items-center justify-between mb-5">
           <h3 className="font-serif text-xl font-semibold text-foreground flex items-center gap-2">
             <ShoppingCart className="w-5 h-5 text-[#C1693A]" />
             Einkaufsliste
           </h3>
-          {allItems.length > 0 && (
+          {allShoppingItems.length > 0 && (
             <button
               onClick={handleCopy}
               className="flex items-center gap-2 px-4 py-2 rounded-xl bg-[#4A7C59] text-white text-sm font-medium hover:bg-[#3d6849] transition-colors"
@@ -206,9 +371,58 @@ export default function Wochenplan() {
           )}
         </div>
 
-        {allItems.length === 0 ? (
+        {/* Range filter */}
+        <div className="flex flex-wrap items-center gap-2 mb-5">
+          <span className="text-xs font-semibold text-muted-foreground">Zeitraum:</span>
+          {(["this_week", "next_7", "custom"] as ShoppingRange[]).map((range) => {
+            const labels: Record<ShoppingRange, string> = {
+              this_week: "Diese Woche",
+              next_7: "Nächste 7 Tage",
+              custom: "Eigener Zeitraum",
+            };
+            return (
+              <button
+                key={range}
+                onClick={() => setShoppingRange(range)}
+                className={`px-3 py-1.5 rounded-full text-xs font-medium transition-colors ${
+                  shoppingRange === range
+                    ? "bg-[#C1693A] text-white"
+                    : "bg-secondary text-muted-foreground border border-border hover:border-[#C1693A]/40"
+                }`}
+              >
+                {labels[range]}
+              </button>
+            );
+          })}
+
+          {shoppingRange === "custom" && (
+            <div className="flex items-center gap-2 mt-1 w-full sm:w-auto">
+              <input
+                type="date"
+                value={customFrom}
+                onChange={(e) => setCustomFrom(e.target.value)}
+                className="text-xs border border-border rounded-lg px-2 py-1 focus:outline-none focus:ring-2 focus:ring-[#4A7C59]/30"
+              />
+              <span className="text-xs text-muted-foreground">bis</span>
+              <input
+                type="date"
+                value={customTo}
+                min={customFrom}
+                onChange={(e) => setCustomTo(e.target.value)}
+                className="text-xs border border-border rounded-lg px-2 py-1 focus:outline-none focus:ring-2 focus:ring-[#4A7C59]/30"
+              />
+            </div>
+          )}
+        </div>
+
+        {shoppingLoading ? (
+          <div className="flex items-center justify-center py-8 gap-2 text-muted-foreground">
+            <Loader2 className="w-4 h-4 animate-spin" />
+            <span className="text-sm">Wird geladen…</span>
+          </div>
+        ) : allShoppingItems.length === 0 ? (
           <p className="text-muted-foreground text-sm text-center py-8">
-            Noch keine Rezepte im Wochenplan. Füge oben Rezepte ein!
+            Keine Rezepte im gewählten Zeitraum. Füge oben Rezepte ein!
           </p>
         ) : (
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-6">

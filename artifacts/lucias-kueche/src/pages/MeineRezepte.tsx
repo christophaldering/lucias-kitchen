@@ -1,4 +1,4 @@
-import { useState, useMemo } from "react";
+import { useState, useMemo, useEffect, useRef } from "react";
 import { Recipe, formatIngredient } from "@/types/recipe";
 import { useRecipes } from "@/hooks/useRecipes";
 import { Clock, Search, ChefHat, Upload, Link, Camera, Loader2, LayoutGrid, Table, Settings2, Plus, ArrowUp, ArrowDown, ArrowUpDown } from "lucide-react";
@@ -9,6 +9,14 @@ import UrlImportModal from "@/components/UrlImportModal";
 import ImageImportModal from "@/components/ImageImportModal";
 import RecipeEditModal from "@/components/RecipeEditModal";
 import type { RecipeUpdatePayload } from "@/hooks/useRecipes";
+
+const API_BASE = "/api";
+
+async function searchRecipesApi(q: string): Promise<Recipe[]> {
+  const res = await fetch(`${API_BASE}/recipes/search?q=${encodeURIComponent(q)}`);
+  if (!res.ok) throw new Error(`HTTP ${res.status}`);
+  return res.json();
+}
 
 const CATEGORY_EMOJIS: Record<string, string> = {
   Fisch: "🐟",
@@ -232,6 +240,9 @@ export default function MeineRezepte({ onNavigate: _onNavigate }: MeineRezeptePr
 
   const [pageMode, setPageMode] = useState<PageMode>("galerie");
   const [search, setSearch] = useState("");
+  const [searchResults, setSearchResults] = useState<Recipe[] | null>(null);
+  const [searchLoading, setSearchLoading] = useState(false);
+  const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [activeCategory, setActiveCategory] = useState("Alle");
   const [timeFilter, setTimeFilter] = useState("Alle");
   const [viewMode, setViewMode] = useState<"kacheln" | "tabelle">(defaultView);
@@ -281,6 +292,30 @@ export default function MeineRezepte({ onNavigate: _onNavigate }: MeineRezeptePr
     }
   };
 
+  useEffect(() => {
+    if (debounceRef.current) clearTimeout(debounceRef.current);
+    const trimmed = search.trim();
+    if (!trimmed) {
+      setSearchResults(null);
+      setSearchLoading(false);
+      return;
+    }
+    setSearchLoading(true);
+    debounceRef.current = setTimeout(async () => {
+      try {
+        const results = await searchRecipesApi(trimmed);
+        setSearchResults(results);
+      } catch {
+        setSearchResults(null);
+      } finally {
+        setSearchLoading(false);
+      }
+    }, 300);
+    return () => {
+      if (debounceRef.current) clearTimeout(debounceRef.current);
+    };
+  }, [search]);
+
   const allCategories = useMemo(() => {
     const cats = Array.from(new Set(recipes.map((r) => r.category))).sort();
     return ["Alle", ...cats];
@@ -312,17 +347,47 @@ export default function MeineRezepte({ onNavigate: _onNavigate }: MeineRezeptePr
     }
   }, [recipes, savedSortOrder]);
 
-  const filtered = useMemo(() => sorted.filter((r) => {
-    const matchesSearch =
-      r.title.toLowerCase().includes(search.toLowerCase()) ||
-      (r.notes ?? "").toLowerCase().includes(search.toLowerCase());
+  const baseList = useMemo(() => {
+    if (searchResults !== null) {
+      const sorted2 = [...searchResults];
+      switch (savedSortOrder) {
+        case "alphabetisch":
+          sorted2.sort((a, b) => a.title.localeCompare(b.title, "de"));
+          break;
+        case "kategorie":
+          sorted2.sort((a, b) => a.category.localeCompare(b.category, "de") || a.title.localeCompare(b.title, "de"));
+          break;
+        case "bewertung":
+          sorted2.sort((a, b) => {
+            const score = (r: Recipe) => r.rating === "sehr lecker" ? 2 : r.rating === "lecker" ? 1 : 0;
+            return score(b) - score(a);
+          });
+          break;
+        case "zuletzt_gekocht":
+          sorted2.sort((a, b) => {
+            if (!a.lastCooked && !b.lastCooked) return 0;
+            if (!a.lastCooked) return 1;
+            if (!b.lastCooked) return -1;
+            return b.lastCooked.localeCompare(a.lastCooked);
+          });
+          break;
+        case "haeufig_gekocht":
+          sorted2.sort((a, b) => (b.cookedCount ?? 0) - (a.cookedCount ?? 0));
+          break;
+      }
+      return sorted2;
+    }
+    return sorted;
+  }, [searchResults, sorted, savedSortOrder]);
+
+  const filtered = useMemo(() => baseList.filter((r) => {
     const matchesCat = activeCategory === "Alle" || r.category === activeCategory;
     const mins = parseTotalMinutes(r.totalTime);
     const matchesTime =
       timeFilter === "Alle" ? true :
       timeFilter === "Unter 30 Min" ? mins < 30 : mins < 60;
-    return matchesSearch && matchesCat && matchesTime;
-  }), [sorted, search, activeCategory, timeFilter]);
+    return matchesCat && matchesTime;
+  }), [baseList, activeCategory, timeFilter]);
 
   const knownCategories = useMemo(() => Array.from(new Set(recipes.map((r) => r.category))).sort(), [recipes]);
 
@@ -510,16 +575,25 @@ export default function MeineRezepte({ onNavigate: _onNavigate }: MeineRezeptePr
 
           {!loading && !error && (
             <>
-              <p className="text-sm text-muted-foreground mb-4">
-                {filtered.length} von {recipes.length} Rezepten
-                {savedSortOrder !== "alphabetisch" && (
-                  <span className="ml-2 text-xs text-muted-foreground/70">
-                    (sortiert: {savedSortOrder === "kategorie" ? "nach Kategorie" : savedSortOrder === "bewertung" ? "nach Bewertung" : savedSortOrder === "zuletzt_gekocht" ? "zuletzt gekocht" : "am häufigsten gekocht"})
-                  </span>
+              <p className="text-sm text-muted-foreground mb-4 flex items-center gap-2">
+                {searchLoading ? (
+                  <>
+                    <Loader2 className="w-3.5 h-3.5 animate-spin text-[#4A7C59]" />
+                    <span>Suche läuft…</span>
+                  </>
+                ) : (
+                  <>
+                    {filtered.length} von {recipes.length} Rezepten
+                    {savedSortOrder !== "alphabetisch" && (
+                      <span className="ml-2 text-xs text-muted-foreground/70">
+                        (sortiert: {savedSortOrder === "kategorie" ? "nach Kategorie" : savedSortOrder === "bewertung" ? "nach Bewertung" : savedSortOrder === "zuletzt_gekocht" ? "zuletzt gekocht" : "am häufigsten gekocht"})
+                      </span>
+                    )}
+                  </>
                 )}
               </p>
 
-              {filtered.length === 0 ? (
+              {!searchLoading && filtered.length === 0 ? (
                 <div className="text-center py-16 text-muted-foreground">
                   <p className="text-4xl mb-4">🔍</p>
                   <p className="font-serif text-lg">Kein Rezept gefunden.</p>

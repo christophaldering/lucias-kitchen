@@ -1,7 +1,7 @@
 import { Router, type IRouter } from "express";
 import { db } from "@workspace/db";
 import { recipesTable, recipeIngredientsTable } from "@workspace/db/schema";
-import { eq, sql } from "drizzle-orm";
+import { eq, inArray, sql } from "drizzle-orm";
 import { z } from "zod/v4";
 import { seedRecipes } from "../db/seedRecipes";
 
@@ -40,6 +40,57 @@ async function getRecipesWithIngredients() {
     ingredients: ingredients.filter((i) => i.recipeId === r.id),
   }));
 }
+
+router.get("/recipes/search", async (req, res) => {
+  try {
+    const q = String(req.query.q ?? "").trim();
+    if (!q) {
+      const recipes = await getRecipesWithIngredients();
+      return res.json(recipes);
+    }
+
+    const pattern = `%${q}%`;
+
+    const matchingRecipeIds = await db
+      .selectDistinct({ id: recipesTable.id })
+      .from(recipesTable)
+      .leftJoin(recipeIngredientsTable, eq(recipeIngredientsTable.recipeId, recipesTable.id))
+      .where(
+        sql`
+          ${recipesTable.title} ILIKE ${pattern}
+          OR COALESCE(${recipesTable.notes}, '') ILIKE ${pattern}
+          OR COALESCE(${recipesTable.category}, '') ILIKE ${pattern}
+          OR EXISTS (
+            SELECT 1 FROM ${recipeIngredientsTable} ri2
+            WHERE ri2.recipe_id = ${recipesTable.id}
+            AND ri2.name ILIKE ${pattern}
+          )
+          OR EXISTS (
+            SELECT 1 FROM unnest(ARRAY(SELECT jsonb_array_elements_text(${recipesTable.steps}))) AS step
+            WHERE step ILIKE ${pattern}
+          )
+        `
+      );
+
+    if (matchingRecipeIds.length === 0) {
+      return res.json([]);
+    }
+
+    const ids = matchingRecipeIds.map((r) => r.id);
+    const recipes = await db.select().from(recipesTable).where(inArray(recipesTable.id, ids)).orderBy(recipesTable.id);
+    const ingredients = await db.select().from(recipeIngredientsTable).where(inArray(recipeIngredientsTable.recipeId, ids)).orderBy(recipeIngredientsTable.id);
+
+    const result = recipes.map((r) => ({
+      ...r,
+      ingredients: ingredients.filter((i) => i.recipeId === r.id),
+    }));
+
+    return res.json(result);
+  } catch (err) {
+    req.log.error({ err }, "Failed to search recipes");
+    res.status(500).json({ error: "internal_error", message: "Failed to search recipes" });
+  }
+});
 
 router.get("/recipes", async (req, res) => {
   try {

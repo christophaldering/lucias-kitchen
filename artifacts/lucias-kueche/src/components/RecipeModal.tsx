@@ -6,6 +6,7 @@ import { X, Clock, ChefHat, CalendarPlus, Users, Flame, BookOpen, Check, Printer
 import { addMealPlanEntry } from "@/hooks/useMealPlans";
 import RecipePrintView from "@/components/RecipePrintView";
 import CookingMode from "@/components/CookingMode";
+import RecipePhotoGallery from "@/components/RecipePhotoGallery";
 
 interface Props {
   recipe: Recipe;
@@ -362,6 +363,11 @@ export default function RecipeModal({ recipe, onClose, onAddToWeek }: Props) {
                 </li>
               ))}
             </ol>
+          </div>
+
+          {/* Cooking Photos */}
+          <div>
+            <RecipePhotoGallery recipeId={recipe.id} />
           </div>
 
           {/* Actions */}

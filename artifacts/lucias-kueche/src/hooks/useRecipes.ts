@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from "react";
-import type { Recipe, IngredientInput, Season } from "@/types/recipe";
+import type { Recipe, IngredientInput, Season, RecipePhoto } from "@/types/recipe";
 
 export interface RecipeUpdatePayload {
   title: string;
@@ -180,4 +180,31 @@ export async function extractImageRecipes(
     throw new Error(err.message ?? `HTTP ${res.status}`);
   }
   return res.json();
+}
+
+export async function fetchRecipePhotos(recipeId: number): Promise<RecipePhoto[]> {
+  const res = await fetch(`${API_BASE}/recipes/${recipeId}/photos`);
+  if (!res.ok) throw new Error(`HTTP ${res.status}`);
+  return res.json();
+}
+
+export async function uploadRecipePhoto(recipeId: number, file: File): Promise<RecipePhoto> {
+  const formData = new FormData();
+  formData.append("image", file);
+  const res = await fetch(`${API_BASE}/recipes/${recipeId}/photos`, {
+    method: "POST",
+    body: formData,
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error(err.message ?? `Upload fehlgeschlagen: HTTP ${res.status}`);
+  }
+  return res.json();
+}
+
+export async function deleteRecipePhoto(recipeId: number, photoId: number): Promise<void> {
+  const res = await fetch(`${API_BASE}/recipes/${recipeId}/photos/${photoId}`, {
+    method: "DELETE",
+  });
+  if (!res.ok) throw new Error(`HTTP ${res.status}`);
 }

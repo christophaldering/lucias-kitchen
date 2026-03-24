@@ -1,9 +1,12 @@
 import { Router, type IRouter } from "express";
 import { db } from "@workspace/db";
-import { recipesTable, recipeIngredientsTable } from "@workspace/db/schema";
-import { eq, inArray, sql } from "drizzle-orm";
+import { recipesTable, recipeIngredientsTable, recipePhotosTable } from "@workspace/db/schema";
+import { eq, inArray, sql, desc, and } from "drizzle-orm";
 import { z } from "zod/v4";
 import { seedRecipes } from "../db/seedRecipes";
+import { singleImageUploadMiddleware, UPLOADS_DIR } from "../lib/imageUpload";
+import path from "path";
+import fs from "fs";
 
 const router: IRouter = Router();
 
@@ -461,6 +464,76 @@ router.post("/recipes/suggest", async (req, res) => {
     }
     req.log.error({ err }, "Failed to suggest recipes");
     res.status(500).json({ error: "internal_error", message: "Failed to suggest recipes" });
+  }
+});
+
+router.get("/recipes/:id/photos", async (req, res) => {
+  try {
+    const id = Number(req.params.id);
+    if (isNaN(id)) {
+      res.status(400).json({ error: "bad_request", message: "Invalid recipe id" });
+      return;
+    }
+    const photos = await db
+      .select()
+      .from(recipePhotosTable)
+      .where(eq(recipePhotosTable.recipeId, id))
+      .orderBy(desc(recipePhotosTable.createdAt));
+    res.json(photos);
+  } catch (err) {
+    req.log.error({ err }, "Failed to fetch recipe photos");
+    res.status(500).json({ error: "internal_error", message: "Failed to fetch recipe photos" });
+  }
+});
+
+router.post("/recipes/:id/photos", singleImageUploadMiddleware, async (req, res) => {
+  try {
+    const id = Number(req.params.id);
+    if (isNaN(id)) {
+      res.status(400).json({ error: "bad_request", message: "Invalid recipe id" });
+      return;
+    }
+    if (!req.file) {
+      res.status(400).json({ error: "no_file", message: "Keine Datei hochgeladen." });
+      return;
+    }
+    const imageUrl = `/api/uploads/${req.file.filename}`;
+    const [photo] = await db
+      .insert(recipePhotosTable)
+      .values({ recipeId: id, imageUrl })
+      .returning();
+    res.status(201).json(photo);
+  } catch (err) {
+    req.log.error({ err }, "Failed to upload recipe photo");
+    res.status(500).json({ error: "internal_error", message: "Failed to upload recipe photo" });
+  }
+});
+
+router.delete("/recipes/:id/photos/:photoId", async (req, res) => {
+  try {
+    const id = Number(req.params.id);
+    const photoId = Number(req.params.photoId);
+    if (isNaN(id) || isNaN(photoId)) {
+      res.status(400).json({ error: "bad_request", message: "Invalid id" });
+      return;
+    }
+    const [deleted] = await db
+      .delete(recipePhotosTable)
+      .where(and(eq(recipePhotosTable.id, photoId), eq(recipePhotosTable.recipeId, id)))
+      .returning();
+    if (!deleted) {
+      res.status(404).json({ error: "not_found", message: "Photo not found" });
+      return;
+    }
+    const filename = deleted.imageUrl.split("/").pop();
+    if (filename) {
+      const filepath = path.join(UPLOADS_DIR, filename);
+      fs.unlink(filepath, () => {});
+    }
+    res.json({ success: true, id: photoId });
+  } catch (err) {
+    req.log.error({ err }, "Failed to delete recipe photo");
+    res.status(500).json({ error: "internal_error", message: "Failed to delete recipe photo" });
   }
 });
 

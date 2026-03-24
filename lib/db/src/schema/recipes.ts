@@ -39,6 +39,16 @@ export const mealPlansTable = pgTable("meal_plans", {
   unique("meal_plans_date_unique").on(t.date),
 ]);
 
+export const recipePhotosTable = pgTable("recipe_photos", {
+  id: serial("id").primaryKey(),
+  recipeId: integer("recipe_id").notNull().references(() => recipesTable.id, { onDelete: "cascade" }),
+  imageUrl: text("image_url").notNull(),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+});
+
+export type RecipePhoto = typeof recipePhotosTable.$inferSelect;
+export type InsertRecipePhoto = typeof recipePhotosTable.$inferInsert;
+
 export const insertRecipeSchema = createInsertSchema(recipesTable).omit({ id: true });
 export type InsertRecipe = z.infer<typeof insertRecipeSchema>;
 export type Recipe = typeof recipesTable.$inferSelect;

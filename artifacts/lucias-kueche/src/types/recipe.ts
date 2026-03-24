@@ -1,3 +1,10 @@
+export interface RecipePhoto {
+  id: number;
+  recipeId: number;
+  imageUrl: string;
+  createdAt: string;
+}
+
 export interface RecipeIngredient {
   id: number;
   recipeId: number;

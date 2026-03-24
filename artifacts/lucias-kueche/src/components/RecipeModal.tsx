@@ -1,7 +1,8 @@
 import { useState } from "react";
 import type { Recipe } from "@/types/recipe";
-import { X, Clock, ChefHat, CalendarPlus, Users, Flame, BookOpen, Check } from "lucide-react";
+import { X, Clock, ChefHat, CalendarPlus, Users, Flame, BookOpen, Check, Printer } from "lucide-react";
 import { addMealPlanEntry } from "@/hooks/useMealPlans";
+import RecipePrintView from "@/components/RecipePrintView";
 
 interface Props {
   recipe: Recipe;
@@ -70,6 +71,7 @@ export default function RecipeModal({ recipe, onClose, onAddToWeek }: Props) {
   };
 
   return (
+    <>
     <div
       className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm"
       onClick={(e) => e.target === e.currentTarget && onClose()}
@@ -85,12 +87,21 @@ export default function RecipeModal({ recipe, onClose, onAddToWeek }: Props) {
               {recipe.title}
             </h2>
           </div>
-          <button
-            onClick={onClose}
-            className="p-1.5 hover:bg-white/20 rounded-lg transition-colors flex-shrink-0"
-          >
-            <X className="w-5 h-5" />
-          </button>
+          <div className="flex items-center gap-1 flex-shrink-0">
+            <button
+              onClick={() => window.print()}
+              className="p-1.5 hover:bg-white/20 rounded-lg transition-colors"
+              title="Rezept drucken"
+            >
+              <Printer className="w-5 h-5" />
+            </button>
+            <button
+              onClick={onClose}
+              className="p-1.5 hover:bg-white/20 rounded-lg transition-colors"
+            >
+              <X className="w-5 h-5" />
+            </button>
+          </div>
         </div>
 
         {recipe.imageUrl && (
@@ -271,5 +282,7 @@ export default function RecipeModal({ recipe, onClose, onAddToWeek }: Props) {
         </div>
       </div>
     </div>
+    <RecipePrintView recipe={recipe} />
+    </>
   );
 }

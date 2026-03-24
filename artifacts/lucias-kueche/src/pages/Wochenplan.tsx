@@ -1,7 +1,9 @@
 import { useState, useMemo } from "react";
 import { useRecipes } from "@/hooks/useRecipes";
 import { useMealPlans } from "@/hooks/useMealPlans";
-import { X, ShoppingCart, Copy, Check, Loader2, ChevronLeft, ChevronRight, CalendarDays } from "lucide-react";
+import RecipeModal from "@/components/RecipeModal";
+import type { Recipe } from "@/types/recipe";
+import { X, ShoppingCart, Copy, Check, Loader2, ChevronLeft, ChevronRight, CalendarDays, Plus } from "lucide-react";
 
 type IngCategory = "Gemüse" | "Fleisch & Fisch" | "Milchprodukte" | "Vorrat" | "Sonstiges";
 
@@ -95,9 +97,25 @@ export default function Wochenplan() {
   }, []);
 
   const [weekOffset, setWeekOffset] = useState(0);
+  const [selectedDate, setSelectedDate] = useState<string>(toIsoDate(today));
   const [addingDay, setAddingDay] = useState<string | null>(null);
+
+  const changeWeekOffset = (newOffset: number) => {
+    const newMonday = addDays(getMonday(today), newOffset * 7);
+    const newWeekDays = Array.from({ length: 7 }, (_, i) => addDays(newMonday, i));
+    const todayIso = toIsoDate(today);
+    const todayInNewWeek = newWeekDays.find((d) => toIsoDate(d) === todayIso);
+    if (todayInNewWeek) {
+      setSelectedDate(todayIso);
+    } else {
+      setSelectedDate(toIsoDate(newMonday));
+    }
+    setWeekOffset(newOffset);
+    setAddingDay(null);
+  };
   const [checked, setChecked] = useState<Set<string>>(new Set());
   const [copied, setCopied] = useState(false);
+  const [modalRecipe, setModalRecipe] = useState<Recipe | null>(null);
 
   const [shoppingRange, setShoppingRange] = useState<ShoppingRange>("this_week");
   const [customFrom, setCustomFrom] = useState(toIsoDate(today));
@@ -213,7 +231,16 @@ export default function Wochenplan() {
     ? "Letzte Woche"
     : `${formatDate(weekStart)} – ${formatDate(weekEnd)}`;
 
-  const loading = recipesLoading || plansLoading;
+  const selectedDay = useMemo(() => {
+    const found = weekDays.find((d) => toIsoDate(d) === selectedDate);
+    return found ?? weekDays[0];
+  }, [weekDays, selectedDate]);
+
+  const selectedPlanEntry = planByDate[selectedDate] ?? null;
+  const selectedRecipe = selectedPlanEntry?.recipe ?? null;
+  const selectedEmoji = selectedRecipe ? (CATEGORY_EMOJIS[selectedRecipe.category] ?? "🍽️") : null;
+
+  const isTodaySelected = selectedDate === toIsoDate(today);
 
   if (recipesLoading) {
     return (
@@ -238,7 +265,7 @@ export default function Wochenplan() {
       {/* Week navigation */}
       <div className="flex items-center gap-3 mb-4">
         <button
-          onClick={() => setWeekOffset((o) => o - 1)}
+          onClick={() => changeWeekOffset(weekOffset - 1)}
           className="p-2 rounded-xl border border-border bg-white hover:bg-[#4A7C59]/5 hover:border-[#4A7C59]/30 transition-colors"
         >
           <ChevronLeft className="w-4 h-4" />
@@ -253,7 +280,7 @@ export default function Wochenplan() {
 
         {!isCurrentWeek && (
           <button
-            onClick={() => setWeekOffset(0)}
+            onClick={() => changeWeekOffset(0)}
             className="flex items-center gap-1 px-3 py-1.5 rounded-xl border border-[#4A7C59]/40 text-[#4A7C59] text-xs font-medium hover:bg-[#4A7C59]/5 transition-colors"
           >
             <CalendarDays className="w-3.5 h-3.5" />
@@ -262,70 +289,158 @@ export default function Wochenplan() {
         )}
 
         <button
-          onClick={() => setWeekOffset((o) => o + 1)}
+          onClick={() => changeWeekOffset(weekOffset + 1)}
           className="p-2 rounded-xl border border-border bg-white hover:bg-[#4A7C59]/5 hover:border-[#4A7C59]/30 transition-colors"
         >
           <ChevronRight className="w-4 h-4" />
         </button>
       </div>
 
-      {/* Week grid */}
+      {/* Day strip + detail card */}
       {plansLoading ? (
         <div className="flex items-center justify-center py-12 gap-2 text-muted-foreground">
           <Loader2 className="w-5 h-5 animate-spin text-[#4A7C59]" />
           <span className="text-sm">Wochenplan wird geladen…</span>
         </div>
       ) : (
-        <div className="grid grid-cols-7 gap-2 mb-10">
-          {weekDays.map((day) => {
-            const dateStr = toIsoDate(day);
-            const isToday = toIsoDate(day) === toIsoDate(today);
-            const planEntry = planByDate[dateStr];
-            const recipe = planEntry?.recipe ?? null;
-            const emoji = recipe ? (CATEGORY_EMOJIS[recipe.category] ?? "🍽️") : null;
-            const isAddingThis = addingDay === dateStr;
+        <div className="mb-10">
+          {/* Horizontal day strip */}
+          <div className="flex gap-1.5 mb-4 bg-white rounded-2xl border border-border p-2 shadow-sm overflow-x-auto">
+            {weekDays.map((day) => {
+              const dateStr = toIsoDate(day);
+              const isToday = dateStr === toIsoDate(today);
+              const isSelected = dateStr === selectedDate;
+              const hasRecipe = !!planByDate[dateStr];
 
-            return (
-              <div key={dateStr} className="flex flex-col gap-1">
-                <p className={`text-center text-xs font-bold uppercase tracking-wider pb-1 ${isToday ? "text-[#C1693A]" : "text-[#4A7C59]"}`}>
-                  {DAY_NAMES_SHORT[day.getDay()]}
-                </p>
-                <p className={`text-center text-xs pb-1 ${isToday ? "text-[#C1693A] font-semibold" : "text-muted-foreground"}`}>
-                  {day.getDate()}.{day.getMonth() + 1}.
-                  {isToday && <span className="ml-1 inline-block w-1.5 h-1.5 rounded-full bg-[#C1693A] align-middle" />}
-                </p>
-                <div
-                  className={`min-h-28 rounded-xl border-2 border-dashed p-2 flex flex-col transition-colors ${
-                    recipe
-                      ? "bg-white border-[#4A7C59]/30"
+              return (
+                <button
+                  key={dateStr}
+                  onClick={() => setSelectedDate(dateStr)}
+                  className={`flex flex-col items-center flex-1 min-w-[40px] py-2 px-1 rounded-xl transition-all relative ${
+                    isSelected
+                      ? "bg-[#C1693A] text-white shadow-md"
                       : isToday
-                      ? "bg-[#C1693A]/5 border-[#C1693A]/30"
-                      : "bg-white/50 border-border/50 hover:border-[#4A7C59]/30"
+                      ? "bg-[#C1693A]/10 text-[#C1693A]"
+                      : "text-muted-foreground hover:bg-[#4A7C59]/5 hover:text-foreground"
                   }`}
                 >
-                  {recipe ? (
-                    <div className="flex flex-col h-full gap-1">
-                      <span className="text-xl text-center">{emoji}</span>
-                      <p className="text-xs font-medium text-foreground leading-tight line-clamp-3 text-center flex-1">
-                        {recipe.title}
+                  <span className={`text-[10px] font-bold uppercase tracking-wider mb-0.5 ${isSelected ? "text-white/80" : ""}`}>
+                    {DAY_NAMES_SHORT[day.getDay()]}
+                  </span>
+                  <span className={`text-sm font-semibold leading-tight ${isSelected ? "text-white" : ""}`}>
+                    {day.getDate()}
+                  </span>
+                  <span className={`text-[10px] leading-none mt-0.5 ${isSelected ? "text-white/70" : "text-muted-foreground"}`}>
+                    {day.getMonth() + 1}.
+                  </span>
+                  {/* Green dot indicator for recipes */}
+                  <span
+                    className={`mt-1 w-1.5 h-1.5 rounded-full transition-colors ${
+                      hasRecipe
+                        ? isSelected
+                          ? "bg-white/80"
+                          : "bg-[#4A7C59]"
+                        : "bg-transparent"
+                    }`}
+                  />
+                </button>
+              );
+            })}
+          </div>
+
+          {/* Day detail card */}
+          <div className="bg-white rounded-2xl border border-border shadow-sm overflow-hidden">
+            {/* Card header */}
+            <div className={`px-5 py-4 ${isTodaySelected ? "bg-[#C1693A]/5 border-b border-[#C1693A]/15" : "bg-[#4A7C59]/5 border-b border-[#4A7C59]/15"}`}>
+              <p className={`font-serif text-lg font-semibold ${isTodaySelected ? "text-[#C1693A]" : "text-[#4A7C59]"}`}>
+                {DAY_NAMES_LONG[selectedDay.getDay()]}
+                {isTodaySelected && <span className="ml-2 text-sm font-sans font-normal text-[#C1693A]/70">– heute</span>}
+              </p>
+              <p className="text-sm text-muted-foreground">
+                {selectedDay.getDate()}. {selectedDay.toLocaleDateString("de-DE", { month: "long", year: "numeric" })}
+              </p>
+            </div>
+
+            {/* Card body */}
+            <div className="px-5 py-5">
+              {selectedRecipe ? (
+                <div className="flex flex-col sm:flex-row sm:items-center gap-4">
+                  {/* Recipe display */}
+                  <button
+                    onClick={() => setModalRecipe(selectedRecipe as Recipe)}
+                    className="flex items-center gap-4 flex-1 text-left group rounded-xl p-3 -m-3 hover:bg-[#4A7C59]/5 transition-colors"
+                  >
+                    <span className="text-4xl flex-shrink-0">{selectedEmoji}</span>
+                    <div className="min-w-0">
+                      <p className="font-serif font-semibold text-foreground text-lg leading-snug group-hover:text-[#4A7C59] transition-colors">
+                        {selectedRecipe.title}
                       </p>
-                      <button
-                        onClick={() => planEntry && handleRemove(planEntry.id)}
-                        className="self-center mt-auto p-0.5 rounded hover:bg-red-50 text-muted-foreground hover:text-red-500 transition-colors"
-                      >
-                        <X className="w-3 h-3" />
-                      </button>
+                      <p className="text-sm text-muted-foreground mt-0.5">
+                        {selectedRecipe.category}
+                        {selectedRecipe.totalTime && ` · ${selectedRecipe.totalTime.replace("ca. ", "")}`}
+                      </p>
+                      <p className="text-xs text-[#4A7C59] mt-1 font-medium opacity-0 group-hover:opacity-100 transition-opacity">
+                        Rezept ansehen →
+                      </p>
                     </div>
-                  ) : isAddingThis ? (
-                    <div className="h-full flex flex-col gap-1">
+                  </button>
+
+                  {/* Actions */}
+                  <div className="flex items-center gap-2 flex-shrink-0">
+                    {/* Change recipe */}
+                    <div className="relative">
+                      {addingDay === selectedDate ? (
+                        <select
+                          autoFocus
+                          defaultValue=""
+                          onChange={(e) => {
+                            if (e.target.value) handleSetRecipe(selectedDate, Number(e.target.value));
+                          }}
+                          onBlur={() => setAddingDay(null)}
+                          className="border border-[#4A7C59]/40 bg-white text-sm rounded-xl px-3 py-2 focus:outline-none focus:ring-2 focus:ring-[#4A7C59]/30 pr-8"
+                        >
+                          <option value="" disabled>Rezept wählen…</option>
+                          {recipes.map((r) => (
+                            <option key={r.id} value={r.id}>
+                              {CATEGORY_EMOJIS[r.category] ?? "🍽️"} {r.title}
+                            </option>
+                          ))}
+                        </select>
+                      ) : (
+                        <button
+                          onClick={() => setAddingDay(selectedDate)}
+                          className="px-3 py-2 rounded-xl border border-border text-sm text-muted-foreground hover:border-[#4A7C59]/40 hover:text-[#4A7C59] transition-colors"
+                        >
+                          Ändern
+                        </button>
+                      )}
+                    </div>
+
+                    {/* Remove */}
+                    <button
+                      onClick={() => selectedPlanEntry && handleRemove(selectedPlanEntry.id)}
+                      className="flex items-center gap-1.5 px-3 py-2 rounded-xl border border-red-200 text-red-500 text-sm hover:bg-red-50 transition-colors"
+                    >
+                      <X className="w-3.5 h-3.5" />
+                      Entfernen
+                    </button>
+                  </div>
+                </div>
+              ) : (
+                <div className="flex flex-col sm:flex-row sm:items-center gap-4">
+                  <div className="flex-1">
+                    <p className="text-muted-foreground text-sm">Kein Rezept für diesen Tag eingeplant.</p>
+                  </div>
+                  <div className="flex-shrink-0">
+                    {addingDay === selectedDate ? (
                       <select
                         autoFocus
                         defaultValue=""
                         onChange={(e) => {
-                          if (e.target.value) handleSetRecipe(dateStr, Number(e.target.value));
+                          if (e.target.value) handleSetRecipe(selectedDate, Number(e.target.value));
                         }}
                         onBlur={() => setAddingDay(null)}
-                        className="w-full text-xs border-0 bg-transparent text-muted-foreground focus:outline-none cursor-pointer"
+                        className="border border-[#4A7C59]/40 bg-white text-sm rounded-xl px-3 py-2 focus:outline-none focus:ring-2 focus:ring-[#4A7C59]/30"
                       >
                         <option value="" disabled>Rezept wählen…</option>
                         {recipes.map((r) => (
@@ -334,19 +449,20 @@ export default function Wochenplan() {
                           </option>
                         ))}
                       </select>
-                    </div>
-                  ) : (
-                    <button
-                      onClick={() => setAddingDay(dateStr)}
-                      className="w-full h-full flex items-center justify-center text-xs text-muted-foreground hover:text-[#4A7C59] transition-colors"
-                    >
-                      + Rezept
-                    </button>
-                  )}
+                    ) : (
+                      <button
+                        onClick={() => setAddingDay(selectedDate)}
+                        className="flex items-center gap-2 px-4 py-2.5 rounded-xl bg-[#4A7C59] text-white text-sm font-semibold hover:bg-[#3d6849] transition-colors"
+                      >
+                        <Plus className="w-4 h-4" />
+                        Rezept hinzufügen
+                      </button>
+                    )}
+                  </div>
                 </div>
-              </div>
-            );
-          })}
+              )}
+            </div>
+          </div>
         </div>
       )}
 
@@ -468,6 +584,14 @@ export default function Wochenplan() {
           </div>
         )}
       </div>
+
+      {/* Recipe Modal */}
+      {modalRecipe && (
+        <RecipeModal
+          recipe={modalRecipe}
+          onClose={() => setModalRecipe(null)}
+        />
+      )}
     </div>
   );
 }

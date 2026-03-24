@@ -4,6 +4,7 @@ import type { Recipe } from "@/types/recipe";
 import type { RecipeUpdatePayload } from "@/hooks/useRecipes";
 import RecipeEditModal from "@/components/RecipeEditModal";
 import { formatIngredient } from "@/types/recipe";
+import { useAuth } from "@/contexts/AuthContext";
 
 const CATEGORY_EMOJIS: Record<string, string> = {
   Fisch: "🐟", Geflügel: "🍗", Fleisch: "🥩", Vegetarisch: "🌿", Pasta: "🍝",
@@ -259,7 +260,7 @@ function BulkActionsBar({
   );
 }
 
-type MgmtSortKey = "title" | "category" | "difficulty" | "time" | "rating" | "cookedCount" | "lastCooked" | "createdAt";
+type MgmtSortKey = "title" | "category" | "difficulty" | "time" | "rating" | "cookedCount" | "lastCooked" | "createdAt" | "owner";
 
 function MgmtSortIcon({ col, sortKey, sortDir }: { col: MgmtSortKey; sortKey: MgmtSortKey; sortDir: "asc" | "desc" }) {
   if (col !== sortKey) return <ArrowUpDown className="w-3 h-3 ml-1 opacity-40 inline" />;
@@ -284,6 +285,7 @@ function RecipeTable({
   onToggleAll,
   onEdit,
   onCreateVariant,
+  currentUserDisplayName,
 }: {
   recipes: Recipe[];
   selected: Set<number>;
@@ -291,6 +293,7 @@ function RecipeTable({
   onToggleAll: () => void;
   onEdit: (r: Recipe) => void;
   onCreateVariant?: (r: Recipe) => void;
+  currentUserDisplayName: string;
 }) {
   const [sortKey, setSortKey] = useState<MgmtSortKey>("title");
   const [sortDir, setSortDir] = useState<"asc" | "desc">("asc");
@@ -326,11 +329,16 @@ function RecipeTable({
           const db2 = b.createdAt ? new Date(b.createdAt).getTime() : 0;
           return dir * (da - db2);
         }
+        case "owner": {
+          const na = (a.isOwner !== false ? currentUserDisplayName : a.owner?.displayName) ?? "";
+          const nb = (b.isOwner !== false ? currentUserDisplayName : b.owner?.displayName) ?? "";
+          return dir * na.localeCompare(nb, "de");
+        }
         default: return 0;
       }
     });
     return base;
-  }, [recipes, sortKey, sortDir]);
+  }, [recipes, sortKey, sortDir, currentUserDisplayName]);
 
   const COLS: { key: MgmtSortKey; label: string; cls: string }[] = [
     { key: "title", label: "Titel", cls: "" },
@@ -341,6 +349,7 @@ function RecipeTable({
     { key: "cookedCount", label: "Anz. gekocht", cls: "hidden xl:table-cell" },
     { key: "lastCooked", label: "Zuletzt gekocht", cls: "hidden xl:table-cell" },
     { key: "createdAt", label: "Hochgeladen am", cls: "hidden xl:table-cell" },
+    { key: "owner", label: "User", cls: "hidden xl:table-cell" },
   ];
 
   return (
@@ -381,11 +390,6 @@ function RecipeTable({
                 <td className="px-4 py-3">
                   <div className="flex items-center gap-2">
                     <span className="font-medium text-foreground line-clamp-1">{r.title}</span>
-                    {!isOwner && (
-                      <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-blue-50 text-blue-600 border border-blue-200 font-medium flex-shrink-0">
-                        {r.owner?.displayName ?? "Geteilt"}
-                      </span>
-                    )}
                     {r.variantName && (
                       <span className="flex-shrink-0 text-xs px-1.5 py-0.5 rounded-full bg-amber-100 text-amber-700">
                         🔀 {r.variantName}
@@ -419,6 +423,9 @@ function RecipeTable({
                 </td>
                 <td className="px-4 py-3 hidden xl:table-cell text-xs text-muted-foreground">
                   {createdLabel}
+                </td>
+                <td className="px-4 py-3 hidden xl:table-cell text-xs text-muted-foreground">
+                  {isOwner ? currentUserDisplayName : (r.owner?.displayName ?? "–")}
                 </td>
                 <td className="px-4 py-3 text-center" onClick={(e) => e.stopPropagation()}>
                   <div className="flex items-center justify-center gap-1">
@@ -481,6 +488,7 @@ export default function RecipeManagement({
   onClearSelect,
   addRecipes,
 }: RecipeManagementProps) {
+  const { user } = useAuth();
   const [editRecipe, setEditRecipe] = useState<Recipe | null>(null);
   const [variantBaseRecipe, setVariantBaseRecipe] = useState<Recipe | null>(null);
 
@@ -499,6 +507,7 @@ export default function RecipeManagement({
         onToggleAll={onToggleAll}
         onEdit={setEditRecipe}
         onCreateVariant={setVariantBaseRecipe}
+        currentUserDisplayName={user?.displayName ?? "–"}
       />
       <BulkActionsBar
         count={selected.size}

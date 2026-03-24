@@ -10,6 +10,7 @@ import extractFridgeRouter from "./extractFridge";
 import mealPlansRouter from "./mealPlans";
 import uploadImageRouter from "./uploadImage";
 import authRouter from "./auth";
+import suggestWeekRouter from "./suggestWeek";
 
 const router: IRouter = Router();
 
@@ -24,5 +25,6 @@ router.use(extractFridgeRouter);
 router.use(mealPlansRouter);
 router.use(uploadImageRouter);
 router.use(authRouter);
+router.use(suggestWeekRouter);
 
 export default router;

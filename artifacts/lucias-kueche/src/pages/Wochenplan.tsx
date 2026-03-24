@@ -3,8 +3,9 @@ import { useRecipes } from "@/hooks/useRecipes";
 import { useMealPlans } from "@/hooks/useMealPlans";
 import { useNutritionSummary } from "@/hooks/useNutritionSummary";
 import RecipeModal from "@/components/RecipeModal";
+import AiWeekSuggestModal, { type SuggestionEntry } from "@/components/AiWeekSuggestModal";
 import type { Recipe } from "@/types/recipe";
-import { X, ShoppingCart, Copy, Check, Loader2, ChevronLeft, ChevronRight, CalendarDays, Plus, Flame } from "lucide-react";
+import { X, ShoppingCart, Copy, Check, Loader2, ChevronLeft, ChevronRight, CalendarDays, Plus, Flame, Wand2 } from "lucide-react";
 
 type IngCategory = "Gemüse" | "Fleisch & Fisch" | "Milchprodukte" | "Vorrat" | "Sonstiges";
 
@@ -118,6 +119,8 @@ export default function Wochenplan() {
   const [copied, setCopied] = useState(false);
   const [modalRecipe, setModalRecipe] = useState<Recipe | null>(null);
 
+  const [showAiModal, setShowAiModal] = useState(false);
+
   const [shoppingRange, setShoppingRange] = useState<ShoppingRange>("this_week");
   const [customFrom, setCustomFrom] = useState(toIsoDate(today));
   const [customTo, setCustomTo] = useState(toIsoDate(addDays(today, 6)));
@@ -134,7 +137,7 @@ export default function Wochenplan() {
     [weekStart]
   );
 
-  const { plans, loading: plansLoading, addMealPlan, deleteMealPlan } = useMealPlans(
+  const { plans, loading: plansLoading, addMealPlan, deleteMealPlan, refetch: refetchWeekPlans } = useMealPlans(
     toIsoDate(weekStart),
     toIsoDate(weekEnd)
   );
@@ -209,6 +212,20 @@ export default function Wochenplan() {
     }
   };
 
+  const handleAiConfirm = async (suggestions: SuggestionEntry[]) => {
+    await Promise.all(
+      suggestions.map((s) =>
+        fetch("/api/meal-plans", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ date: s.date, recipeId: s.recipeId }),
+        })
+      )
+    );
+    await refetchWeekPlans();
+    showToast(`${suggestions.length} Rezepte in den Wochenplan eingetragen!`);
+  };
+
   const toggleCheck = (key: string) => {
     setChecked((prev) => {
       const next = new Set(prev);
@@ -265,8 +282,18 @@ export default function Wochenplan() {
         <h2 className="font-serif text-2xl font-semibold text-foreground">
           📅 Mein Wochenplan
         </h2>
-        <div className="text-sm text-muted-foreground hidden sm:block">
-          {formatMonthYear(weekStart)}
+        <div className="flex items-center gap-3">
+          <div className="text-sm text-muted-foreground hidden sm:block">
+            {formatMonthYear(weekStart)}
+          </div>
+          <button
+            onClick={() => setShowAiModal(true)}
+            className="flex items-center gap-2 px-4 py-2 rounded-xl bg-[#4A7C59] text-white text-sm font-semibold hover:bg-[#3d6849] transition-colors shadow-sm"
+          >
+            <Wand2 className="w-4 h-4" />
+            <span className="hidden sm:inline">Woche vorschlagen</span>
+            <span className="sm:hidden">KI</span>
+          </button>
         </div>
       </div>
 
@@ -653,6 +680,15 @@ export default function Wochenplan() {
           onClose={() => setModalRecipe(null)}
         />
       )}
+
+      {/* AI Week Suggest Modal */}
+      <AiWeekSuggestModal
+        open={showAiModal}
+        onClose={() => setShowAiModal(false)}
+        weekStart={weekStart}
+        allRecipes={recipes}
+        onConfirm={handleAiConfirm}
+      />
     </div>
   );
 }

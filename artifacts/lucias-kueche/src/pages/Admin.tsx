@@ -110,7 +110,7 @@ function RecipeTable({
                 </td>
                 <td className="px-4 py-3 hidden xl:table-cell text-xs text-muted-foreground">
                   {r.cookedCount ? `🍳 ${r.cookedCount}×` : "–"}
-                  {r.lastCooked ? <span className="block">{r.lastCooked}</span> : null}
+                  {r.lastCooked ? <span className="block">{new Date(r.lastCooked).toLocaleDateString("de-DE", { day: "2-digit", month: "2-digit", year: "numeric" })}</span> : null}
                 </td>
                 <td className="px-4 py-3 text-center" onClick={(e) => e.stopPropagation()}>
                   <button onClick={() => onEdit(r)}
@@ -230,7 +230,7 @@ function BulkActionsBar({
   };
 
   const doMarkCooked = async () => {
-    const today = new Date().toLocaleDateString("de-DE", { day: "2-digit", month: "2-digit", year: "2-digit" }).replace(/\//g, ".");
+    const today = new Date().toISOString().slice(0, 10);
     setBusy(true);
     try {
       await Promise.all(selectedRecipes.map((r) =>

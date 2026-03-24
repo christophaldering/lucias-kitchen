@@ -241,13 +241,15 @@ export default function RecipeModal({ recipe, onClose, onAddToWeek }: Props) {
             ) : null}
 
             <div className="flex gap-3">
-              <button
-                onClick={() => setShowDatePicker((v) => !v)}
-                className="flex items-center gap-2 px-4 py-2.5 bg-[#4A7C59] text-white rounded-xl text-sm font-semibold hover:bg-[#3d6849] transition-colors"
-              >
-                <CalendarPlus className="w-4 h-4" />
-                Zum Kalender hinzufügen
-              </button>
+              {!showDatePicker && (
+                <button
+                  onClick={() => setShowDatePicker(true)}
+                  className="flex items-center gap-2 px-4 py-2.5 bg-[#4A7C59] text-white rounded-xl text-sm font-semibold hover:bg-[#3d6849] transition-colors"
+                >
+                  <CalendarPlus className="w-4 h-4" />
+                  Zum Kalender hinzufügen
+                </button>
+              )}
 
               {onAddToWeek && (
                 <button

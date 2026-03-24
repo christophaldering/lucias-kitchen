@@ -725,6 +725,7 @@ function ImportHistory() {
 export default function BulkImportTab() {
   const [files, setFiles] = useState<File[]>([]);
   const [uploading, setUploading] = useState(false);
+  const [uploadProgress, setUploadProgress] = useState<{ current: number; total: number } | null>(null);
   const [sessionId, setSessionId] = useState<number | null>(() => {
     try {
       const stored = localStorage.getItem("lk_bulk_import_session");
@@ -788,32 +789,53 @@ export default function BulkImportTab() {
     if (files.length === 0) return;
     setUploading(true);
     setError(null);
+    setUploadProgress({ current: 0, total: files.length });
 
     try {
-      const formData = new FormData();
-      for (const file of files) {
-        formData.append("pdfs", file);
-      }
+      // Upload first file to create the session
+      const firstForm = new FormData();
+      firstForm.append("pdfs", files[0]);
 
-      const res = await fetch(`${API_BASE}/bulk-import/start`, {
+      setUploadProgress({ current: 1, total: files.length });
+      const firstRes = await fetch(`${API_BASE}/bulk-import/start`, {
         method: "POST",
         headers: authHeaders(),
-        body: formData,
+        body: firstForm,
       });
 
-      if (!res.ok) {
-        const err = await res.json().catch(() => ({}));
-        throw new Error((err as { message?: string }).message ?? `HTTP ${res.status}`);
+      if (!firstRes.ok) {
+        const err = await firstRes.json().catch(() => ({}));
+        throw new Error((err as { message?: string }).message ?? `HTTP ${firstRes.status}`);
       }
 
-      const { sessionId: newSessionId } = await res.json() as { sessionId: number };
+      const { sessionId: newSessionId } = await firstRes.json() as { sessionId: number };
       localStorage.setItem("lk_bulk_import_session", String(newSessionId));
+
+      // Upload remaining files one at a time to avoid proxy size limits
+      for (let i = 1; i < files.length; i++) {
+        setUploadProgress({ current: i + 1, total: files.length });
+        const form = new FormData();
+        form.append("pdf", files[i]);
+
+        const res = await fetch(`${API_BASE}/bulk-import/${newSessionId}/add-file`, {
+          method: "POST",
+          headers: authHeaders(),
+          body: form,
+        });
+
+        if (!res.ok) {
+          const err = await res.json().catch(() => ({}));
+          throw new Error(`Datei "${files[i].name}": ${(err as { message?: string }).message ?? `HTTP ${res.status}`}`);
+        }
+      }
+
       setSessionId(newSessionId);
       setFiles([]);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Upload fehlgeschlagen");
     } finally {
       setUploading(false);
+      setUploadProgress(null);
     }
   };
 
@@ -897,6 +919,21 @@ export default function BulkImportTab() {
             ))}
           </ul>
 
+          {uploadProgress && (
+            <div className="w-full">
+              <div className="flex justify-between text-xs text-muted-foreground mb-1">
+                <span>Datei {uploadProgress.current} von {uploadProgress.total} wird hochgeladen…</span>
+                <span>{Math.round((uploadProgress.current / uploadProgress.total) * 100)} %</span>
+              </div>
+              <div className="h-1.5 w-full bg-gray-200 rounded-full overflow-hidden">
+                <div
+                  className="h-full bg-[#4A7C59] rounded-full transition-all duration-300"
+                  style={{ width: `${(uploadProgress.current / uploadProgress.total) * 100}%` }}
+                />
+              </div>
+            </div>
+          )}
+
           <button
             onClick={handleStart}
             disabled={uploading}
@@ -905,7 +942,9 @@ export default function BulkImportTab() {
             {uploading ? (
               <>
                 <Loader2 className="w-4 h-4 animate-spin" />
-                Wird hochgeladen…
+                {uploadProgress
+                  ? `Datei ${uploadProgress.current} / ${uploadProgress.total} hochladen…`
+                  : "Wird hochgeladen…"}
               </>
             ) : (
               <>

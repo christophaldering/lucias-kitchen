@@ -11,7 +11,7 @@ import {
   usersTable,
   notificationsTable,
 } from "@workspace/db/schema";
-import { eq, and, desc } from "drizzle-orm";
+import { eq, and, desc, sql } from "drizzle-orm";
 import { anthropic } from "@workspace/integrations-anthropic-ai";
 import { ObjectStorageService, objectStorageClient } from "../lib/objectStorage";
 import {
@@ -351,6 +351,17 @@ async function runQueue(
         .update(bulkImportSessionsTable)
         .set({ processedFiles: newProcessed, updatedAt: new Date() })
         .where(eq(bulkImportSessionsTable.id, sessionId));
+    }
+
+    // Re-read latest session state — add-file may have incremented totalFiles after we started
+    const [latestSession] = await db
+      .select()
+      .from(bulkImportSessionsTable)
+      .where(eq(bulkImportSessionsTable.id, sessionId));
+
+    if ((latestSession?.processedFiles ?? 0) < (latestSession?.totalFiles ?? files.length)) {
+      // More files are still being added / processed by add-file calls — don't close yet
+      return;
     }
 
     await db
@@ -714,6 +725,140 @@ router.post(
     } catch (err) {
       req.log.error({ err }, "Failed to start bulk import");
       res.status(500).json({ error: "internal_error", message: "Bulk-Import konnte nicht gestartet werden" });
+    }
+  }
+);
+
+router.post(
+  "/bulk-import/:sessionId/add-file",
+  authMiddleware,
+  upload.single("pdf"),
+  async (req, res) => {
+    try {
+      const sessionId = Number(req.params.sessionId);
+      if (isNaN(sessionId)) {
+        res.status(400).json({ error: "bad_request", message: "Ungültige Session-ID" });
+        return;
+      }
+
+      const file = req.file;
+      if (!file) {
+        res.status(400).json({ error: "bad_request", message: "Keine PDF-Datei hochgeladen" });
+        return;
+      }
+
+      const userId = req.authUser!.id;
+
+      const [session] = await db
+        .select()
+        .from(bulkImportSessionsTable)
+        .where(eq(bulkImportSessionsTable.id, sessionId));
+
+      if (!session) {
+        res.status(404).json({ error: "not_found", message: "Session nicht gefunden" });
+        return;
+      }
+
+      if (session.userId !== userId) {
+        res.status(403).json({ error: "forbidden", message: "Zugriff verweigert" });
+        return;
+      }
+
+      let pdfStoragePath: string | null = null;
+      try {
+        pdfStoragePath = await storageService.uploadBuffer(file.buffer, "application/pdf", "bulk-import/pdfs");
+      } catch (uploadErr) {
+        console.error("Failed to persist PDF to storage:", uploadErr);
+      }
+
+      const [fileRecord] = await db
+        .insert(bulkImportFilesTable)
+        .values({
+          sessionId,
+          fileName: file.originalname,
+          status: "pending",
+          pageImageUrls: [] as unknown as string[],
+          pdfStoragePath,
+        })
+        .returning();
+
+      await db
+        .update(bulkImportSessionsTable)
+        .set({
+          totalFiles: sql`${bulkImportSessionsTable.totalFiles} + 1`,
+          status: "processing",
+          updatedAt: new Date(),
+        })
+        .where(eq(bulkImportSessionsTable.id, sessionId));
+
+      res.json({ fileId: fileRecord.id, sessionId });
+
+      const fileBuffer = file.buffer;
+      const fileBase64 = file.buffer.toString("base64");
+      const fileName = file.originalname;
+
+      setImmediate(async () => {
+        try {
+          await processPdfFile(fileRecord.id, sessionId, fileName, fileBuffer, fileBase64);
+
+          const [updated] = await db
+            .update(bulkImportSessionsTable)
+            .set({
+              processedFiles: sql`${bulkImportSessionsTable.processedFiles} + 1`,
+              updatedAt: new Date(),
+            })
+            .where(eq(bulkImportSessionsTable.id, sessionId))
+            .returning();
+
+          if ((updated?.processedFiles ?? 0) >= (updated?.totalFiles ?? 1)) {
+            await db
+              .update(bulkImportSessionsTable)
+              .set({ status: "done", currentFile: null, updatedAt: new Date() })
+              .where(eq(bulkImportSessionsTable.id, sessionId));
+
+            await db
+              .update(usersTable)
+              .set({ activeBulkImportSessionId: null })
+              .where(eq(usersTable.id, userId));
+
+            const allItems = await db
+              .select()
+              .from(bulkImportItemsTable)
+              .where(eq(bulkImportItemsTable.sessionId, sessionId));
+
+            const [finalSession] = await db
+              .select()
+              .from(bulkImportSessionsTable)
+              .where(eq(bulkImportSessionsTable.id, sessionId));
+
+            const totalRecipes = allItems.filter((i) => i.status !== "failed").length;
+            const totalFilesCount = finalSession?.totalFiles ?? 1;
+
+            await db.insert(notificationsTable).values({
+              userId,
+              type: "bulk_import_done",
+              payload: {
+                sessionId,
+                totalRecipes,
+                totalFiles: totalFilesCount,
+                message: `Import abgeschlossen: ${totalRecipes} Rezepte aus ${totalFilesCount} Datei${totalFilesCount !== 1 ? "en" : ""} extrahiert`,
+              },
+            });
+          }
+        } catch (procErr) {
+          console.error("add-file processing failed:", procErr);
+          await db
+            .update(bulkImportSessionsTable)
+            .set({
+              processedFiles: sql`${bulkImportSessionsTable.processedFiles} + 1`,
+              updatedAt: new Date(),
+            })
+            .where(eq(bulkImportSessionsTable.id, sessionId));
+        }
+      });
+    } catch (err) {
+      req.log.error({ err }, "Failed to add file to bulk import session");
+      res.status(500).json({ error: "internal_error", message: "Datei konnte nicht hinzugefügt werden" });
     }
   }
 );

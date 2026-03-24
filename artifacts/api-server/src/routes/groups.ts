@@ -362,6 +362,140 @@ router.post("/groups/:id/invite", authMiddleware, async (req, res) => {
   }
 });
 
+router.post("/groups/family-invite", authMiddleware, async (req, res) => {
+  try {
+    const schema = z.object({
+      email: z.string().email(),
+    });
+
+    const { email } = schema.parse(req.body);
+    const userId = req.authUser!.id;
+
+    const ownedMemberships = await db
+      .select({ groupId: groupMembersTable.groupId })
+      .from(groupMembersTable)
+      .where(
+        and(
+          eq(groupMembersTable.userId, userId),
+          eq(groupMembersTable.role, "owner"),
+          eq(groupMembersTable.memberStatus, "joined")
+        )
+      );
+
+    let groupId: number;
+
+    if (ownedMemberships.length > 0) {
+      const ownedGroupIds = ownedMemberships.map((m) => m.groupId);
+      const ownedGroups = await db
+        .select()
+        .from(groupsTable)
+        .where(
+          ownedGroupIds.length === 1
+            ? eq(groupsTable.id, ownedGroupIds[0]!)
+            : or(...ownedGroupIds.map((id) => eq(groupsTable.id, id)))
+        );
+
+      const approvedOwned = ownedGroups.find((g) => g.status === "approved");
+
+      if (approvedOwned) {
+        groupId = approvedOwned.id;
+      } else {
+        const [newGroup] = await db
+          .insert(groupsTable)
+          .values({ name: "Meine Familie", creatorId: userId, status: "approved" })
+          .returning();
+        await db.insert(groupMembersTable).values({
+          groupId: newGroup!.id,
+          userId,
+          role: "owner",
+          memberStatus: "joined",
+          invitedByUserId: userId,
+        });
+        groupId = newGroup!.id;
+      }
+    } else {
+      const [newGroup] = await db
+        .insert(groupsTable)
+        .values({ name: "Meine Familie", creatorId: userId, status: "approved" })
+        .returning();
+      await db.insert(groupMembersTable).values({
+        groupId: newGroup!.id,
+        userId,
+        role: "owner",
+        memberStatus: "joined",
+        invitedByUserId: userId,
+      });
+      groupId = newGroup!.id;
+    }
+
+    const normalizedEmail = email.toLowerCase();
+
+    const invitedUser = await db
+      .select()
+      .from(usersTable)
+      .where(eq(usersTable.email, normalizedEmail))
+      .then((r) => r[0]);
+
+    if (invitedUser && invitedUser.id === userId) {
+      res.status(400).json({ error: "cannot_invite_self", message: "Du kannst dich nicht selbst einladen" });
+      return;
+    }
+
+    const existingMembership = await db
+      .select()
+      .from(groupMembersTable)
+      .where(
+        and(
+          eq(groupMembersTable.groupId, groupId),
+          invitedUser
+            ? eq(groupMembersTable.userId, invitedUser.id)
+            : eq(groupMembersTable.invitedEmail, normalizedEmail)
+        )
+      )
+      .then((r) => r[0]);
+
+    if (existingMembership) {
+      res.status(409).json({ error: "already_member", message: "Diese Person ist bereits eingeladen oder Mitglied" });
+      return;
+    }
+
+    if (invitedUser) {
+      const [member] = await db
+        .insert(groupMembersTable)
+        .values({
+          groupId,
+          userId: invitedUser.id,
+          invitedEmail: invitedUser.email,
+          invitedByUserId: userId,
+          role: "member",
+          memberStatus: "joined",
+        })
+        .returning();
+      res.status(201).json({ ...member, displayName: invitedUser.displayName, email: invitedUser.email, inviteType: "user", groupId });
+    } else {
+      const [member] = await db
+        .insert(groupMembersTable)
+        .values({
+          groupId,
+          userId: null,
+          invitedEmail: normalizedEmail,
+          invitedByUserId: userId,
+          role: "member",
+          memberStatus: "invited",
+        })
+        .returning();
+      res.status(201).json({ ...member, displayName: null, email: normalizedEmail, inviteType: "email_only", groupId });
+    }
+  } catch (err) {
+    if (err instanceof z.ZodError) {
+      res.status(400).json({ error: "validation_error", issues: err.issues });
+      return;
+    }
+    req.log.error({ err }, "Failed to family-invite member");
+    res.status(500).json({ error: "internal_error" });
+  }
+});
+
 router.put("/groups/:id/join", authMiddleware, async (req, res) => {
   try {
     const groupId = Number(req.params["id"]);

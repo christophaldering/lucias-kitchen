@@ -1,7 +1,7 @@
 import { useState, type ReactNode } from "react";
 import {
   Users, ChefHat, Share2, Plus, Clock, CheckCircle, XCircle, ChevronRight,
-  CalendarDays, Bell, BookmarkPlus, X, Loader2, Send, Inbox, ExternalLink
+  CalendarDays, Bell, BookmarkPlus, X, Loader2, Send, Inbox, ExternalLink, UserPlus
 } from "lucide-react";
 import { useInvitations, useNotifications } from "@/hooks/useInvitations";
 import { useRecipes } from "@/hooks/useRecipes";
@@ -12,6 +12,7 @@ import GroupCreateModal from "@/components/GroupCreateModal";
 import GroupMembersModal from "@/components/GroupMembersModal";
 import RespondInvitationDialog from "@/components/RespondInvitationDialog";
 import InvitationHostDialog from "@/components/InvitationHostDialog";
+import FamilyInviteDialog from "@/components/FamilyInviteDialog";
 import type { MealInvitation } from "@/hooks/useInvitations";
 
 function toast(msg: string, type: "ok" | "err" = "ok") {
@@ -109,6 +110,7 @@ function SectionButton({
 function GruppenSection() {
   const { groups, loading: groupsLoading, fetchGroups, joinGroup } = useGroups();
   const [showCreateGroup, setShowCreateGroup] = useState(false);
+  const [showFamilyInvite, setShowFamilyInvite] = useState(false);
   const [selectedGroup, setSelectedGroup] = useState<Group | null>(null);
 
   const activeGroups = groups.filter((g) => g.status === "approved" && g.myMemberStatus === "joined");
@@ -133,6 +135,11 @@ function GruppenSection() {
           onCreated={fetchGroups}
         />
       )}
+      {showFamilyInvite && (
+        <FamilyInviteDialog
+          onClose={() => { setShowFamilyInvite(false); fetchGroups(); }}
+        />
+      )}
       {selectedGroup && (
         <GroupMembersModal
           group={selectedGroup}
@@ -142,6 +149,20 @@ function GruppenSection() {
       )}
 
       <div className="space-y-5">
+        <button
+          onClick={() => setShowFamilyInvite(true)}
+          className="w-full flex items-center gap-4 p-4 rounded-2xl border-2 border-dashed border-[#4A7C59]/40 bg-[#4A7C59]/5 hover:bg-[#4A7C59]/10 hover:border-[#4A7C59]/60 transition-all text-left group"
+        >
+          <div className="w-12 h-12 rounded-xl bg-[#C1693A]/10 flex items-center justify-center flex-shrink-0 group-hover:bg-[#C1693A]/20 transition-colors">
+            <UserPlus className="w-6 h-6 text-[#C1693A]" />
+          </div>
+          <div className="flex-1 min-w-0">
+            <p className="font-semibold text-sm text-foreground">Familienmitglied einladen</p>
+            <p className="text-xs text-muted-foreground mt-0.5">E-Mail eingeben – sofort in die Familie aufnehmen</p>
+          </div>
+          <ChevronRight className="w-5 h-5 text-[#4A7C59] flex-shrink-0 group-hover:translate-x-0.5 transition-transform" />
+        </button>
+
         <div className="flex items-center justify-between">
           <h2 className="font-serif text-base font-semibold flex items-center gap-2">
             <Users className="w-4 h-4 text-[#4A7C59]" /> Gruppen & Mitglieder
@@ -568,6 +589,8 @@ function KocheinladungenSection({ user }: { user: ReturnType<typeof useAuth>["us
   const [subTab, setSubTab] = useState<"invitations" | "notifications">("invitations");
   const [respondingTo, setRespondingTo] = useState<MealInvitation | null>(null);
   const [managingInvitation, setManagingInvitation] = useState<MealInvitation | null>(null);
+  const [showFamilyInvite, setShowFamilyInvite] = useState(false);
+  const { fetchGroups } = useGroups();
 
   const asHost = invitations.filter((inv) => inv.isHost);
   const asGuest = invitations.filter((inv) => !inv.isHost);
@@ -578,6 +601,26 @@ function KocheinladungenSection({ user }: { user: ReturnType<typeof useAuth>["us
 
   return (
     <div>
+      {showFamilyInvite && (
+        <FamilyInviteDialog
+          onClose={() => { setShowFamilyInvite(false); fetchGroups(); }}
+        />
+      )}
+
+      <button
+        onClick={() => setShowFamilyInvite(true)}
+        className="w-full flex items-center gap-4 p-4 rounded-2xl border-2 border-dashed border-[#4A7C59]/40 bg-[#4A7C59]/5 hover:bg-[#4A7C59]/10 hover:border-[#4A7C59]/60 transition-all text-left group mb-5"
+      >
+        <div className="w-12 h-12 rounded-xl bg-[#C1693A]/10 flex items-center justify-center flex-shrink-0 group-hover:bg-[#C1693A]/20 transition-colors">
+          <UserPlus className="w-6 h-6 text-[#C1693A]" />
+        </div>
+        <div className="flex-1 min-w-0">
+          <p className="font-semibold text-sm text-foreground">Familienmitglied einladen</p>
+          <p className="text-xs text-muted-foreground mt-0.5">E-Mail eingeben – sofort in die Familie aufnehmen</p>
+        </div>
+        <ChevronRight className="w-5 h-5 text-[#4A7C59] flex-shrink-0 group-hover:translate-x-0.5 transition-transform" />
+      </button>
+
       <div className="flex gap-2 mb-5">
         <button
           onClick={() => setSubTab("invitations")}

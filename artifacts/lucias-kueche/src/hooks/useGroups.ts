@@ -121,7 +121,22 @@ export function useGroups() {
     if (!res.ok) throw new Error("Mitglied konnte nicht entfernt werden");
   }, []);
 
-  return { groups, loading, error, fetchGroups, createGroup, joinGroup, inviteMember, getMembers, removeMember };
+  const familyInvite = useCallback(async (email: string) => {
+    const res = await fetch(`${API_BASE}/groups/family-invite`, {
+      method: "POST",
+      headers: authHeaders(),
+      body: JSON.stringify({ email }),
+    });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      throw new Error(err.message ?? "Einladung fehlgeschlagen");
+    }
+    const data = await res.json() as GroupMember & { inviteType?: "user" | "email_only"; groupId: number };
+    await fetchGroups();
+    return data;
+  }, [fetchGroups]);
+
+  return { groups, loading, error, fetchGroups, createGroup, joinGroup, inviteMember, getMembers, removeMember, familyInvite };
 }
 
 export function useAdminGroups() {

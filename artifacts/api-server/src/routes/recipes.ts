@@ -22,22 +22,22 @@ const VALID_SEASONS = ["spring", "summer", "autumn", "winter"] as const;
 
 const recipeBodySchema = z.object({
   title: z.string().min(1),
-  servings: z.number().int().positive().optional().nullable(),
+  servings: z.coerce.number().int().positive().optional().nullable(),
   prepTime: z.string().optional().nullable(),
   totalTime: z.string().optional().nullable(),
   difficulty: z.enum(["simpel", "normal", "schwer"]).default("normal"),
   category: z.string().min(1),
   rating: z.string().optional().nullable(),
-  kcalPerPortion: z.number().int().positive().optional().nullable(),
+  kcalPerPortion: z.coerce.number().int().positive().optional().nullable(),
   source: z.string().optional().nullable(),
   lastCooked: z.string().optional().nullable(),
-  cookedCount: z.number().int().min(0).optional().nullable(),
+  cookedCount: z.coerce.number().int().min(0).optional().nullable(),
   notes: z.string().optional().nullable(),
   steps: z.array(z.string()).default([]),
   ingredients: z.array(ingredientSchema).default([]),
   imageUrl: z.string().optional().nullable(),
   seasons: z.array(z.enum(VALID_SEASONS)).default([]),
-  parentRecipeId: z.number().int().positive().optional().nullable(),
+  parentRecipeId: z.coerce.number().int().positive().optional().nullable(),
   variantName: z.string().optional().nullable(),
 });
 

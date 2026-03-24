@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect, useCallback } from "react";
-import { X, Camera, ImageIcon, FileText, Check, Loader2, Bot, Plus, Trash2 } from "lucide-react";
+import { X, Camera, ImageIcon, FileText, Check, Loader2, Bot, Plus, Trash2, ChevronUp, Edit2 } from "lucide-react";
 import type { Recipe } from "@/types/recipe";
 import { extractImageRecipes } from "@/hooks/useRecipes";
 
@@ -18,12 +18,83 @@ interface PhotoEntry {
   mimeType: string;
 }
 
+const VALID_CATEGORIES = ["Fisch", "Fleisch", "Pasta", "Vegetarisch", "Geflügel", "Sonstiges"];
+const VALID_DIFFICULTIES = ["simpel", "normal", "schwer"] as const;
+
+function sanitizeRecipe(r: Partial<Recipe>): Partial<Recipe> {
+  const servingsRaw = r.servings;
+  let servings: number | null = null;
+  if (servingsRaw != null) {
+    const n = typeof servingsRaw === "string" ? parseInt(servingsRaw as unknown as string, 10) : Number(servingsRaw);
+    servings = Number.isFinite(n) && n > 0 ? Math.round(n) : null;
+  }
+
+  const kcalRaw = r.kcalPerPortion;
+  let kcalPerPortion: number | null = null;
+  if (kcalRaw != null) {
+    const n = typeof kcalRaw === "string" ? parseInt(kcalRaw as unknown as string, 10) : Number(kcalRaw);
+    kcalPerPortion = Number.isFinite(n) && n > 0 ? Math.round(n) : null;
+  }
+
+  const prepTime = r.prepTime != null ? String(r.prepTime) : null;
+  const totalTime = r.totalTime != null ? String(r.totalTime) : null;
+
+  const rawCategory = r.category ?? "";
+  const category = VALID_CATEGORIES.includes(rawCategory) ? rawCategory : "Sonstiges";
+
+  const rawDifficulty = r.difficulty ?? "normal";
+  const difficulty: "simpel" | "normal" | "schwer" = (VALID_DIFFICULTIES as readonly string[]).includes(rawDifficulty)
+    ? (rawDifficulty as "simpel" | "normal" | "schwer")
+    : "normal";
+
+  const ingredients = (r.ingredients ?? []).filter((ing) => {
+    const name = (ing as { name?: string }).name?.trim() ?? "";
+    return name.length > 0;
+  });
+
+  return {
+    ...r,
+    servings,
+    kcalPerPortion,
+    prepTime,
+    totalTime,
+    category,
+    difficulty,
+    ingredients,
+  };
+}
+
+function formatZodIssues(issues: Array<{ path: (string | number)[]; message: string }>): string {
+  const fieldLabels: Record<string, string> = {
+    title: "Titel",
+    category: "Kategorie",
+    difficulty: "Schwierigkeitsgrad",
+    servings: "Portionen",
+    prepTime: "Vorbereitungszeit",
+    totalTime: "Gesamtzeit",
+    kcalPerPortion: "Kalorien",
+    ingredients: "Zutaten",
+    steps: "Zubereitungsschritte",
+  };
+
+  const messages = issues.map((issue) => {
+    const field = issue.path[0] != null ? String(issue.path[0]) : "";
+    const label = fieldLabels[field] ?? field;
+    if (!label) return issue.message;
+    return `${label}: ${issue.message}`;
+  });
+
+  if (messages.length === 0) return "Ungültige Daten.";
+  return messages.join(" · ");
+}
+
 export default function ImageImportModal({ onClose, onAdd }: Props) {
   const [step, setStep] = useState<Step>("upload");
   const [photos, setPhotos] = useState<PhotoEntry[]>([]);
   const [extracted, setExtracted] = useState<Partial<Recipe>[]>([]);
   const [selected, setSelected] = useState<Set<number>>(new Set());
   const [errorMsg, setErrorMsg] = useState("");
+  const [expandedIndex, setExpandedIndex] = useState<number | null>(null);
 
   const galleryRef = useRef<HTMLInputElement>(null);
   const cameraRef = useRef<HTMLInputElement>(null);
@@ -63,8 +134,9 @@ export default function ImageImportModal({ onClose, onAdd }: Props) {
     try {
       const images = imageList.map((p) => ({ base64: p.base64, mimeType: p.mimeType }));
       const { recipes } = await extractImageRecipes(images);
-      setExtracted(recipes);
-      setSelected(new Set(recipes.map((_, i) => i)));
+      const sanitized = recipes.map(sanitizeRecipe);
+      setExtracted(sanitized);
+      setSelected(new Set(sanitized.map((_, i) => i)));
       setStep("review");
     } catch (err) {
       setErrorMsg(err instanceof Error ? err.message : "Extraktion fehlgeschlagen.");
@@ -138,6 +210,23 @@ export default function ImageImportModal({ onClose, onAdd }: Props) {
     });
   };
 
+  const toggleExpand = (i: number) => {
+    setExpandedIndex((prev) => (prev === i ? null : i));
+  };
+
+  const updateRecipeField = (index: number, field: string, value: string) => {
+    setExtracted((prev) =>
+      prev.map((r, i) => {
+        if (i !== index) return r;
+        if (field === "servings") {
+          const n = parseInt(value, 10);
+          return { ...r, servings: Number.isFinite(n) && n > 0 ? n : null };
+        }
+        return { ...r, [field]: value };
+      })
+    );
+  };
+
   const handleConfirm = async () => {
     const toAdd = extracted.filter((_, i) => selected.has(i));
     if (toAdd.length === 0) return;
@@ -145,8 +234,23 @@ export default function ImageImportModal({ onClose, onAdd }: Props) {
     try {
       await onAdd(toAdd);
       setStep("done");
-    } catch {
-      setErrorMsg("Rezepte konnten nicht gespeichert werden.");
+    } catch (err) {
+      let msg = "Rezepte konnten nicht gespeichert werden.";
+      if (err instanceof Error) {
+        try {
+          const parsed = JSON.parse(err.message);
+          if (parsed?.issues && Array.isArray(parsed.issues)) {
+            msg = formatZodIssues(parsed.issues);
+          } else if (parsed?.message) {
+            msg = parsed.message;
+          }
+        } catch {
+          if (err.message && !err.message.startsWith("HTTP")) {
+            msg = err.message;
+          }
+        }
+      }
+      setErrorMsg(msg);
       setStep("error");
     }
   };
@@ -158,6 +262,7 @@ export default function ImageImportModal({ onClose, onAdd }: Props) {
     setExtracted([]);
     setSelected(new Set());
     setPhotos([]);
+    setExpandedIndex(null);
   };
 
   return (
@@ -183,7 +288,6 @@ export default function ImageImportModal({ onClose, onAdd }: Props) {
           {/* STEP: Upload */}
           {step === "upload" && (
             <div className="space-y-4">
-              {/* Drag & drop zone */}
               <div
                 className="border-2 border-dashed border-[#4A7C59]/40 rounded-xl p-8 flex flex-col items-center gap-4 cursor-pointer hover:border-[#4A7C59]/70 hover:bg-[#4A7C59]/5 transition-colors"
                 onClick={() => galleryRef.current?.click()}
@@ -204,7 +308,6 @@ export default function ImageImportModal({ onClose, onAdd }: Props) {
                 />
               </div>
 
-              {/* Camera button */}
               <button
                 onClick={() => cameraRef.current?.click()}
                 className="w-full flex items-center justify-center gap-2 py-2.5 border border-[#4A7C59]/40 text-[#4A7C59] rounded-xl text-sm font-semibold hover:bg-[#4A7C59]/8 transition-colors"
@@ -255,7 +358,7 @@ export default function ImageImportModal({ onClose, onAdd }: Props) {
             <div>
               <div className="flex items-center gap-2 text-xs font-medium px-3 py-2 rounded-lg border mb-4 bg-blue-50 text-blue-700 border-blue-200">
                 <Bot className="w-3.5 h-3.5" />
-                GPT-4o Vision (Foto-Analyse)
+                GPT-4o Vision (Foto-Analyse) · Bitte Daten prüfen und ggf. korrigieren
               </div>
 
               {/* Photo thumbnails with delete + add more */}
@@ -352,49 +455,163 @@ export default function ImageImportModal({ onClose, onAdd }: Props) {
               ) : (
                 <>
                   <p className="text-sm text-muted-foreground mb-4">
-                    {extracted.length} Rezept{extracted.length !== 1 ? "e" : ""} erkannt. Wähle aus, welche hinzugefügt werden sollen:
+                    {extracted.length} Rezept{extracted.length !== 1 ? "e" : ""} erkannt. Auswahl treffen und bei Bedarf bearbeiten:
                   </p>
                   <ul className="space-y-2 mb-6">
                     {extracted.map((r, i) => (
                       <li
                         key={i}
-                        className={`flex items-start gap-3 p-3 rounded-xl border cursor-pointer transition-colors ${
+                        className={`rounded-xl border transition-colors ${
                           selected.has(i)
                             ? "bg-[#4A7C59]/8 border-[#4A7C59]/30"
                             : "bg-white border-border"
                         }`}
-                        onClick={() => toggleSelect(i)}
                       >
+                        {/* Recipe header row */}
                         <div
-                          className={`mt-0.5 w-4 h-4 rounded border flex-shrink-0 flex items-center justify-center transition-colors ${
-                            selected.has(i)
-                              ? "bg-[#4A7C59] border-[#4A7C59]"
-                              : "border-border"
-                          }`}
+                          className="flex items-start gap-3 p-3 cursor-pointer"
+                          onClick={() => toggleSelect(i)}
                         >
-                          {selected.has(i) && <Check className="w-2.5 h-2.5 text-white" />}
+                          <div
+                            className={`mt-0.5 w-4 h-4 rounded border flex-shrink-0 flex items-center justify-center transition-colors ${
+                              selected.has(i)
+                                ? "bg-[#4A7C59] border-[#4A7C59]"
+                                : "border-border"
+                            }`}
+                          >
+                            {selected.has(i) && <Check className="w-2.5 h-2.5 text-white" />}
+                          </div>
+                          <div className="min-w-0 flex-1">
+                            <p className="font-semibold text-sm text-foreground leading-snug">
+                              {r.title ?? "Unbekanntes Rezept"}
+                            </p>
+                            <div className="flex flex-wrap gap-2 mt-1">
+                              {r.category && (
+                                <span className="text-xs text-[#4A7C59] bg-[#4A7C59]/10 px-2 py-0.5 rounded-full">
+                                  {r.category}
+                                </span>
+                              )}
+                              {r.difficulty && (
+                                <span className="text-xs text-muted-foreground">{r.difficulty}</span>
+                              )}
+                              {r.servings && (
+                                <span className="text-xs text-muted-foreground">{r.servings} Portionen</span>
+                              )}
+                              {r.ingredients && (
+                                <span className="text-xs text-muted-foreground flex items-center gap-1">
+                                  <FileText className="w-3 h-3" />
+                                  {r.ingredients.length} Zutaten
+                                </span>
+                              )}
+                            </div>
+                          </div>
+                          <button
+                            onClick={(e) => { e.stopPropagation(); toggleExpand(i); }}
+                            className="p-1 text-muted-foreground hover:text-foreground flex-shrink-0"
+                            aria-label="Details bearbeiten"
+                          >
+                            {expandedIndex === i ? <ChevronUp className="w-4 h-4" /> : <Edit2 className="w-4 h-4" />}
+                          </button>
                         </div>
-                        <div className="min-w-0">
-                          <p className="font-semibold text-sm text-foreground leading-snug">
-                            {r.title ?? "Unbekanntes Rezept"}
-                          </p>
-                          <div className="flex flex-wrap gap-2 mt-1">
-                            {r.category && (
-                              <span className="text-xs text-[#4A7C59] bg-[#4A7C59]/10 px-2 py-0.5 rounded-full">
-                                {r.category}
-                              </span>
-                            )}
-                            {r.difficulty && (
-                              <span className="text-xs text-muted-foreground">{r.difficulty}</span>
-                            )}
-                            {r.ingredients && (
-                              <span className="text-xs text-muted-foreground flex items-center gap-1">
-                                <FileText className="w-3 h-3" />
-                                {r.ingredients.length} Zutaten
-                              </span>
+
+                        {/* Expandable edit panel */}
+                        {expandedIndex === i && (
+                          <div className="px-3 pb-3 border-t border-[#4A7C59]/20 pt-3 space-y-3" onClick={(e) => e.stopPropagation()}>
+                            <p className="text-xs font-semibold text-[#4A7C59] uppercase tracking-wide">Daten prüfen & korrigieren</p>
+
+                            {/* Title */}
+                            <div>
+                              <label className="text-xs text-muted-foreground mb-1 block">Titel</label>
+                              <input
+                                type="text"
+                                value={r.title ?? ""}
+                                onChange={(e) => updateRecipeField(i, "title", e.target.value)}
+                                className="w-full text-sm border border-border rounded-lg px-3 py-1.5 bg-white focus:outline-none focus:ring-1 focus:ring-[#4A7C59]"
+                              />
+                            </div>
+
+                            {/* Category */}
+                            <div>
+                              <label className="text-xs text-muted-foreground mb-1 block">Kategorie</label>
+                              <select
+                                value={r.category ?? "Sonstiges"}
+                                onChange={(e) => updateRecipeField(i, "category", e.target.value)}
+                                className="w-full text-sm border border-border rounded-lg px-3 py-1.5 bg-white focus:outline-none focus:ring-1 focus:ring-[#4A7C59]"
+                              >
+                                {VALID_CATEGORIES.map((cat) => (
+                                  <option key={cat} value={cat}>{cat}</option>
+                                ))}
+                              </select>
+                            </div>
+
+                            {/* Difficulty */}
+                            <div>
+                              <label className="text-xs text-muted-foreground mb-1 block">Schwierigkeitsgrad</label>
+                              <select
+                                value={r.difficulty ?? "normal"}
+                                onChange={(e) => updateRecipeField(i, "difficulty", e.target.value)}
+                                className="w-full text-sm border border-border rounded-lg px-3 py-1.5 bg-white focus:outline-none focus:ring-1 focus:ring-[#4A7C59]"
+                              >
+                                <option value="simpel">Simpel</option>
+                                <option value="normal">Normal</option>
+                                <option value="schwer">Schwer</option>
+                              </select>
+                            </div>
+
+                            {/* Servings + prep/total time in a row */}
+                            <div className="grid grid-cols-3 gap-2">
+                              <div>
+                                <label className="text-xs text-muted-foreground mb-1 block">Portionen</label>
+                                <input
+                                  type="number"
+                                  min="1"
+                                  value={r.servings ?? ""}
+                                  onChange={(e) => updateRecipeField(i, "servings", e.target.value)}
+                                  className="w-full text-sm border border-border rounded-lg px-2 py-1.5 bg-white focus:outline-none focus:ring-1 focus:ring-[#4A7C59]"
+                                />
+                              </div>
+                              <div>
+                                <label className="text-xs text-muted-foreground mb-1 block">Vorbereitung</label>
+                                <input
+                                  type="text"
+                                  placeholder="z.B. 10 Min"
+                                  value={r.prepTime ?? ""}
+                                  onChange={(e) => updateRecipeField(i, "prepTime", e.target.value)}
+                                  className="w-full text-sm border border-border rounded-lg px-2 py-1.5 bg-white focus:outline-none focus:ring-1 focus:ring-[#4A7C59]"
+                                />
+                              </div>
+                              <div>
+                                <label className="text-xs text-muted-foreground mb-1 block">Gesamt</label>
+                                <input
+                                  type="text"
+                                  placeholder="z.B. 30 Min"
+                                  value={r.totalTime ?? ""}
+                                  onChange={(e) => updateRecipeField(i, "totalTime", e.target.value)}
+                                  className="w-full text-sm border border-border rounded-lg px-2 py-1.5 bg-white focus:outline-none focus:ring-1 focus:ring-[#4A7C59]"
+                                />
+                              </div>
+                            </div>
+
+                            {/* Ingredients preview */}
+                            {r.ingredients && r.ingredients.length > 0 && (
+                              <div>
+                                <label className="text-xs text-muted-foreground mb-1 block">
+                                  Zutaten ({r.ingredients.length})
+                                </label>
+                                <div className="text-xs text-muted-foreground bg-white border border-border rounded-lg px-3 py-2 max-h-28 overflow-y-auto space-y-0.5">
+                                  {r.ingredients.slice(0, 10).map((ing, j) => (
+                                    <div key={j}>
+                                      {[(ing as { amount?: string }).amount, (ing as { unit?: string }).unit, (ing as { name?: string }).name].filter(Boolean).join(" ")}
+                                    </div>
+                                  ))}
+                                  {r.ingredients.length > 10 && (
+                                    <div className="text-[#4A7C59]">+{r.ingredients.length - 10} weitere…</div>
+                                  )}
+                                </div>
+                              </div>
                             )}
                           </div>
-                        </div>
+                        )}
                       </li>
                     ))}
                   </ul>
@@ -454,10 +671,17 @@ export default function ImageImportModal({ onClose, onAdd }: Props) {
               <p className="text-sm text-muted-foreground max-w-xs">{errorMsg}</p>
               <div className="flex gap-3 mt-2">
                 <button
-                  onClick={reset}
+                  onClick={() => {
+                    if (extracted.length > 0) {
+                      setStep("review");
+                      setErrorMsg("");
+                    } else {
+                      reset();
+                    }
+                  }}
                   className="px-4 py-2.5 bg-[#4A7C59] text-white rounded-xl text-sm font-semibold hover:bg-[#3d6849] transition-colors"
                 >
-                  Nochmal versuchen
+                  {extracted.length > 0 ? "Zurück zur Vorschau" : "Nochmal versuchen"}
                 </button>
                 <button
                   onClick={handleClose}

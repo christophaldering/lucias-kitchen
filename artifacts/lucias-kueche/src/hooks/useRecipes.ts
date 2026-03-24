@@ -71,7 +71,10 @@ export function useRecipes(filter: RecipeFilter = "all") {
       headers: { "Content-Type": "application/json", ...authHeaders() },
       body: JSON.stringify(newRecipes),
     });
-    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    if (!res.ok) {
+      const errBody = await res.json().catch(() => ({}));
+      throw new Error(JSON.stringify(errBody));
+    }
     await fetchRecipes();
   }, [fetchRecipes]);
 

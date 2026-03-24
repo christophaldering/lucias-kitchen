@@ -1,8 +1,9 @@
 import { useState, useMemo, useEffect, useRef } from "react";
 import { Recipe } from "@/types/recipe";
 import { useRecipes } from "@/hooks/useRecipes";
-import { Clock, Search, ChefHat, Upload, Link, Camera, Loader2, LayoutGrid, Table, Settings2, Plus, ArrowUp, ArrowDown, ArrowUpDown } from "lucide-react";
+import { Clock, Search, ChefHat, Upload, Link, Camera, Loader2, LayoutGrid, Table, Settings2, Plus, ArrowUp, ArrowDown, ArrowUpDown, UtensilsCrossed } from "lucide-react";
 import RecipeModal from "@/components/RecipeModal";
+import CookingMode from "@/components/CookingMode";
 import PdfUploadModal from "@/components/PdfUploadModal";
 import RecipeManagement from "@/components/RecipeManagement";
 import UrlImportModal from "@/components/UrlImportModal";
@@ -60,11 +61,13 @@ function RatingBadge({ rating }: { rating: string | null }) {
 function RecipeCard({
   recipe,
   onClick,
+  onCook,
   showNotes,
   showCookCount,
 }: {
   recipe: Recipe;
   onClick: () => void;
+  onCook: () => void;
   showNotes: boolean;
   showCookCount: boolean;
 }) {
@@ -153,11 +156,23 @@ function RecipeCard({
       </div>
 
       {hovered && (
-        <div className="absolute inset-0 flex items-center justify-center rounded-2xl transition-all"
+        <div className="absolute inset-0 flex flex-col items-center justify-center gap-2 rounded-2xl transition-all"
           style={{ background: "rgba(45,82,64,0.88)" }}>
-          <span className="text-white font-semibold text-sm px-5 py-2.5 border-2 border-white rounded-xl hover:bg-white hover:text-[#2d5240] transition-colors">
+          <span
+            onClick={onClick}
+            className="text-white font-semibold text-sm px-5 py-2.5 border-2 border-white rounded-xl hover:bg-white hover:text-[#2d5240] transition-colors cursor-pointer"
+          >
             Details ansehen →
           </span>
+          {(recipe.steps as string[]).length > 0 && (
+            <button
+              onClick={(e) => { e.stopPropagation(); onCook(); }}
+              className="flex items-center gap-1.5 text-white font-semibold text-sm px-4 py-2 bg-[#C1693A] hover:bg-[#a85830] rounded-xl transition-colors"
+            >
+              <UtensilsCrossed className="w-4 h-4" />
+              Kochen starten
+            </button>
+          )}
         </div>
       )}
     </div>
@@ -262,6 +277,7 @@ export default function MeineRezepte({ onNavigate: _onNavigate }: MeineRezeptePr
   const [activeCategory, setActiveCategory] = useState("Alle");
   const [timeFilter, setTimeFilter] = useState("Alle");
   const [selected, setSelected] = useState<Recipe | null>(null);
+  const [cookingRecipe, setCookingRecipe] = useState<Recipe | null>(null);
   const [showPdfModal, setShowPdfModal] = useState(false);
   const [showUrlModal, setShowUrlModal] = useState(false);
   const [showImageModal, setShowImageModal] = useState(false);
@@ -589,6 +605,7 @@ export default function MeineRezepte({ onNavigate: _onNavigate }: MeineRezeptePr
                       key={recipe.id}
                       recipe={recipe}
                       onClick={() => setSelected(recipe)}
+                      onCook={() => setCookingRecipe(recipe)}
                       showNotes={showNotes}
                       showCookCount={showCookCount}
                     />
@@ -640,6 +657,10 @@ export default function MeineRezepte({ onNavigate: _onNavigate }: MeineRezeptePr
                 </div>
               )}
             </>
+          )}
+
+          {cookingRecipe && (
+            <CookingMode recipe={cookingRecipe} onClose={() => setCookingRecipe(null)} />
           )}
 
           {selected && (

@@ -1,8 +1,9 @@
 import { useState } from "react";
 import type { Recipe } from "@/types/recipe";
-import { X, Clock, ChefHat, CalendarPlus, Users, Flame, BookOpen, Check, Printer } from "lucide-react";
+import { X, Clock, ChefHat, CalendarPlus, Users, Flame, BookOpen, Check, Printer, UtensilsCrossed } from "lucide-react";
 import { addMealPlanEntry } from "@/hooks/useMealPlans";
 import RecipePrintView from "@/components/RecipePrintView";
+import CookingMode from "@/components/CookingMode";
 
 interface Props {
   recipe: Recipe;
@@ -48,6 +49,7 @@ export default function RecipeModal({ recipe, onClose, onAddToWeek }: Props) {
   const [showDatePicker, setShowDatePicker] = useState(false);
   const [selectedDate, setSelectedDate] = useState(today);
   const [saving, setSaving] = useState(false);
+  const [cookingMode, setCookingMode] = useState(false);
 
   const diffColor =
     recipe.difficulty === "simpel"
@@ -69,6 +71,10 @@ export default function RecipeModal({ recipe, onClose, onAddToWeek }: Props) {
       setSaving(false);
     }
   };
+
+  if (cookingMode) {
+    return <CookingMode recipe={recipe} onClose={() => setCookingMode(false)} />;
+  }
 
   return (
     <>
@@ -251,7 +257,16 @@ export default function RecipeModal({ recipe, onClose, onAddToWeek }: Props) {
               </div>
             ) : null}
 
-            <div className="flex gap-3">
+            <div className="flex gap-3 flex-wrap">
+              {recipe.steps && (recipe.steps as string[]).length > 0 && (
+                <button
+                  onClick={() => setCookingMode(true)}
+                  className="flex items-center gap-2 px-4 py-2.5 bg-[#C1693A] text-white rounded-xl text-sm font-semibold hover:bg-[#a85830] transition-colors"
+                >
+                  <UtensilsCrossed className="w-4 h-4" />
+                  Kochen starten
+                </button>
+              )}
               {!showDatePicker && (
                 <button
                   onClick={() => setShowDatePicker(true)}

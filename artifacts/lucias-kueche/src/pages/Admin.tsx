@@ -1,4 +1,4 @@
-import { useState, useRef } from "react";
+import { useState, useRef, useEffect } from "react";
 import {
   Loader2, Trash2, Edit2, Download, Tag, RefreshCw,
   Upload, Check, AlertTriangle, Settings, Database, Sliders,
@@ -719,6 +719,12 @@ export default function Admin({ initialTab }: { initialTab?: string }) {
   const validTabs = SECTION_TABS.map((t) => t.id);
   const resolvedTab: SectionTab = (validTabs.includes(initialTab as SectionTab) ? initialTab : "categories") as SectionTab;
   const [section, setSection] = useState<SectionTab>(resolvedTab);
+
+  useEffect(() => {
+    if (initialTab && validTabs.includes(initialTab as SectionTab)) {
+      setSection(initialTab as SectionTab);
+    }
+  }, [initialTab]);
 
   if (loading) {
     return (

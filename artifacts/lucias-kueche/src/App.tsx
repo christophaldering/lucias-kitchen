@@ -240,7 +240,11 @@ function AppShell() {
       </main>
 
       <BottomNav activeTab={activeTab} onTabChange={setActiveTab} unreadCount={unreadCount} />
-      <BulkImportProgressBar onNavigateToImport={() => { setAdminInitialTab("bulk-import"); setActiveTab("admin"); }} />
+      <BulkImportProgressBar onNavigateToImport={() => {
+        setActiveTab("admin");
+        setAdminInitialTab("bulk-import");
+        setTimeout(() => setAdminInitialTab(null), 0);
+      }} />
     </>
   );
 }

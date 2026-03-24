@@ -1,7 +1,7 @@
 import { useState, useMemo } from "react";
 import { Recipe, formatIngredient } from "@/types/recipe";
 import { useRecipes } from "@/hooks/useRecipes";
-import { Clock, Search, ChefHat, Upload, Link, Camera, Loader2, LayoutGrid, Table, Settings2, Plus } from "lucide-react";
+import { Clock, Search, ChefHat, Upload, Link, Camera, Loader2, LayoutGrid, Table, Settings2, Plus, ArrowUp, ArrowDown, ArrowUpDown } from "lucide-react";
 import RecipeModal from "@/components/RecipeModal";
 import PdfUploadModal from "@/components/PdfUploadModal";
 import RecipeManagement from "@/components/RecipeManagement";
@@ -156,10 +156,35 @@ function RecipeCard({
   );
 }
 
-function RecipeTableRow({ recipe, onClick }: { recipe: Recipe; onClick: () => void }) {
+type TableSortKey = "title" | "category" | "difficulty" | "time" | "rating" | "cookedCount" | "createdAt";
+
+function SortIcon({ col, sortKey, sortDir }: { col: TableSortKey; sortKey: TableSortKey; sortDir: "asc" | "desc" }) {
+  if (col !== sortKey) return <ArrowUpDown className="w-3 h-3 ml-1 opacity-40 inline" />;
+  return sortDir === "asc"
+    ? <ArrowUp className="w-3 h-3 ml-1 inline text-[#4A7C59]" />
+    : <ArrowDown className="w-3 h-3 ml-1 inline text-[#4A7C59]" />;
+}
+
+function RecipeTableRow({
+  recipe,
+  onClick,
+  checked,
+  onCheck,
+}: {
+  recipe: Recipe;
+  onClick: () => void;
+  checked: boolean;
+  onCheck: (e: React.MouseEvent) => void;
+}) {
   const emoji = CATEGORY_EMOJIS[recipe.category] ?? "🍽️";
+  const createdLabel = recipe.createdAt
+    ? new Date(recipe.createdAt).toLocaleDateString("de-DE", { day: "2-digit", month: "2-digit", year: "numeric" })
+    : "–";
   return (
-    <tr className="border-b border-border/50 hover:bg-[#4A7C59]/5 transition-colors cursor-pointer" onClick={onClick}>
+    <tr className={`border-b border-border/50 hover:bg-[#4A7C59]/5 transition-colors cursor-pointer ${checked ? "bg-[#4A7C59]/5" : ""}`} onClick={onClick}>
+      <td className="px-3 py-3 w-10" onClick={onCheck}>
+        <input type="checkbox" checked={checked} onChange={() => {}} className="w-4 h-4 rounded accent-[#4A7C59] cursor-pointer" />
+      </td>
       <td className="px-4 py-3">
         <div className="font-medium text-foreground">{recipe.title}</div>
         {recipe.source && <div className="text-xs text-muted-foreground">{recipe.source}</div>}
@@ -183,6 +208,9 @@ function RecipeTableRow({ recipe, onClick }: { recipe: Recipe; onClick: () => vo
       </td>
       <td className="px-4 py-3 hidden xl:table-cell text-xs text-muted-foreground">
         {recipe.cookedCount ? `🍳 ${recipe.cookedCount}×` : "–"}
+      </td>
+      <td className="px-4 py-3 hidden xl:table-cell text-xs text-muted-foreground">
+        {createdLabel}
       </td>
     </tr>
   );
@@ -214,6 +242,9 @@ export default function MeineRezepte({ onNavigate: _onNavigate }: MeineRezeptePr
   const [showNewRecipeModal, setShowNewRecipeModal] = useState(false);
 
   const [managedSelected, setManagedSelected] = useState<Set<number>>(new Set());
+  const [tableSelected, setTableSelected] = useState<Set<number>>(new Set());
+  const [tableSortKey, setTableSortKey] = useState<TableSortKey>("title");
+  const [tableSortDir, setTableSortDir] = useState<"asc" | "desc">("asc");
 
   const toggleSelect = (id: number) => setManagedSelected((prev) => {
     const next = new Set(prev);
@@ -224,6 +255,30 @@ export default function MeineRezepte({ onNavigate: _onNavigate }: MeineRezeptePr
   const toggleAll = () => {
     if (managedSelected.size === recipes.length) setManagedSelected(new Set());
     else setManagedSelected(new Set(recipes.map((r) => r.id)));
+  };
+
+  const toggleTableSelect = (id: number, e: React.MouseEvent) => {
+    e.stopPropagation();
+    setTableSelected((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id); else next.add(id);
+      return next;
+    });
+  };
+
+  const toggleTableAll = () => {
+    setTableSelected((prev) =>
+      prev.size === filtered.length ? new Set() : new Set(filtered.map((r) => r.id))
+    );
+  };
+
+  const handleTableSort = (col: TableSortKey) => {
+    if (tableSortKey === col) {
+      setTableSortDir((d) => (d === "asc" ? "desc" : "asc"));
+    } else {
+      setTableSortKey(col);
+      setTableSortDir("asc");
+    }
   };
 
   const allCategories = useMemo(() => {
@@ -270,6 +325,31 @@ export default function MeineRezepte({ onNavigate: _onNavigate }: MeineRezeptePr
   }), [sorted, search, activeCategory, timeFilter]);
 
   const knownCategories = useMemo(() => Array.from(new Set(recipes.map((r) => r.category))).sort(), [recipes]);
+
+  const DIFF_ORDER: Record<string, number> = { simpel: 0, normal: 1, schwer: 2 };
+  const RATING_SCORE = (r: Recipe) => r.rating === "sehr lecker" ? 2 : r.rating === "lecker" ? 1 : 0;
+
+  const tableSorted = useMemo(() => {
+    const base = [...filtered];
+    const dir = tableSortDir === "asc" ? 1 : -1;
+    base.sort((a, b) => {
+      switch (tableSortKey) {
+        case "title": return dir * a.title.localeCompare(b.title, "de");
+        case "category": return dir * a.category.localeCompare(b.category, "de");
+        case "difficulty": return dir * ((DIFF_ORDER[a.difficulty] ?? 1) - (DIFF_ORDER[b.difficulty] ?? 1));
+        case "time": return dir * (parseTotalMinutes(a.totalTime) - parseTotalMinutes(b.totalTime));
+        case "rating": return dir * (RATING_SCORE(a) - RATING_SCORE(b));
+        case "cookedCount": return dir * ((a.cookedCount ?? 0) - (b.cookedCount ?? 0));
+        case "createdAt": {
+          const da = a.createdAt ? new Date(a.createdAt).getTime() : 0;
+          const db2 = b.createdAt ? new Date(b.createdAt).getTime() : 0;
+          return dir * (da - db2);
+        }
+        default: return 0;
+      }
+    });
+    return base;
+  }, [filtered, tableSortKey, tableSortDir]);
 
   return (
     <div className="max-w-6xl mx-auto px-4 py-6">
@@ -461,17 +541,41 @@ export default function MeineRezepte({ onNavigate: _onNavigate }: MeineRezeptePr
                   <table className="w-full text-sm">
                     <thead>
                       <tr className="border-b border-border bg-[#4A7C59]/5">
-                        <th className="px-4 py-3 text-left font-semibold text-foreground">Titel</th>
-                        <th className="px-4 py-3 text-left font-semibold text-foreground hidden sm:table-cell">Kategorie</th>
-                        <th className="px-4 py-3 text-left font-semibold text-foreground hidden md:table-cell">Schwierigkeit</th>
-                        <th className="px-4 py-3 text-left font-semibold text-foreground hidden md:table-cell">Zeit</th>
-                        <th className="px-4 py-3 text-left font-semibold text-foreground hidden lg:table-cell">Bewertung</th>
-                        <th className="px-4 py-3 text-left font-semibold text-foreground hidden xl:table-cell">Gekocht</th>
+                        <th className="px-3 py-3 w-10">
+                          <input type="checkbox"
+                            checked={tableSelected.size === tableSorted.length && tableSorted.length > 0}
+                            onChange={toggleTableAll}
+                            className="w-4 h-4 rounded accent-[#4A7C59] cursor-pointer" />
+                        </th>
+                        {(
+                          [
+                            { col: "title" as TableSortKey, label: "Titel", cls: "" },
+                            { col: "category" as TableSortKey, label: "Kategorie", cls: "hidden sm:table-cell" },
+                            { col: "difficulty" as TableSortKey, label: "Schwierigkeit", cls: "hidden md:table-cell" },
+                            { col: "time" as TableSortKey, label: "Zeit", cls: "hidden md:table-cell" },
+                            { col: "rating" as TableSortKey, label: "Bewertung", cls: "hidden lg:table-cell" },
+                            { col: "cookedCount" as TableSortKey, label: "Gekocht", cls: "hidden xl:table-cell" },
+                            { col: "createdAt" as TableSortKey, label: "Hochgeladen am", cls: "hidden xl:table-cell" },
+                          ]
+                        ).map(({ col, label, cls }) => (
+                          <th key={col}
+                            onClick={() => handleTableSort(col)}
+                            className={`px-4 py-3 text-left font-semibold text-foreground cursor-pointer select-none hover:text-[#4A7C59] transition-colors ${cls}`}>
+                            {label}
+                            <SortIcon col={col} sortKey={tableSortKey} sortDir={tableSortDir} />
+                          </th>
+                        ))}
                       </tr>
                     </thead>
                     <tbody>
-                      {filtered.map((recipe) => (
-                        <RecipeTableRow key={recipe.id} recipe={recipe} onClick={() => setSelected(recipe)} />
+                      {tableSorted.map((recipe) => (
+                        <RecipeTableRow
+                          key={recipe.id}
+                          recipe={recipe}
+                          onClick={() => setSelected(recipe)}
+                          checked={tableSelected.has(recipe.id)}
+                          onCheck={(e) => toggleTableSelect(recipe.id, e)}
+                        />
                       ))}
                     </tbody>
                   </table>

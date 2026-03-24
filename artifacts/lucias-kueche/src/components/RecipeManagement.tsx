@@ -1,5 +1,5 @@
-import { useState } from "react";
-import { Loader2, Trash2, Edit2, Download, Printer, Tag, X, Plus } from "lucide-react";
+import { useState, useMemo } from "react";
+import { Loader2, Trash2, Edit2, Download, Printer, Tag, X, Plus, ArrowUp, ArrowDown, ArrowUpDown } from "lucide-react";
 import type { Recipe } from "@/types/recipe";
 import type { RecipeUpdatePayload } from "@/hooks/useRecipes";
 import RecipeEditModal from "@/components/RecipeEditModal";
@@ -255,6 +255,24 @@ function BulkActionsBar({
   );
 }
 
+type MgmtSortKey = "title" | "category" | "difficulty" | "time" | "rating" | "cookedCount" | "lastCooked" | "createdAt";
+
+function MgmtSortIcon({ col, sortKey, sortDir }: { col: MgmtSortKey; sortKey: MgmtSortKey; sortDir: "asc" | "desc" }) {
+  if (col !== sortKey) return <ArrowUpDown className="w-3 h-3 ml-1 opacity-40 inline" />;
+  return sortDir === "asc"
+    ? <ArrowUp className="w-3 h-3 ml-1 inline text-[#4A7C59]" />
+    : <ArrowDown className="w-3 h-3 ml-1 inline text-[#4A7C59]" />;
+}
+
+const MGMT_DIFF_ORDER: Record<string, number> = { simpel: 0, normal: 1, schwer: 2 };
+const parseTotalMins = (t: string | null) => {
+  if (!t) return Infinity;
+  const m = t.match(/(\d+)/g);
+  if (!m) return Infinity;
+  const nums = m.map(Number);
+  return nums.length === 1 ? nums[0] : nums[0] * 60 + (nums[1] ?? 0);
+};
+
 function RecipeTable({
   recipes,
   selected,
@@ -268,7 +286,56 @@ function RecipeTable({
   onToggleAll: () => void;
   onEdit: (r: Recipe) => void;
 }) {
+  const [sortKey, setSortKey] = useState<MgmtSortKey>("title");
+  const [sortDir, setSortDir] = useState<"asc" | "desc">("asc");
+
   const allSelected = recipes.length > 0 && selected.size === recipes.length;
+
+  const handleSort = (col: MgmtSortKey) => {
+    if (sortKey === col) setSortDir((d) => (d === "asc" ? "desc" : "asc"));
+    else { setSortKey(col); setSortDir("asc"); }
+  };
+
+  const sorted = useMemo(() => {
+    const base = [...recipes];
+    const dir = sortDir === "asc" ? 1 : -1;
+    base.sort((a, b) => {
+      switch (sortKey) {
+        case "title": return dir * a.title.localeCompare(b.title, "de");
+        case "category": return dir * a.category.localeCompare(b.category, "de");
+        case "difficulty": return dir * ((MGMT_DIFF_ORDER[a.difficulty] ?? 1) - (MGMT_DIFF_ORDER[b.difficulty] ?? 1));
+        case "time": return dir * (parseTotalMins(a.totalTime) - parseTotalMins(b.totalTime));
+        case "rating": {
+          const score = (r: Recipe) => r.rating === "sehr lecker" ? 2 : r.rating === "lecker" ? 1 : 0;
+          return dir * (score(a) - score(b));
+        }
+        case "cookedCount": return dir * ((a.cookedCount ?? 0) - (b.cookedCount ?? 0));
+        case "lastCooked": {
+          const da = a.lastCooked ? new Date(a.lastCooked).getTime() : 0;
+          const db2 = b.lastCooked ? new Date(b.lastCooked).getTime() : 0;
+          return dir * (da - db2);
+        }
+        case "createdAt": {
+          const da = a.createdAt ? new Date(a.createdAt).getTime() : 0;
+          const db2 = b.createdAt ? new Date(b.createdAt).getTime() : 0;
+          return dir * (da - db2);
+        }
+        default: return 0;
+      }
+    });
+    return base;
+  }, [recipes, sortKey, sortDir]);
+
+  const COLS: { key: MgmtSortKey; label: string; cls: string }[] = [
+    { key: "title", label: "Titel", cls: "" },
+    { key: "category", label: "Kategorie", cls: "hidden md:table-cell" },
+    { key: "difficulty", label: "Schwierigkeit", cls: "hidden lg:table-cell" },
+    { key: "time", label: "Zeit", cls: "hidden lg:table-cell" },
+    { key: "rating", label: "Bewertung", cls: "hidden xl:table-cell" },
+    { key: "cookedCount", label: "Anz. gekocht", cls: "hidden xl:table-cell" },
+    { key: "lastCooked", label: "Zuletzt gekocht", cls: "hidden xl:table-cell" },
+    { key: "createdAt", label: "Hochgeladen am", cls: "hidden xl:table-cell" },
+  ];
 
   return (
     <div className="overflow-x-auto rounded-2xl border border-border bg-white shadow-sm">
@@ -279,19 +346,23 @@ function RecipeTable({
               <input type="checkbox" checked={allSelected} onChange={onToggleAll}
                 className="w-4 h-4 rounded accent-[#4A7C59] cursor-pointer" />
             </th>
-            <th className="px-4 py-3 text-left font-semibold text-foreground">Titel</th>
-            <th className="px-4 py-3 text-left font-semibold text-foreground hidden md:table-cell">Kategorie</th>
-            <th className="px-4 py-3 text-left font-semibold text-foreground hidden lg:table-cell">Schwierigkeit</th>
-            <th className="px-4 py-3 text-left font-semibold text-foreground hidden lg:table-cell">Zeit</th>
-            <th className="px-4 py-3 text-left font-semibold text-foreground hidden xl:table-cell">Bewertung</th>
-            <th className="px-4 py-3 text-left font-semibold text-foreground hidden xl:table-cell">Anz. gekocht</th>
-            <th className="px-4 py-3 text-left font-semibold text-foreground hidden xl:table-cell">Zuletzt gekocht</th>
+            {COLS.map((col) => (
+              <th key={col.key}
+                onClick={() => handleSort(col.key)}
+                className={`px-4 py-3 text-left font-semibold text-foreground cursor-pointer select-none hover:text-[#4A7C59] transition-colors ${col.cls}`}>
+                {col.label}
+                <MgmtSortIcon col={col.key} sortKey={sortKey} sortDir={sortDir} />
+              </th>
+            ))}
             <th className="px-4 py-3 text-center font-semibold text-foreground w-16">Edit</th>
           </tr>
         </thead>
         <tbody>
-          {recipes.map((r, i) => {
+          {sorted.map((r, i) => {
             const isSel = selected.has(r.id);
+            const createdLabel = r.createdAt
+              ? new Date(r.createdAt).toLocaleDateString("de-DE", { day: "2-digit", month: "2-digit", year: "numeric" })
+              : "–";
             return (
               <tr key={r.id}
                 onClick={() => onEdit(r)}
@@ -326,6 +397,9 @@ function RecipeTable({
                 </td>
                 <td className="px-4 py-3 hidden xl:table-cell text-xs text-muted-foreground">
                   {r.lastCooked ? new Date(r.lastCooked).toLocaleDateString("de-DE", { day: "2-digit", month: "2-digit", year: "numeric" }) : "–"}
+                </td>
+                <td className="px-4 py-3 hidden xl:table-cell text-xs text-muted-foreground">
+                  {createdLabel}
                 </td>
                 <td className="px-4 py-3 text-center" onClick={(e) => e.stopPropagation()}>
                   <button onClick={() => onEdit(r)}

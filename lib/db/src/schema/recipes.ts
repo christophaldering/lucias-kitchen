@@ -1,4 +1,4 @@
-import { pgTable, text, serial, integer, jsonb, date, unique } from "drizzle-orm/pg-core";
+import { pgTable, text, serial, integer, jsonb, date, unique, timestamp } from "drizzle-orm/pg-core";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod/v4";
 
@@ -18,6 +18,7 @@ export const recipesTable = pgTable("recipes", {
   notes: text("notes"),
   steps: jsonb("steps").notNull().default([]),
   imageUrl: text("image_url"),
+  createdAt: timestamp("created_at").defaultNow(),
 });
 
 export const recipeIngredientsTable = pgTable("recipe_ingredients", {

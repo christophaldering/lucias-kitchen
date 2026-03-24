@@ -31,6 +31,7 @@ export interface Recipe {
   steps: string[];
   ingredients: RecipeIngredient[];
   imageUrl?: string | null;
+  createdAt?: string | null;
 }
 
 export const ALL_CATEGORIES = [

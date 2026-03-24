@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useMemo } from "react";
 import { X, Plus, Trash2, ChevronUp, ChevronDown, Save, Loader2 } from "lucide-react";
 import type { Recipe, IngredientInput } from "@/types/recipe";
 import type { RecipeUpdatePayload } from "@/hooks/useRecipes";
@@ -7,19 +7,30 @@ interface Props {
   recipe: Recipe;
   onClose: () => void;
   onSave: (id: number, data: RecipeUpdatePayload) => Promise<void>;
+  knownCategories?: string[];
 }
 
-const CATEGORIES = ["Fisch", "Geflügel", "Fleisch", "Vegetarisch", "Pasta"];
+const DEFAULT_CATEGORIES = ["Fisch", "Geflügel", "Fleisch", "Vegetarisch", "Pasta"];
 const DIFFICULTIES = ["simpel", "normal", "schwer"] as const;
 const RATINGS = ["", "lecker", "sehr lecker"] as const;
+const LK_CUSTOM_CATEGORIES_KEY = "lk_customCategories";
 
 type IngRow = { amount: string; unit: string; name: string; note: string };
 
-export default function RecipeEditModal({ recipe, onClose, onSave }: Props) {
+export default function RecipeEditModal({ recipe, onClose, onSave, knownCategories }: Props) {
+  const allCategories = useMemo(() => {
+    const custom: string[] = (() => {
+      try { return JSON.parse(localStorage.getItem(LK_CUSTOM_CATEGORIES_KEY) ?? "[]"); }
+      catch { return []; }
+    })();
+    const base = knownCategories ?? DEFAULT_CATEGORIES;
+    return Array.from(new Set([...base, ...custom])).sort();
+  }, [knownCategories]);
+
   const [title, setTitle] = useState(recipe.title);
   const [category, setCategory] = useState(recipe.category);
   const [customCategory, setCustomCategory] = useState(
-    CATEGORIES.includes(recipe.category) ? "" : recipe.category
+    allCategories.includes(recipe.category) ? "" : recipe.category
   );
   const [difficulty, setDifficulty] = useState<typeof DIFFICULTIES[number]>(recipe.difficulty);
   const [prepTime, setPrepTime] = useState(recipe.prepTime ?? "");
@@ -41,7 +52,7 @@ export default function RecipeEditModal({ recipe, onClose, onSave }: Props) {
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
 
-  const effectiveCategory = CATEGORIES.includes(category) ? category : customCategory;
+  const effectiveCategory = allCategories.includes(category) ? category : customCategory;
 
   const addIngredient = () =>
     setIngredients((prev) => [...prev, { amount: "", unit: "", name: "", note: "" }]);
@@ -127,13 +138,13 @@ export default function RecipeEditModal({ recipe, onClose, onSave }: Props) {
 
             <div>
               <label className="block text-xs font-semibold text-muted-foreground mb-1 uppercase tracking-wide">Kategorie *</label>
-              <select value={CATEGORIES.includes(category) ? category : "__custom__"}
+              <select value={allCategories.includes(category) ? category : "__custom__"}
                 onChange={(e) => { setCategory(e.target.value); if (e.target.value !== "__custom__") setCustomCategory(""); }}
                 className="w-full px-3 py-2 rounded-xl border border-border bg-white text-sm focus:outline-none focus:ring-2 focus:ring-[#C1693A]/30">
-                {CATEGORIES.map((c) => <option key={c} value={c}>{c}</option>)}
+                {allCategories.map((c) => <option key={c} value={c}>{c}</option>)}
                 <option value="__custom__">Eigene…</option>
               </select>
-              {!CATEGORIES.includes(category) && (
+              {!allCategories.includes(category) && (
                 <input value={customCategory} onChange={(e) => setCustomCategory(e.target.value)}
                   placeholder="Kategorie eingeben"
                   className="mt-2 w-full px-3 py-2 rounded-xl border border-border bg-white text-sm focus:outline-none focus:ring-2 focus:ring-[#C1693A]/30" />

@@ -261,7 +261,18 @@ function BulkActionsBar({
       </div>`).join("<hr style='margin:20px 0'>");
     const win = window.open("", "_blank");
     if (!win) return;
-    win.document.write(`<!DOCTYPE html><html><head><title>Rezepte</title><style>@media print{body{margin:20px}}</style></head><body>${html}</body></html>`);
+    win.document.write(`<!DOCTYPE html><html><head><title>Rezepte</title><style>
+      body{font-family:Georgia,serif;margin:40px;color:#222}
+      h2{font-size:20px;margin:0 0 4px}h3{font-size:15px;margin:0 0 6px}
+      ul,ol{margin:0 0 12px;padding-left:20px;font-size:13px}
+      li{margin-bottom:2px}p{font-size:12px;margin:0 0 8px}
+      hr{border:none;border-top:1px solid #ddd;margin:24px 0}
+      @media print{
+        body{margin:20px}
+        .no-print{display:none}
+        div{page-break-inside:avoid}
+      }
+    </style></head><body>${html}</body></html>`);
     win.document.close();
     win.print();
   };
@@ -375,9 +386,10 @@ function saveCustomCategories(cats: string[]) {
   localStorage.setItem(LK_CUSTOM_CATEGORIES_KEY, JSON.stringify(cats));
 }
 
-function CategoryManager({ recipes, patchRecipe, refetch }: {
+function CategoryManager({ recipes, patchRecipe, patchRecipeSilent, refetch }: {
   recipes: Recipe[];
   patchRecipe: (id: number, patch: Record<string, unknown>) => Promise<void>;
+  patchRecipeSilent: (id: number, patch: Record<string, unknown>) => Promise<void>;
   refetch: () => Promise<void>;
 }) {
   const [newCat, setNewCat] = useState("");
@@ -408,12 +420,13 @@ function CategoryManager({ recipes, patchRecipe, refetch }: {
     const affected = recipes.filter((r) => r.category === from);
     setBusy(true);
     try {
-      await Promise.all(affected.map((r) => patchRecipe(r.id, { category: to.trim() })));
+      await Promise.all(affected.map((r) => patchRecipeSilent(r.id, { category: to.trim() })));
+      await refetch();
       if (customCategories.includes(from)) {
         const next = customCategories.map((c) => c === from ? to.trim() : c);
         persistCustomCats(next);
       }
-      toast(`Kategorie "${from}" → "${to.trim()}" umbenannt`);
+      toast(`Kategorie "${from}" → "${to.trim()}" umbenannt${affected.length > 0 ? ` (${affected.length} Rezepte aktualisiert)` : ""}`);
       setRenaming(null);
     } catch { toast("Fehler beim Umbenennen", "err"); }
     finally { setBusy(false); }
@@ -424,11 +437,12 @@ function CategoryManager({ recipes, patchRecipe, refetch }: {
     const affected = recipes.filter((r) => r.category === mergeSrc);
     setBusy(true);
     try {
-      await Promise.all(affected.map((r) => patchRecipe(r.id, { category: mergeDst })));
+      await Promise.all(affected.map((r) => patchRecipeSilent(r.id, { category: mergeDst })));
+      await refetch();
       if (customCategories.includes(mergeSrc)) {
         persistCustomCats(customCategories.filter((c) => c !== mergeSrc));
       }
-      toast(`"${mergeSrc}" wurde in "${mergeDst}" zusammengeführt`);
+      toast(`"${mergeSrc}" → "${mergeDst}" zusammengeführt (${affected.length} Rezepte)`);
       setMergeSrc(""); setMergeDst("");
     } catch { toast("Fehler beim Zusammenführen", "err"); }
     finally { setBusy(false); }
@@ -938,7 +952,7 @@ export default function Admin() {
       )}
 
       {section === "categories" && (
-        <CategoryManager recipes={recipes} patchRecipe={patchRecipe} refetch={refetch} />
+        <CategoryManager recipes={recipes} patchRecipe={patchRecipe} patchRecipeSilent={patchRecipeSilent} refetch={refetch} />
       )}
 
       {section === "backup" && (
@@ -958,6 +972,7 @@ export default function Admin() {
           recipe={editRecipe}
           onClose={() => setEditRecipe(null)}
           onSave={handleSaveEdit}
+          knownCategories={Array.from(new Set(recipes.map((r) => r.category))).sort()}
         />
       )}
     </div>

@@ -83,7 +83,7 @@ export default function Onboarding({ onNavigate }: OnboardingProps) {
   const firstName = user?.displayName?.split(" ")[0] ?? "Lucia";
 
   return (
-    <div className="min-h-screen bg-[#FDF6EC] py-12 px-4">
+    <div className="min-h-screen py-12 px-4 pb-28" style={{ background: "linear-gradient(160deg, #f9efe0 0%, #f5e8d0 50%, #f2e4c8 100%)" }}>
       <div className="max-w-5xl mx-auto">
         {/* Header */}
         <div className="text-center mb-10">

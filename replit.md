@@ -95,18 +95,19 @@ Generated React Query hooks and fetch client from the OpenAPI spec (e.g. `useHea
 
 React + Vite recipe management SPA backed by the `@workspace/api-server`. Features:
 - **Authentication**: JWT-based login (email/password). Single user system (lucia.aldering@googlemail.com). Protected by AuthContext/useAuth hook. Non-authenticated users redirected to login page.
-- **Login Page** (`src/pages/Login.tsx`): Beautiful split-screen design with atmospheric kitchen gradient on the left, minimal login form on the right. Loading animation during login.
+- **Login Page** (`src/pages/Login.tsx`): Full-screen immersive design with real Unsplash kitchen/food photo as background, glassmorphism (frosted glass) card overlay containing the login form, script-font logo centered above the card, and inspirational quote below. No split-panel layout.
 - **Onboarding** (`src/pages/Onboarding.tsx`): First-time welcome flow with 6 action cards. Shown when `user.onboardingCompleted === false`. Completing onboarding navigates to main app.
 - **Profil Page** (`src/pages/Profil.tsx`): Route `/profil` accessible via nav tab and avatar dropdown. Includes: avatar upload, personal data editor, password change with strength indicator, cooking personality (level, styles, dietary), recipe statistics, and dynamic badge system.
-- **Navigation**: Avatar dropdown in header top-right. Shows time-based greeting (Guten Morgen/Tag/Abend). Dropdown has: Mein Profil, Einstellungen, Abmelden. Profil tab added to nav.
-- **Meine Rezepte**: Recipe gallery with category/time filters, search, recipe detail modal (structured ingredients, preparation steps, metadata). "PDF hochladen" button opens the PDF upload modal.
+- **App Shell Navigation** (`src/App.tsx`): Compact header (logo left + avatar right, no tab bar). Fixed bottom navigation with 4 icon+label tabs (Rezepte, Wochenplan, Statistiken, Admin). Active tab highlighted with amber/orange indicator. Safe-area-inset support for iPhones. Avatar dropdown has: Mein Profil, Einstellungen, Abmelden.
+- **Meine Rezepte**: Recipe gallery with category/time filters, search, recipe detail modal. Upgraded recipe cards with 4:3 image ratio, category badge overlay, time chip overlay, warm shadow. FAB (Floating Action Button, terracotta round 56px) for quick new-recipe creation. "PDF hochladen" and "URL importieren" buttons. Mode toggle: Galerie / Verwalten.
 - **Wochenplan & Einkaufsliste**: Date-based calendar weekly planner with navigation (previous/next week, "Heute" button to return to current week). Each day cell shows real calendar date. Meal plan entries are persisted in the DB (`meal_plans` table). Shopping list has date-range filter: "Diese Woche", "Nächste 7 Tage", or custom from/to date picker.
 - **Statistiken & Muster**: Pie/bar/horizontal-bar charts (Recharts) for category distribution, cooking time, difficulty, top favorites (by rating + cook count), and Lucia's cook profile.
 - **PDF Upload Modal** (`src/components/PdfUploadModal.tsx`): Drag-and-drop PDF upload → sends base64 to `/api/extract-pdf` → AI extracts recipes → user selects which ones to add.
 - All recipe data fetched from API via `src/hooks/useRecipes.ts` — no hardcoded data in the frontend.
 - Types defined in `src/types/recipe.ts` (rich model: structured ingredients, category string, rating string, prepTime/totalTime strings, etc.)
 - Vite proxy configured: `/api` → `http://localhost:${API_PORT ?? 8080}`
-- Color palette: cream #FDF6EC, forest green #4A7C59, terracotta #C1693A
+- Color palette: warm cream gradient background (f9efe0→f2e4c8), rich forest green #3d6849/#4A7C59, terracotta #C1693A, amber accents. Richer/more saturated than before.
+- All app pages have pb-28 padding at bottom to clear fixed bottom nav. Min 48px touch targets on interactive elements.
 - Fonts: Dancing Script (script/title), Lora (serif headings), Inter (body)
 - Packages: recharts, framer-motion, react-hook-form, date-fns, @hookform/resolvers
 

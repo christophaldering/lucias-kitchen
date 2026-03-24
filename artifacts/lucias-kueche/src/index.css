@@ -40,29 +40,31 @@
 }
 
 :root {
-  --background: 37 80% 96%;        /* #FDF6EC cream */
-  --foreground: 20 40% 15%;        /* dark warm brown */
-  --border: 35 30% 82%;
-  --input: 35 30% 82%;
-  --ring: 145 25% 40%;
+  --background: 36 60% 94%;
+  --foreground: 20 45% 12%;
+  --border: 35 28% 80%;
+  --input: 35 28% 80%;
+  --ring: 145 38% 36%;
 
-  --card: 37 70% 99%;
-  --card-foreground: 20 40% 15%;
+  --card: 36 55% 98%;
+  --card-foreground: 20 45% 12%;
 
-  --primary: 145 25% 38%;          /* #4A7C59 forest green */
-  --primary-foreground: 37 80% 96%;
+  --primary: 145 38% 34%;
+  --primary-foreground: 36 60% 96%;
 
-  --secondary: 35 40% 90%;
-  --secondary-foreground: 20 40% 20%;
+  --secondary: 35 45% 88%;
+  --secondary-foreground: 20 45% 18%;
 
-  --muted: 35 25% 88%;
-  --muted-foreground: 25 20% 45%;
+  --muted: 35 28% 86%;
+  --muted-foreground: 25 22% 42%;
 
-  --accent: 21 56% 48%;            /* #C1693A terracotta */
-  --accent-foreground: 37 80% 96%;
+  --accent: 21 62% 46%;
+  --accent-foreground: 36 60% 96%;
+
+  --amber: 38 90% 50%;
 
   --destructive: 0 72% 51%;
-  --destructive-foreground: 37 80% 96%;
+  --destructive-foreground: 36 60% 96%;
 
   --app-font-sans: 'Inter', sans-serif;
   --app-font-serif: 'Lora', Georgia, serif;
@@ -76,8 +78,9 @@
     @apply border-border;
   }
   body {
-    @apply font-sans antialiased bg-background text-foreground;
-    background-color: #FDF6EC;
+    @apply font-sans antialiased text-foreground;
+    background: linear-gradient(160deg, #f9efe0 0%, #f5e8d0 50%, #f2e4c8 100%);
+    min-height: 100vh;
   }
 }
 
@@ -102,5 +105,23 @@
 }
 .recipe-card:hover {
   transform: translateY(-4px);
-  box-shadow: 0 12px 32px rgba(74,124,89,0.15);
+  box-shadow: 0 16px 40px rgba(120, 70, 30, 0.18);
+}
+
+/* Bottom nav safe area */
+.bottom-nav {
+  padding-bottom: env(safe-area-inset-bottom, 0px);
+}
+
+/* FAB */
+.fab {
+  filter: drop-shadow(0 4px 12px rgba(193, 105, 58, 0.45));
+  transition: transform 0.15s ease, filter 0.15s ease;
+}
+.fab:hover {
+  transform: scale(1.08);
+  filter: drop-shadow(0 6px 16px rgba(193, 105, 58, 0.55));
+}
+.fab:active {
+  transform: scale(0.96);
 }

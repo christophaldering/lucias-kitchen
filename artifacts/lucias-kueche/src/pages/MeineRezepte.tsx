@@ -1,12 +1,14 @@
 import { useState, useMemo } from "react";
 import { Recipe, formatIngredient } from "@/types/recipe";
 import { useRecipes } from "@/hooks/useRecipes";
-import { Clock, Search, ChefHat, Upload, Link, Camera, Loader2, LayoutGrid, Table, Settings2 } from "lucide-react";
+import { Clock, Search, ChefHat, Upload, Link, Camera, Loader2, LayoutGrid, Table, Settings2, Plus } from "lucide-react";
 import RecipeModal from "@/components/RecipeModal";
 import PdfUploadModal from "@/components/PdfUploadModal";
 import RecipeManagement from "@/components/RecipeManagement";
 import UrlImportModal from "@/components/UrlImportModal";
 import ImageImportModal from "@/components/ImageImportModal";
+import RecipeEditModal from "@/components/RecipeEditModal";
+import type { RecipeUpdatePayload } from "@/hooks/useRecipes";
 
 const CATEGORY_EMOJIS: Record<string, string> = {
   Fisch: "🐟",
@@ -38,8 +40,8 @@ function RatingBadge({ rating }: { rating: string | null }) {
   if (!rating) return null;
   const color =
     rating === "sehr lecker"
-      ? "text-amber-600 bg-amber-50 border-amber-200"
-      : "text-green-700 bg-green-50 border-green-200";
+      ? "text-amber-700 bg-amber-50/90 border-amber-200"
+      : "text-green-700 bg-green-50/90 border-green-200";
   return (
     <span className={`text-xs font-medium px-2 py-0.5 rounded-full border ${color}`}>
       {rating === "sehr lecker" ? "⭐ sehr lecker" : "👍 lecker"}
@@ -70,49 +72,69 @@ function RecipeCard({
 
   return (
     <div
-      className="recipe-card bg-white rounded-2xl border border-border overflow-hidden cursor-pointer shadow-sm relative"
+      className="recipe-card bg-white rounded-2xl border border-border overflow-hidden cursor-pointer relative"
+      style={{ boxShadow: "0 2px 12px rgba(120,70,30,0.10)" }}
       onMouseEnter={() => setHovered(true)}
       onMouseLeave={() => setHovered(false)}
       onClick={onClick}
     >
-      {recipe.imageUrl ? (
-        <div className="h-24 overflow-hidden">
-          <img src={recipe.imageUrl} alt={recipe.title} className="w-full h-full object-cover" />
-        </div>
-      ) : (
-        <div className="h-24 flex items-center justify-center text-5xl bg-gradient-to-br from-[#f5ede0] to-[#f0e8d8]">
-          {emoji}
-        </div>
-      )}
+      {/* 4:3 image area */}
+      <div className="relative w-full overflow-hidden" style={{ paddingTop: "75%" }}>
+        {recipe.imageUrl ? (
+          <img
+            src={recipe.imageUrl}
+            alt={recipe.title}
+            className="absolute inset-0 w-full h-full object-cover transition-transform duration-300"
+            style={{ transform: hovered ? "scale(1.04)" : "scale(1)" }}
+          />
+        ) : (
+          <div
+            className="absolute inset-0 flex items-center justify-center text-6xl"
+            style={{ background: "linear-gradient(135deg, #f5ede0, #f0e0c8)" }}
+          >
+            {emoji}
+          </div>
+        )}
 
-      <div className="p-4">
-        <div className="flex flex-wrap gap-1 mb-2">
-          <span className="text-xs font-semibold px-2 py-0.5 rounded-full bg-[#4A7C59]/10 text-[#4A7C59]">
-            {recipe.category}
+        {/* Category badge overlay */}
+        <div className="absolute top-2.5 left-2.5">
+          <span
+            className="text-xs font-semibold px-2.5 py-1 rounded-full text-white shadow"
+            style={{ background: "rgba(45,82,64,0.85)", backdropFilter: "blur(4px)" }}
+          >
+            {emoji} {recipe.category}
           </span>
         </div>
 
+        {/* Time chip overlay */}
+        {recipe.prepTime && (
+          <div className="absolute bottom-2.5 right-2.5">
+            <span
+              className="flex items-center gap-1 text-xs font-medium px-2 py-0.5 rounded-full text-white shadow"
+              style={{ background: "rgba(193,105,58,0.88)", backdropFilter: "blur(4px)" }}
+            >
+              <Clock className="w-3 h-3" />
+              {recipe.prepTime.replace("ca. ", "")}
+            </span>
+          </div>
+        )}
+      </div>
+
+      <div className="p-4">
         <h3 className="font-serif font-semibold text-foreground leading-snug mb-2 line-clamp-2">
           {recipe.title}
         </h3>
 
-        <div className="flex items-center gap-3 mb-3 flex-wrap">
-          {recipe.prepTime && (
-            <span className="flex items-center gap-1 text-xs text-muted-foreground">
-              <Clock className="w-3.5 h-3.5 text-[#C1693A]" />
-              {recipe.prepTime.replace("ca. ", "")}
-            </span>
-          )}
+        <div className="flex items-center gap-2 mb-3 flex-wrap">
           <span className={`flex items-center gap-1 text-xs font-medium px-2 py-0.5 rounded-full ${diffColor}`}>
             <ChefHat className="w-3 h-3" />
             {recipe.difficulty}
           </span>
+          <RatingBadge rating={recipe.rating} />
         </div>
 
-        <RatingBadge rating={recipe.rating} />
-
         {showCookCount && recipe.cookedCount != null && recipe.cookedCount > 0 && (
-          <p className="mt-2 text-xs text-muted-foreground">🍳 {recipe.cookedCount}× gekocht</p>
+          <p className="text-xs text-muted-foreground">🍳 {recipe.cookedCount}× gekocht</p>
         )}
 
         {showNotes && recipe.notes && (
@@ -123,8 +145,9 @@ function RecipeCard({
       </div>
 
       {hovered && (
-        <div className="absolute inset-0 bg-[#4A7C59]/90 flex items-center justify-center rounded-2xl transition-all">
-          <span className="text-white font-semibold text-sm px-5 py-2.5 border-2 border-white rounded-xl hover:bg-white hover:text-[#4A7C59] transition-colors">
+        <div className="absolute inset-0 flex items-center justify-center rounded-2xl transition-all"
+          style={{ background: "rgba(45,82,64,0.88)" }}>
+          <span className="text-white font-semibold text-sm px-5 py-2.5 border-2 border-white rounded-xl hover:bg-white hover:text-[#2d5240] transition-colors">
             Details ansehen →
           </span>
         </div>
@@ -167,7 +190,11 @@ function RecipeTableRow({ recipe, onClick }: { recipe: Recipe; onClick: () => vo
 
 type PageMode = "galerie" | "verwalten";
 
-export default function MeineRezepte() {
+interface MeineRezepteProps {
+  onNavigate?: (tab: string) => void;
+}
+
+export default function MeineRezepte({ onNavigate: _onNavigate }: MeineRezepteProps) {
   const { recipes, loading, error, addRecipes, refetch, patchRecipeSilent, deleteRecipeSilent, updateRecipe } = useRecipes();
 
   const defaultView = useLocalStorage<"kacheln" | "tabelle">("lk_defaultView", "kacheln");
@@ -184,6 +211,7 @@ export default function MeineRezepte() {
   const [showPdfModal, setShowPdfModal] = useState(false);
   const [showUrlModal, setShowUrlModal] = useState(false);
   const [showImageModal, setShowImageModal] = useState(false);
+  const [showNewRecipeModal, setShowNewRecipeModal] = useState(false);
 
   const [managedSelected, setManagedSelected] = useState<Set<number>>(new Set());
 
@@ -241,20 +269,22 @@ export default function MeineRezepte() {
     return matchesSearch && matchesCat && matchesTime;
   }), [sorted, search, activeCategory, timeFilter]);
 
+  const knownCategories = useMemo(() => Array.from(new Set(recipes.map((r) => r.category))).sort(), [recipes]);
+
   return (
-    <div className="max-w-6xl mx-auto px-4 py-8">
-      <div className="mb-6 flex items-center gap-2">
+    <div className="max-w-6xl mx-auto px-4 py-6">
+      <div className="mb-5 flex items-center gap-2">
         <div className="flex gap-1 bg-white border border-border rounded-xl p-1">
           <button
             onClick={() => setPageMode("galerie")}
-            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-medium transition-colors ${pageMode === "galerie" ? "bg-[#4A7C59] text-white" : "text-muted-foreground hover:text-foreground"}`}
+            className={`flex items-center gap-1.5 px-3 py-2 rounded-lg text-sm font-medium transition-colors min-h-[40px] ${pageMode === "galerie" ? "bg-[#3d6849] text-white" : "text-muted-foreground hover:text-foreground"}`}
           >
             <LayoutGrid className="w-4 h-4" />
             Galerie
           </button>
           <button
             onClick={() => setPageMode("verwalten")}
-            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-medium transition-colors ${pageMode === "verwalten" ? "bg-[#4A7C59] text-white" : "text-muted-foreground hover:text-foreground"}`}
+            className={`flex items-center gap-1.5 px-3 py-2 rounded-lg text-sm font-medium transition-colors min-h-[40px] ${pageMode === "verwalten" ? "bg-[#3d6849] text-white" : "text-muted-foreground hover:text-foreground"}`}
           >
             <Settings2 className="w-4 h-4" />
             Verwalten
@@ -294,29 +324,30 @@ export default function MeineRezepte() {
         </>
       ) : (
         <>
-          <div className="mb-8 space-y-4">
-            <div className="flex items-center gap-3">
-              <div className="relative flex-1 max-w-md">
+          <div className="mb-6 space-y-3">
+            {/* Search + view toggle row */}
+            <div className="flex items-center gap-3 flex-wrap">
+              <div className="relative flex-1 min-w-[180px]">
                 <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
                 <input
                   type="text"
                   placeholder="Rezept suchen…"
                   value={search}
                   onChange={(e) => setSearch(e.target.value)}
-                  className="w-full pl-10 pr-4 py-2.5 rounded-xl border border-border bg-white text-sm focus:outline-none focus:ring-2 focus:ring-[#4A7C59]/30"
+                  className="w-full pl-10 pr-4 py-3 rounded-xl border border-border bg-white text-sm focus:outline-none focus:ring-2 focus:ring-[#4A7C59]/30 min-h-[48px]"
                 />
               </div>
 
               <div className="flex gap-1 bg-white border border-border rounded-xl p-1">
                 <button
                   onClick={() => setViewMode("kacheln")}
-                  className={`p-1.5 rounded-lg transition-colors ${viewMode === "kacheln" ? "bg-[#4A7C59] text-white" : "text-muted-foreground hover:text-foreground"}`}
+                  className={`p-2 rounded-lg transition-colors min-h-[40px] min-w-[40px] ${viewMode === "kacheln" ? "bg-[#3d6849] text-white" : "text-muted-foreground hover:text-foreground"}`}
                   title="Kachelansicht">
                   <LayoutGrid className="w-4 h-4" />
                 </button>
                 <button
                   onClick={() => setViewMode("tabelle")}
-                  className={`p-1.5 rounded-lg transition-colors ${viewMode === "tabelle" ? "bg-[#4A7C59] text-white" : "text-muted-foreground hover:text-foreground"}`}
+                  className={`p-2 rounded-lg transition-colors min-h-[40px] min-w-[40px] ${viewMode === "tabelle" ? "bg-[#3d6849] text-white" : "text-muted-foreground hover:text-foreground"}`}
                   title="Tabellenansicht">
                   <Table className="w-4 h-4" />
                 </button>
@@ -324,17 +355,19 @@ export default function MeineRezepte() {
 
               <button
                 onClick={() => setShowUrlModal(true)}
-                className="flex items-center gap-2 px-4 py-2.5 bg-[#4A7C59] text-white rounded-xl text-sm font-semibold hover:bg-[#3d6849] transition-colors whitespace-nowrap shadow-sm"
+                className="flex items-center gap-2 px-4 py-3 bg-[#3d6849] text-white rounded-xl text-sm font-semibold hover:bg-[#2d5240] transition-colors whitespace-nowrap shadow-sm min-h-[48px]"
               >
                 <Link className="w-4 h-4" />
-                URL importieren
+                <span className="hidden sm:inline">URL importieren</span>
+                <span className="sm:hidden">URL</span>
               </button>
               <button
                 onClick={() => setShowPdfModal(true)}
-                className="flex items-center gap-2 px-4 py-2.5 bg-[#C1693A] text-white rounded-xl text-sm font-semibold hover:bg-[#a8572f] transition-colors whitespace-nowrap shadow-sm"
+                className="flex items-center gap-2 px-4 py-3 bg-[#C1693A] text-white rounded-xl text-sm font-semibold hover:bg-[#a8572f] transition-colors whitespace-nowrap shadow-sm min-h-[48px]"
               >
                 <Upload className="w-4 h-4" />
-                PDF hochladen
+                <span className="hidden sm:inline">PDF hochladen</span>
+                <span className="sm:hidden">PDF</span>
               </button>
               <button
                 onClick={() => setShowImageModal(true)}
@@ -345,14 +378,15 @@ export default function MeineRezepte() {
               </button>
             </div>
 
+            {/* Category filter */}
             <div className="flex flex-wrap gap-2">
               {allCategories.map((cat) => (
                 <button
                   key={cat}
                   onClick={() => setActiveCategory(cat)}
-                  className={`px-3 py-1.5 rounded-full text-sm font-medium transition-colors ${
+                  className={`px-3 py-2 rounded-full text-sm font-medium transition-colors min-h-[36px] ${
                     activeCategory === cat
-                      ? "bg-[#4A7C59] text-white"
+                      ? "bg-[#3d6849] text-white"
                       : "bg-white text-foreground border border-border hover:border-[#4A7C59]/40"
                   }`}
                 >
@@ -361,12 +395,13 @@ export default function MeineRezepte() {
               ))}
             </div>
 
+            {/* Time filter */}
             <div className="flex gap-2">
               {["Alle", "Unter 30 Min", "Unter 1 Std"].map((t) => (
                 <button
                   key={t}
                   onClick={() => setTimeFilter(t)}
-                  className={`px-3 py-1.5 rounded-full text-xs font-medium transition-colors flex items-center gap-1 ${
+                  className={`px-3 py-1.5 rounded-full text-xs font-medium transition-colors flex items-center gap-1 min-h-[36px] ${
                     timeFilter === t
                       ? "bg-[#C1693A] text-white"
                       : "bg-white text-muted-foreground border border-border hover:border-[#C1693A]/40"
@@ -395,7 +430,7 @@ export default function MeineRezepte() {
 
           {!loading && !error && (
             <>
-              <p className="text-sm text-muted-foreground mb-6">
+              <p className="text-sm text-muted-foreground mb-4">
                 {filtered.length} von {recipes.length} Rezepten
                 {savedSortOrder !== "alphabetisch" && (
                   <span className="ml-2 text-xs text-muted-foreground/70">
@@ -475,6 +510,50 @@ export default function MeineRezepte() {
               }}
             />
           )}
+
+          {showNewRecipeModal && (
+            <RecipeEditModal
+              recipe={{
+                id: -1,
+                title: "",
+                category: knownCategories[0] ?? "Pasta",
+                difficulty: "normal",
+                servings: null,
+                prepTime: null,
+                totalTime: null,
+                rating: null,
+                kcalPerPortion: null,
+                source: null,
+                lastCooked: null,
+                cookedCount: null,
+                notes: null,
+                steps: [],
+                ingredients: [],
+                imageUrl: null,
+              }}
+              onClose={() => setShowNewRecipeModal(false)}
+              onSave={async (_id, data: RecipeUpdatePayload) => {
+                await addRecipes([data as Partial<Recipe>]);
+                setShowNewRecipeModal(false);
+              }}
+              knownCategories={knownCategories}
+            />
+          )}
+
+          {/* Floating Action Button */}
+          <button
+            onClick={() => setShowNewRecipeModal(true)}
+            className="fab fixed bottom-24 right-5 z-50 w-14 h-14 rounded-full flex items-center justify-center text-white"
+            style={{
+              background: "linear-gradient(135deg, #C1693A 0%, #d4855a 100%)",
+              minWidth: "56px",
+              minHeight: "56px",
+            }}
+            title="Neues Rezept erstellen"
+            aria-label="Neues Rezept erstellen"
+          >
+            <Plus className="w-7 h-7" />
+          </button>
         </>
       )}
     </div>

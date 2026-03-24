@@ -32,7 +32,6 @@ export default function ImageImportModal({ onClose, onAdd }: Props) {
     if (previewUrl) URL.revokeObjectURL(previewUrl);
     onClose();
   };
-
   const handleFile = async (file: File) => {
     const mimeType = file.type || "image/jpeg";
     if (!ALLOWED_MIME.includes(mimeType)) {

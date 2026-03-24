@@ -560,7 +560,7 @@ export default function Admin() {
   }
 
   return (
-    <div className="max-w-6xl mx-auto px-4 py-8">
+    <div className="max-w-6xl mx-auto px-4 py-6 pb-28">
       <div className="mb-6 flex items-center gap-3">
         <Settings className="w-6 h-6 text-[#4A7C59]" />
         <h2 className="font-serif text-2xl font-semibold text-foreground">Admin-Bereich</h2>

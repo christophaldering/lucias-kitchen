@@ -182,7 +182,7 @@ export default function Profil() {
   };
 
   return (
-    <div className="max-w-3xl mx-auto px-4 py-8 space-y-6">
+    <div className="max-w-3xl mx-auto px-4 py-6 pb-28 space-y-6">
       {/* Avatar */}
       <div className="bg-white rounded-2xl border border-border shadow-sm">
         <AvatarSection user={user} onUpload={uploadAvatar} />

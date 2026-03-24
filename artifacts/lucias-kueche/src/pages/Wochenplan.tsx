@@ -225,7 +225,7 @@ export default function Wochenplan() {
   }
 
   return (
-    <div className="max-w-5xl mx-auto px-4 py-8">
+    <div className="max-w-5xl mx-auto px-4 py-6 pb-28">
       <div className="flex items-center justify-between mb-6">
         <h2 className="font-serif text-2xl font-semibold text-foreground">
           📅 Mein Wochenplan

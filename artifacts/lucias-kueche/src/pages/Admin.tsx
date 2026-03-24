@@ -714,9 +714,11 @@ function AppSettings() {
   );
 }
 
-export default function Admin() {
+export default function Admin({ initialTab }: { initialTab?: string }) {
   const { recipes, loading, error, refetch, patchRecipe, patchRecipeSilent, addRecipes, deleteAllRecipes, restoreDemo } = useRecipes();
-  const [section, setSection] = useState<SectionTab>("categories");
+  const validTabs = SECTION_TABS.map((t) => t.id);
+  const resolvedTab: SectionTab = (validTabs.includes(initialTab as SectionTab) ? initialTab : "categories") as SectionTab;
+  const [section, setSection] = useState<SectionTab>(resolvedTab);
 
   if (loading) {
     return (

@@ -170,6 +170,7 @@ function AppShell() {
   const { user, loading } = useAuth();
   const [activeTab, setActiveTab] = useState<Tab>("rezepte");
   const [openRecipeId, setOpenRecipeId] = useState<number | null>(null);
+  const [adminInitialTab, setAdminInitialTab] = useState<string | null>(null);
   const { unreadCount: invitationUnreadCount } = useNotifications();
   const { suggestions: incomingSuggestions } = useIncomingSuggestions();
   const pendingSuggestionsCount = incomingSuggestions.filter((s) => s.status === "pending").length;
@@ -233,13 +234,13 @@ function AppShell() {
         {activeTab === "was-koche-ich" && <WasKocheIch />}
         {activeTab === "wochenplan" && <Wochenplan onNavigate={(tab) => setActiveTab(tab as Tab)} />}
         {activeTab === "statistiken" && <Statistiken />}
-        {activeTab === "admin" && <Admin />}
+        {activeTab === "admin" && <Admin initialTab={adminInitialTab ?? "categories"} />}
         {activeTab === "profil" && <Profil />}
         {activeTab === "meine-kueche" && <MeineKueche onOpenRecipe={(recipeId) => { setActiveTab("rezepte"); setOpenRecipeId(recipeId); }} />}
       </main>
 
       <BottomNav activeTab={activeTab} onTabChange={setActiveTab} unreadCount={unreadCount} />
-      <BulkImportProgressBar onNavigateToImport={() => setActiveTab("admin")} />
+      <BulkImportProgressBar onNavigateToImport={() => { setAdminInitialTab("bulk-import"); setActiveTab("admin"); }} />
     </>
   );
 }

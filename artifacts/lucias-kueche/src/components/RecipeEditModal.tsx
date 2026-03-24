@@ -1,8 +1,9 @@
 import { useState, useMemo, useRef } from "react";
-import { X, Plus, Trash2, ChevronUp, ChevronDown, Save, Loader2, Camera, Image, XCircle } from "lucide-react";
+import { X, Plus, Trash2, ChevronUp, ChevronDown, Save, Loader2, Camera, Image, XCircle, Printer } from "lucide-react";
 import type { Recipe, IngredientInput } from "@/types/recipe";
 import type { RecipeUpdatePayload } from "@/hooks/useRecipes";
 import { uploadRecipeImage } from "@/hooks/useRecipes";
+import RecipePrintView from "@/components/RecipePrintView";
 
 interface Props {
   recipe: Recipe;
@@ -151,6 +152,7 @@ export default function RecipeEditModal({ recipe, onClose, onSave, knownCategori
   };
 
   return (
+    <>
     <div
       className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm"
       onClick={(e) => e.target === e.currentTarget && onClose()}
@@ -373,6 +375,11 @@ export default function RecipeEditModal({ recipe, onClose, onSave, knownCategori
             className="px-4 py-2 border border-border rounded-xl text-sm font-medium hover:bg-secondary transition-colors">
             Abbrechen
           </button>
+          <button onClick={() => window.print()} disabled={saving || uploadingImage}
+            className="flex items-center gap-2 px-4 py-2 border border-border rounded-xl text-sm font-medium hover:bg-secondary transition-colors disabled:opacity-60">
+            <Printer className="w-4 h-4" />
+            Drucken
+          </button>
           <button onClick={handleSave} disabled={saving || uploadingImage}
             className="flex items-center gap-2 px-5 py-2 bg-[#C1693A] text-white rounded-xl text-sm font-semibold hover:bg-[#a8572f] transition-colors disabled:opacity-60">
             {saving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
@@ -381,5 +388,24 @@ export default function RecipeEditModal({ recipe, onClose, onSave, knownCategori
         </div>
       </div>
     </div>
+    <RecipePrintView recipe={{
+      ...recipe,
+      title: title.trim() || recipe.title,
+      category: effectiveCategory.trim() || recipe.category,
+      difficulty,
+      prepTime: prepTime.trim() || null,
+      totalTime: totalTime.trim() || null,
+      servings: servings ? parseInt(servings, 10) : null,
+      kcalPerPortion: kcal ? parseInt(kcal, 10) : null,
+      source: source.trim() || null,
+      rating: rating || null,
+      notes: notes.trim() || null,
+      steps: steps.filter((s) => s.trim()),
+      ingredients: ingredients
+        .filter((i) => i.name.trim())
+        .map((i) => ({ amount: i.amount, unit: i.unit, name: i.name, note: i.note || null })),
+      imageUrl: imageUrl ?? null,
+    }} />
+    </>
   );
 }

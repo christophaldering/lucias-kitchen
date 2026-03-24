@@ -78,6 +78,13 @@ export default function RecipePrintView({ recipe }: Props) {
           max-width: 800px;
           margin: 0 auto;
           background: #fff;
+          display: flex;
+          flex-direction: column;
+          min-height: 100vh;
+        }
+
+        .print-content {
+          flex: 1 1 auto;
         }
 
         /* ── Header ── */
@@ -327,7 +334,7 @@ export default function RecipePrintView({ recipe }: Props) {
 
         /* ── Footer ── */
         .print-footer {
-          margin-top: 16px;
+          margin-top: auto;
           padding-top: 8px;
           border-top: 1px solid #aaa;
           display: flex;
@@ -357,6 +364,9 @@ export default function RecipePrintView({ recipe }: Props) {
           align-self: flex-end;
         }
       `}</style>
+
+      {/* ── Main content (flex-grows to fill page) ── */}
+      <div className="print-content">
 
       {/* ── Header ── */}
       <div>
@@ -453,6 +463,8 @@ export default function RecipePrintView({ recipe }: Props) {
           </div>
         </div>
       </div>
+
+      </div>{/* end print-content */}
 
       {/* ── Footer: QR code bottom left ── */}
       <div className="print-footer">

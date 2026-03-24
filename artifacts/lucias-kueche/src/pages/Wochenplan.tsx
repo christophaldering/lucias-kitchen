@@ -1,74 +1,74 @@
 import { useState } from "react";
-import { recipes, weeklyPlan as initialPlan, DAYS, getRecipeById } from "@/data/recipes";
-import { Plus, X, ShoppingCart, Copy, Check } from "lucide-react";
+import { DAYS } from "@/types/recipe";
+import { useRecipes } from "@/hooks/useRecipes";
+import { X, ShoppingCart, Copy, Check, Loader2 } from "lucide-react";
 
 type IngCategory = "Gemüse" | "Fleisch & Fisch" | "Milchprodukte" | "Vorrat" | "Sonstiges";
 
 const INGREDIENT_CATEGORIES: Record<string, IngCategory> = {
-  Spinat: "Gemüse",
-  Tomaten: "Gemüse",
-  Karotte: "Gemüse",
-  Paprika: "Gemüse",
-  Zwiebel: "Gemüse",
-  Knoblauch: "Gemüse",
-  Lauch: "Gemüse",
-  Sellerie: "Gemüse",
-  Champignons: "Gemüse",
-  Zuckerschoten: "Gemüse",
-  Äpfel: "Gemüse",
-  Orange: "Gemüse",
-  "Rote Bete": "Gemüse",
-  Hackfleisch: "Fleisch & Fisch",
-  Hähnchen: "Fleisch & Fisch",
-  Kabeljau: "Fleisch & Fisch",
-  Lachs: "Fleisch & Fisch",
-  Thunfisch: "Fleisch & Fisch",
-  Speck: "Fleisch & Fisch",
-  Gyrosfleisch: "Fleisch & Fisch",
-  Putenschnitzel: "Fleisch & Fisch",
-  Sahne: "Milchprodukte",
-  Schmand: "Milchprodukte",
-  Schmelzkäse: "Milchprodukte",
-  Käse: "Milchprodukte",
-  Joghurt: "Milchprodukte",
-  Butter: "Milchprodukte",
-  Schafskäse: "Milchprodukte",
-  Kokosmilch: "Vorrat",
-  Linsen: "Vorrat",
-  Kichererbsen: "Vorrat",
-  Nudeln: "Vorrat",
-  Spaghetti: "Vorrat",
-  Reis: "Vorrat",
-  Kapern: "Vorrat",
-  Walnusskerne: "Vorrat",
-  Semmelbrösel: "Vorrat",
-  Tomatenmark: "Vorrat",
+  Spinat: "Gemüse", Tomaten: "Gemüse", Karotte: "Gemüse", Paprika: "Gemüse",
+  Zwiebel: "Gemüse", Knoblauch: "Gemüse", Lauch: "Gemüse", Sellerie: "Gemüse",
+  Champignons: "Gemüse", Zuckerschoten: "Gemüse", Äpfel: "Gemüse", Orange: "Gemüse",
+  "Rote Bete": "Gemüse", Zucchini: "Gemüse", Brokkoli: "Gemüse", Blumenkohl: "Gemüse",
+  Hackfleisch: "Fleisch & Fisch", Hähnchen: "Fleisch & Fisch", Kabeljau: "Fleisch & Fisch",
+  Lachs: "Fleisch & Fisch", Thunfisch: "Fleisch & Fisch", Speck: "Fleisch & Fisch",
+  Gyrosfleisch: "Fleisch & Fisch", Putenschnitzel: "Fleisch & Fisch",
+  Fischfilet: "Fleisch & Fisch", Scampi: "Fleisch & Fisch", Garnelen: "Fleisch & Fisch",
+  Hähnchenfilet: "Fleisch & Fisch", Putenbrust: "Fleisch & Fisch",
+  Sahne: "Milchprodukte", Schmand: "Milchprodukte", Schmelzkäse: "Milchprodukte",
+  Käse: "Milchprodukte", Joghurt: "Milchprodukte", Butter: "Milchprodukte",
+  Schafskäse: "Milchprodukte", Mozzarella: "Milchprodukte", Parmesan: "Milchprodukte",
+  Kokosmilch: "Vorrat", Linsen: "Vorrat", Kichererbsen: "Vorrat", Nudeln: "Vorrat",
+  Spaghetti: "Vorrat", Reis: "Vorrat", Kapern: "Vorrat", Walnusskerne: "Vorrat",
+  Semmelbrösel: "Vorrat", Tomatenmark: "Vorrat", Passata: "Vorrat",
 };
 
-function categorizeIngredient(ingredient: string): IngCategory {
+function categorizeIngredient(name: string): IngCategory {
   for (const [key, cat] of Object.entries(INGREDIENT_CATEGORIES)) {
-    if (ingredient.toLowerCase().includes(key.toLowerCase())) return cat;
+    if (name.toLowerCase().includes(key.toLowerCase())) return cat;
   }
   return "Sonstiges";
 }
 
+const catOrder: IngCategory[] = ["Gemüse", "Fleisch & Fisch", "Milchprodukte", "Vorrat", "Sonstiges"];
+const catEmoji: Record<IngCategory, string> = {
+  "Gemüse": "🥦",
+  "Fleisch & Fisch": "🥩",
+  "Milchprodukte": "🧀",
+  "Vorrat": "🫙",
+  "Sonstiges": "🛒",
+};
+
+const CATEGORY_EMOJIS: Record<string, string> = {
+  Fisch: "🐟", Geflügel: "🍗", Fleisch: "🥩", Vegetarisch: "🌿", Pasta: "🍝",
+};
+
 export default function Wochenplan() {
-  const [plan, setPlan] = useState<(number | null)[]>(initialPlan);
+  const { recipes, loading, error } = useRecipes();
+  const [plan, setPlan] = useState<(number | null)[]>(Array(7).fill(null));
   const [checked, setChecked] = useState<Set<string>>(new Set());
   const [copied, setCopied] = useState(false);
 
-  const plannedRecipes = plan
-    .map((id, dayIdx) => (id ? { recipe: getRecipeById(id)!, dayIdx } : null))
+  const plannedEntries = plan
+    .map((id, dayIdx) => {
+      if (!id) return null;
+      const recipe = recipes.find((r) => r.id === id);
+      return recipe ? { recipe, dayIdx } : null;
+    })
     .filter(Boolean) as { recipe: (typeof recipes)[0]; dayIdx: number }[];
 
-  const allIngredients = plannedRecipes.flatMap((pr) =>
+  type ShoppingItem = { text: string; amount: string; unit: string; category: IngCategory };
+
+  const allItems: ShoppingItem[] = plannedEntries.flatMap((pr) =>
     pr.recipe.ingredients.map((ing) => ({
-      text: ing,
-      category: categorizeIngredient(ing),
+      text: `${[ing.amount, ing.unit, ing.name].filter(Boolean).join(" ")}`,
+      amount: ing.amount,
+      unit: ing.unit,
+      category: categorizeIngredient(ing.name),
     }))
   );
 
-  const grouped = allIngredients.reduce<Record<IngCategory, string[]>>(
+  const grouped = allItems.reduce<Record<IngCategory, string[]>>(
     (acc, { text, category }) => {
       if (!acc[category]) acc[category] = [];
       if (!acc[category].includes(text)) acc[category].push(text);
@@ -76,22 +76,6 @@ export default function Wochenplan() {
     },
     {} as Record<IngCategory, string[]>
   );
-
-  const catOrder: IngCategory[] = [
-    "Gemüse",
-    "Fleisch & Fisch",
-    "Milchprodukte",
-    "Vorrat",
-    "Sonstiges",
-  ];
-
-  const catEmoji: Record<IngCategory, string> = {
-    "Gemüse": "🥦",
-    "Fleisch & Fisch": "🥩",
-    "Milchprodukte": "🧀",
-    "Vorrat": "🫙",
-    "Sonstiges": "🛒",
-  };
 
   const handleSetRecipe = (dayIdx: number, recipeId: number | null) => {
     const next = [...plan];
@@ -113,12 +97,30 @@ export default function Wochenplan() {
       .filter((cat) => grouped[cat]?.length)
       .flatMap((cat) => [
         `\n${catEmoji[cat]} ${cat}:`,
-        ...grouped[cat].map((ing) => `  • ${ing}`),
+        ...(grouped[cat] ?? []).map((ing) => `  • ${ing}`),
       ]);
     navigator.clipboard.writeText(lines.join("\n").trim());
     setCopied(true);
     setTimeout(() => setCopied(false), 2000);
   };
+
+  if (loading) {
+    return (
+      <div className="flex flex-col items-center py-20 gap-3 text-muted-foreground">
+        <Loader2 className="w-8 h-8 animate-spin text-[#4A7C59]" />
+        <p className="font-serif text-lg">Rezepte werden geladen…</p>
+      </div>
+    );
+  }
+
+  if (error) {
+    return (
+      <div className="text-center py-16">
+        <p className="text-4xl mb-4">⚠️</p>
+        <p className="font-serif text-lg text-foreground">{error}</p>
+      </div>
+    );
+  }
 
   return (
     <div className="max-w-5xl mx-auto px-4 py-8">
@@ -129,7 +131,10 @@ export default function Wochenplan() {
       {/* Week grid */}
       <div className="grid grid-cols-7 gap-2 mb-10">
         {DAYS.map((day, idx) => {
-          const recipe = plan[idx] ? getRecipeById(plan[idx]!) : null;
+          const recipeId = plan[idx];
+          const recipe = recipeId ? recipes.find((r) => r.id === recipeId) : null;
+          const emoji = recipe ? (CATEGORY_EMOJIS[recipe.category] ?? "🍽️") : null;
+
           return (
             <div key={day} className="flex flex-col gap-1">
               <p className="text-center text-xs font-bold text-[#4A7C59] uppercase tracking-wider pb-1">
@@ -144,7 +149,7 @@ export default function Wochenplan() {
               >
                 {recipe ? (
                   <div className="flex flex-col h-full gap-1">
-                    <span className="text-xl text-center">{recipe.emoji}</span>
+                    <span className="text-xl text-center">{emoji}</span>
                     <p className="text-xs font-medium text-foreground leading-tight line-clamp-3 text-center flex-1">
                       {recipe.title}
                     </p>
@@ -158,21 +163,17 @@ export default function Wochenplan() {
                 ) : (
                   <div className="h-full flex flex-col gap-1">
                     <select
+                      key={`day-${idx}-${recipeId}`}
                       defaultValue=""
                       onChange={(e) =>
-                        handleSetRecipe(
-                          idx,
-                          e.target.value ? Number(e.target.value) : null
-                        )
+                        handleSetRecipe(idx, e.target.value ? Number(e.target.value) : null)
                       }
                       className="w-full text-xs border-0 bg-transparent text-muted-foreground focus:outline-none cursor-pointer"
                     >
-                      <option value="" disabled>
-                        + Rezept
-                      </option>
+                      <option value="" disabled>+ Rezept</option>
                       {recipes.map((r) => (
                         <option key={r.id} value={r.id}>
-                          {r.emoji} {r.title}
+                          {CATEGORY_EMOJIS[r.category] ?? "🍽️"} {r.title}
                         </option>
                       ))}
                     </select>
@@ -191,23 +192,21 @@ export default function Wochenplan() {
             <ShoppingCart className="w-5 h-5 text-[#C1693A]" />
             Einkaufsliste
           </h3>
-          <button
-            onClick={handleCopy}
-            className="flex items-center gap-2 px-4 py-2 rounded-xl bg-[#4A7C59] text-white text-sm font-medium hover:bg-[#3d6849] transition-colors"
-          >
-            {copied ? (
-              <>
-                <Check className="w-4 h-4" /> Kopiert!
-              </>
-            ) : (
-              <>
-                <Copy className="w-4 h-4" /> Liste kopieren
-              </>
-            )}
-          </button>
+          {allItems.length > 0 && (
+            <button
+              onClick={handleCopy}
+              className="flex items-center gap-2 px-4 py-2 rounded-xl bg-[#4A7C59] text-white text-sm font-medium hover:bg-[#3d6849] transition-colors"
+            >
+              {copied ? (
+                <><Check className="w-4 h-4" /> Kopiert!</>
+              ) : (
+                <><Copy className="w-4 h-4" /> Liste kopieren</>
+              )}
+            </button>
+          )}
         </div>
 
-        {allIngredients.length === 0 ? (
+        {allItems.length === 0 ? (
           <p className="text-muted-foreground text-sm text-center py-8">
             Noch keine Rezepte im Wochenplan. Füge oben Rezepte ein!
           </p>
@@ -222,7 +221,7 @@ export default function Wochenplan() {
                     {cat}
                   </h4>
                   <ul className="space-y-1.5">
-                    {grouped[cat].map((ing) => {
+                    {(grouped[cat] ?? []).map((ing) => {
                       const key = `${cat}::${ing}`;
                       return (
                         <li
@@ -237,15 +236,11 @@ export default function Wochenplan() {
                                 : "border-border group-hover:border-[#4A7C59]/50"
                             }`}
                           >
-                            {checked.has(key) && (
-                              <Check className="w-2.5 h-2.5 text-white" />
-                            )}
+                            {checked.has(key) && <Check className="w-2.5 h-2.5 text-white" />}
                           </div>
                           <span
                             className={`text-sm transition-colors ${
-                              checked.has(key)
-                                ? "line-through text-muted-foreground"
-                                : "text-foreground"
+                              checked.has(key) ? "line-through text-muted-foreground" : "text-foreground"
                             }`}
                           >
                             {ing}

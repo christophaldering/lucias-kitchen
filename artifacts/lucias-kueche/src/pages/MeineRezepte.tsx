@@ -1,23 +1,34 @@
 import { useState } from "react";
-import { recipes, ALL_CATEGORIES, Recipe } from "@/data/recipes";
-import { Clock, Star, Search, ChefHat } from "lucide-react";
+import { ALL_CATEGORIES, Recipe, formatIngredient } from "@/types/recipe";
+import { useRecipes } from "@/hooks/useRecipes";
+import { Clock, Search, ChefHat, Upload, Loader2 } from "lucide-react";
 import RecipeModal from "@/components/RecipeModal";
+import PdfUploadModal from "@/components/PdfUploadModal";
 
-function Stars({ n }: { n: number }) {
+const CATEGORY_EMOJIS: Record<string, string> = {
+  Fisch: "🐟",
+  Geflügel: "🍗",
+  Fleisch: "🥩",
+  Vegetarisch: "🌿",
+  Pasta: "🍝",
+};
+
+function RatingBadge({ rating }: { rating: string | null }) {
+  if (!rating) return null;
+  const color =
+    rating === "sehr lecker"
+      ? "text-amber-600 bg-amber-50 border-amber-200"
+      : "text-green-700 bg-green-50 border-green-200";
   return (
-    <span className="flex gap-0.5">
-      {Array.from({ length: 5 }).map((_, i) => (
-        <Star
-          key={i}
-          className={`w-3.5 h-3.5 ${i < n ? "fill-amber-400 text-amber-400" : "text-gray-300"}`}
-        />
-      ))}
+    <span className={`text-xs font-medium px-2 py-0.5 rounded-full border ${color}`}>
+      {rating === "sehr lecker" ? "⭐ sehr lecker" : "👍 lecker"}
     </span>
   );
 }
 
 function RecipeCard({ recipe, onClick }: { recipe: Recipe; onClick: () => void }) {
   const [hovered, setHovered] = useState(false);
+  const emoji = CATEGORY_EMOJIS[recipe.category] ?? "🍽️";
 
   const diffColor =
     recipe.difficulty === "simpel"
@@ -33,45 +44,43 @@ function RecipeCard({ recipe, onClick }: { recipe: Recipe; onClick: () => void }
       onMouseLeave={() => setHovered(false)}
       onClick={onClick}
     >
-      {/* Emoji header */}
       <div className="h-24 flex items-center justify-center text-5xl bg-gradient-to-br from-[#f5ede0] to-[#f0e8d8]">
-        {recipe.emoji}
+        {emoji}
       </div>
 
       <div className="p-4">
         <div className="flex flex-wrap gap-1 mb-2">
-          {recipe.categories.map((cat) => (
-            <span
-              key={cat}
-              className="text-xs font-semibold px-2 py-0.5 rounded-full bg-[#4A7C59]/10 text-[#4A7C59]"
-            >
-              {cat}
-            </span>
-          ))}
+          <span className="text-xs font-semibold px-2 py-0.5 rounded-full bg-[#4A7C59]/10 text-[#4A7C59]">
+            {recipe.category}
+          </span>
         </div>
+
         <h3 className="font-serif font-semibold text-foreground leading-snug mb-2 line-clamp-2">
           {recipe.title}
         </h3>
 
-        <div className="flex items-center gap-3 mb-3">
-          <span className="flex items-center gap-1 text-xs text-muted-foreground">
-            <Clock className="w-3.5 h-3.5 text-[#C1693A]" />
-            {recipe.time} Min.
-          </span>
+        <div className="flex items-center gap-3 mb-3 flex-wrap">
+          {recipe.prepTime && (
+            <span className="flex items-center gap-1 text-xs text-muted-foreground">
+              <Clock className="w-3.5 h-3.5 text-[#C1693A]" />
+              {recipe.prepTime.replace("ca. ", "")}
+            </span>
+          )}
           <span className={`flex items-center gap-1 text-xs font-medium px-2 py-0.5 rounded-full ${diffColor}`}>
             <ChefHat className="w-3 h-3" />
             {recipe.difficulty}
           </span>
         </div>
 
-        <Stars n={recipe.rating} />
+        <RatingBadge rating={recipe.rating} />
 
-        <p className="mt-3 text-xs text-muted-foreground font-script text-base line-clamp-2 italic">
-          "{recipe.note}"
-        </p>
+        {recipe.notes && (
+          <p className="mt-3 text-xs text-muted-foreground font-script text-base line-clamp-2 italic">
+            "{recipe.notes}"
+          </p>
+        )}
       </div>
 
-      {/* Hover overlay */}
       {hovered && (
         <div className="absolute inset-0 bg-[#4A7C59]/90 flex items-center justify-center rounded-2xl transition-all">
           <span className="text-white font-semibold text-sm px-5 py-2.5 border-2 border-white rounded-xl hover:bg-white hover:text-[#4A7C59] transition-colors">
@@ -84,40 +93,60 @@ function RecipeCard({ recipe, onClick }: { recipe: Recipe; onClick: () => void }
 }
 
 export default function MeineRezepte() {
+  const { recipes, loading, error, addRecipes } = useRecipes();
   const [search, setSearch] = useState("");
   const [activeCategory, setActiveCategory] = useState("Alle");
   const [timeFilter, setTimeFilter] = useState("Alle");
   const [selected, setSelected] = useState<Recipe | null>(null);
+  const [showPdfModal, setShowPdfModal] = useState(false);
+
+  function parseTotalMinutes(totalTime: string | null): number {
+    if (!totalTime) return Infinity;
+    const match = totalTime.match(/(\d+)/g);
+    if (!match) return Infinity;
+    const nums = match.map(Number);
+    if (nums.length === 1) return nums[0];
+    return nums[0] * 60 + (nums[1] ?? 0);
+  }
 
   const filtered = recipes.filter((r) => {
     const matchesSearch =
       r.title.toLowerCase().includes(search.toLowerCase()) ||
-      r.note.toLowerCase().includes(search.toLowerCase());
-    const matchesCat =
-      activeCategory === "Alle" || r.categories.includes(activeCategory);
+      (r.notes ?? "").toLowerCase().includes(search.toLowerCase());
+    const matchesCat = activeCategory === "Alle" || r.category === activeCategory;
+    const mins = parseTotalMinutes(r.totalTime);
     const matchesTime =
       timeFilter === "Alle"
         ? true
         : timeFilter === "Unter 30 Min"
-        ? r.time < 30
-        : r.time < 60;
+        ? mins < 30
+        : mins < 60;
     return matchesSearch && matchesCat && matchesTime;
   });
 
   return (
     <div className="max-w-6xl mx-auto px-4 py-8">
-      {/* Filters */}
+      {/* Header row with search + PDF upload */}
       <div className="mb-8 space-y-4">
-        {/* Search */}
-        <div className="relative max-w-md">
-          <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
-          <input
-            type="text"
-            placeholder="Rezept suchen…"
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-            className="w-full pl-10 pr-4 py-2.5 rounded-xl border border-border bg-white text-sm focus:outline-none focus:ring-2 focus:ring-[#4A7C59]/30"
-          />
+        <div className="flex items-center gap-3">
+          <div className="relative flex-1 max-w-md">
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+            <input
+              type="text"
+              placeholder="Rezept suchen…"
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              className="w-full pl-10 pr-4 py-2.5 rounded-xl border border-border bg-white text-sm focus:outline-none focus:ring-2 focus:ring-[#4A7C59]/30"
+            />
+          </div>
+
+          <button
+            onClick={() => setShowPdfModal(true)}
+            className="flex items-center gap-2 px-4 py-2.5 bg-[#C1693A] text-white rounded-xl text-sm font-semibold hover:bg-[#a8572f] transition-colors whitespace-nowrap shadow-sm"
+          >
+            <Upload className="w-4 h-4" />
+            PDF hochladen
+          </button>
         </div>
 
         {/* Category tabs */}
@@ -156,33 +185,56 @@ export default function MeineRezepte() {
         </div>
       </div>
 
-      {/* Results count */}
-      <p className="text-sm text-muted-foreground mb-6">
-        {filtered.length} von {recipes.length} Rezepten
-      </p>
-
-      {/* Grid */}
-      {filtered.length === 0 ? (
-        <div className="text-center py-16 text-muted-foreground">
-          <p className="text-4xl mb-4">🔍</p>
-          <p className="font-serif text-lg">Kein Rezept gefunden.</p>
-        </div>
-      ) : (
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-5">
-          {filtered.map((recipe) => (
-            <RecipeCard
-              key={recipe.id}
-              recipe={recipe}
-              onClick={() => setSelected(recipe)}
-            />
-          ))}
+      {/* Loading / Error state */}
+      {loading && (
+        <div className="flex flex-col items-center py-20 gap-3 text-muted-foreground">
+          <Loader2 className="w-8 h-8 animate-spin text-[#4A7C59]" />
+          <p className="font-serif text-lg">Rezepte werden geladen…</p>
         </div>
       )}
 
+      {error && !loading && (
+        <div className="text-center py-16">
+          <p className="text-4xl mb-4">⚠️</p>
+          <p className="font-serif text-lg text-foreground">{error}</p>
+        </div>
+      )}
+
+      {!loading && !error && (
+        <>
+          <p className="text-sm text-muted-foreground mb-6">
+            {filtered.length} von {recipes.length} Rezepten
+          </p>
+
+          {filtered.length === 0 ? (
+            <div className="text-center py-16 text-muted-foreground">
+              <p className="text-4xl mb-4">🔍</p>
+              <p className="font-serif text-lg">Kein Rezept gefunden.</p>
+            </div>
+          ) : (
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-5">
+              {filtered.map((recipe) => (
+                <RecipeCard
+                  key={recipe.id}
+                  recipe={recipe}
+                  onClick={() => setSelected(recipe)}
+                />
+              ))}
+            </div>
+          )}
+        </>
+      )}
+
       {selected && (
-        <RecipeModal
-          recipe={selected}
-          onClose={() => setSelected(null)}
+        <RecipeModal recipe={selected} onClose={() => setSelected(null)} />
+      )}
+
+      {showPdfModal && (
+        <PdfUploadModal
+          onClose={() => setShowPdfModal(false)}
+          onAdd={async (newRecipes) => {
+            await addRecipes(newRecipes);
+          }}
         />
       )}
     </div>

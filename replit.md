@@ -93,11 +93,14 @@ Generated React Query hooks and fetch client from the OpenAPI spec (e.g. `useHea
 
 ### `artifacts/lucias-kueche` (`@workspace/lucias-kueche`)
 
-React + Vite recipe management app (SPA, no backend required). Features:
-- **Meine Rezepte**: Recipe gallery with category/time filters, search, recipe detail modal with sticky notes for Lucia's personal notes
-- **Wochenplan & Einkaufsliste**: 7-day weekly planner with drag-in recipes + auto-generated grouped shopping list with checkboxes
-- **Statistiken & Muster**: Pie/bar charts (Recharts) showing category distribution, time distribution, top favorites, and Lucia's cook profile
-- 13 real recipes hardcoded in `src/data/recipes.ts`
+React + Vite recipe management SPA backed by the `@workspace/api-server`. Features:
+- **Meine Rezepte**: Recipe gallery with category/time filters, search, recipe detail modal (structured ingredients, preparation steps, metadata). "PDF hochladen" button opens the PDF upload modal.
+- **Wochenplan & Einkaufsliste**: 7-day weekly planner with selectable recipes + auto-generated grouped shopping list with checkboxes and copy-to-clipboard.
+- **Statistiken & Muster**: Pie/bar/horizontal-bar charts (Recharts) for category distribution, cooking time, difficulty, top favorites (by rating + cook count), and Lucia's cook profile.
+- **PDF Upload Modal** (`src/components/PdfUploadModal.tsx`): Drag-and-drop PDF upload → sends base64 to `/api/extract-pdf` → AI extracts recipes → user selects which ones to add.
+- All recipe data fetched from API via `src/hooks/useRecipes.ts` — no hardcoded data in the frontend.
+- Types defined in `src/types/recipe.ts` (rich model: structured ingredients, category string, rating string, prepTime/totalTime strings, etc.)
+- Vite proxy configured: `/api` → `http://localhost:${API_PORT ?? 8080}`
 - Color palette: cream #FDF6EC, forest green #4A7C59, terracotta #C1693A
 - Fonts: Dancing Script (script/title), Lora (serif headings), Inter (body)
 - Packages: recharts, framer-motion, react-hook-form, date-fns, @hookform/resolvers

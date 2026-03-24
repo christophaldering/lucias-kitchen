@@ -2,9 +2,10 @@ import { useState, useRef } from "react";
 import {
   Loader2, Trash2, Edit2, Download, Tag, RefreshCw,
   Upload, Check, AlertTriangle, Settings, Database, Sliders,
-  X, Plus, ChevronsUpDown
+  X, Plus, ChevronsUpDown, Users, CheckCircle, XCircle, Clock
 } from "lucide-react";
 import { useRecipes } from "@/hooks/useRecipes";
+import { useAdminGroups, type AdminGroup } from "@/hooks/useGroups";
 import type { Recipe } from "@/types/recipe";
 
 const CATEGORY_EMOJIS: Record<string, string> = {
@@ -13,6 +14,7 @@ const CATEGORY_EMOJIS: Record<string, string> = {
 
 const SECTION_TABS = [
   { id: "categories", label: "Kategorien", icon: Tag },
+  { id: "groups", label: "Gruppen", icon: Users },
   { id: "backup", label: "Backup & Import", icon: Database },
   { id: "settings", label: "App-Einstellungen", icon: Sliders },
 ] as const;
@@ -474,6 +476,177 @@ function BackupSection({
   );
 }
 
+function GroupsAdmin() {
+  const { groups, loading, error, approveGroup, rejectGroup } = useAdminGroups();
+  const [rejectingId, setRejectingId] = useState<number | null>(null);
+  const [rejectReason, setRejectReason] = useState("");
+  const [busy, setBusy] = useState(false);
+
+  const pending = groups.filter((g) => g.status === "pending");
+  const approved = groups.filter((g) => g.status === "approved");
+  const rejected = groups.filter((g) => g.status === "rejected");
+
+  const handleApprove = async (id: number) => {
+    setBusy(true);
+    try {
+      await approveGroup(id);
+      toast("Gruppe freigegeben ✓");
+    } catch {
+      toast("Fehler bei der Freigabe", "err");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const handleReject = async (id: number) => {
+    setBusy(true);
+    try {
+      await rejectGroup(id, rejectReason.trim() || undefined);
+      toast("Gruppe abgelehnt");
+      setRejectingId(null);
+      setRejectReason("");
+    } catch {
+      toast("Fehler beim Ablehnen", "err");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  if (loading) {
+    return (
+      <div className="flex justify-center py-10">
+        <Loader2 className="w-6 h-6 animate-spin text-[#4A7C59]" />
+      </div>
+    );
+  }
+
+  if (error) {
+    return <p className="text-sm text-red-600 text-center py-8">{error}</p>;
+  }
+
+  const GroupCard = ({ group, showActions }: { group: AdminGroup; showActions: boolean }) => (
+    <div className="flex items-start gap-4 p-4 rounded-xl bg-gray-50 border border-border/50">
+      {group.imageUrl ? (
+        <img src={group.imageUrl} alt="" className="w-12 h-12 rounded-xl object-cover flex-shrink-0" />
+      ) : (
+        <div className="w-12 h-12 rounded-xl bg-[#4A7C59]/10 flex items-center justify-center flex-shrink-0">
+          <Users className="w-6 h-6 text-[#4A7C59]" />
+        </div>
+      )}
+      <div className="flex-1 min-w-0">
+        <p className="font-semibold text-sm">{group.name}</p>
+        <p className="text-xs text-muted-foreground truncate">
+          Erstellt von {group.creatorName ?? "Unbekannt"} ({group.creatorEmail ?? ""})
+        </p>
+        <p className="text-xs text-muted-foreground">
+          {new Date(group.createdAt).toLocaleDateString("de-DE", { day: "2-digit", month: "long", year: "numeric" })}
+        </p>
+        {group.rejectionReason && (
+          <p className="text-xs text-red-600 mt-1">Ablehnungsgrund: {group.rejectionReason}</p>
+        )}
+      </div>
+      {showActions && (
+        <div className="flex flex-col gap-2 flex-shrink-0">
+          {rejectingId === group.id ? (
+            <div className="space-y-2">
+              <input
+                value={rejectReason}
+                onChange={(e) => setRejectReason(e.target.value)}
+                placeholder="Ablehnungsgrund (optional)"
+                className="w-48 px-2 py-1.5 text-xs rounded-lg border border-border bg-white focus:outline-none focus:ring-2 focus:ring-red-300"
+              />
+              <div className="flex gap-1">
+                <button
+                  onClick={() => handleReject(group.id)}
+                  disabled={busy}
+                  className="flex-1 px-2 py-1.5 bg-red-600 text-white text-xs rounded-lg font-medium hover:bg-red-700 transition-colors disabled:opacity-50 flex items-center justify-center gap-1"
+                >
+                  {busy ? <Loader2 className="w-3 h-3 animate-spin" /> : <XCircle className="w-3 h-3" />}
+                  Ablehnen
+                </button>
+                <button
+                  onClick={() => { setRejectingId(null); setRejectReason(""); }}
+                  className="px-2 py-1.5 bg-gray-100 text-gray-700 text-xs rounded-lg hover:bg-gray-200 transition-colors"
+                >
+                  <X className="w-3 h-3" />
+                </button>
+              </div>
+            </div>
+          ) : (
+            <>
+              <button
+                onClick={() => handleApprove(group.id)}
+                disabled={busy}
+                className="flex items-center gap-1 px-3 py-1.5 bg-[#4A7C59] text-white text-xs rounded-lg font-medium hover:bg-[#3d6849] transition-colors disabled:opacity-50"
+              >
+                <CheckCircle className="w-3 h-3" /> Freigeben
+              </button>
+              <button
+                onClick={() => { setRejectingId(group.id); setRejectReason(""); }}
+                disabled={busy}
+                className="flex items-center gap-1 px-3 py-1.5 bg-white border border-red-200 text-red-600 text-xs rounded-lg font-medium hover:bg-red-50 transition-colors disabled:opacity-50"
+              >
+                <XCircle className="w-3 h-3" /> Ablehnen
+              </button>
+            </>
+          )}
+        </div>
+      )}
+    </div>
+  );
+
+  return (
+    <div className="space-y-6">
+      <div className="bg-white rounded-2xl border border-border shadow-sm p-6">
+        <h3 className="font-serif font-semibold text-lg mb-1 flex items-center gap-2">
+          <Clock className="w-5 h-5 text-amber-500" /> Ausstehende Anfragen
+          {pending.length > 0 && (
+            <span className="ml-1 px-2 py-0.5 rounded-full bg-amber-100 text-amber-700 text-xs font-semibold">{pending.length}</span>
+          )}
+        </h3>
+        <p className="text-sm text-muted-foreground mb-4">Gruppen, die auf deine Freigabe warten.</p>
+        {pending.length === 0 ? (
+          <p className="text-sm text-muted-foreground text-center py-4">Keine ausstehenden Anfragen.</p>
+        ) : (
+          <div className="space-y-3">
+            {pending.map((g) => <GroupCard key={g.id} group={g} showActions={true} />)}
+          </div>
+        )}
+      </div>
+
+      <div className="bg-white rounded-2xl border border-border shadow-sm p-6">
+        <h3 className="font-serif font-semibold text-lg mb-1 flex items-center gap-2">
+          <CheckCircle className="w-5 h-5 text-[#4A7C59]" /> Freigegebene Gruppen
+          <span className="ml-1 px-2 py-0.5 rounded-full bg-[#4A7C59]/10 text-[#4A7C59] text-xs font-semibold">{approved.length}</span>
+        </h3>
+        <p className="text-sm text-muted-foreground mb-4">Aktive und nutzbare Gruppen.</p>
+        {approved.length === 0 ? (
+          <p className="text-sm text-muted-foreground text-center py-4">Noch keine freigegebenen Gruppen.</p>
+        ) : (
+          <div className="space-y-3">
+            {approved.map((g) => <GroupCard key={g.id} group={g} showActions={false} />)}
+          </div>
+        )}
+      </div>
+
+      <div className="bg-white rounded-2xl border border-border shadow-sm p-6">
+        <h3 className="font-serif font-semibold text-lg mb-1 flex items-center gap-2">
+          <XCircle className="w-5 h-5 text-red-400" /> Abgelehnte Gruppen
+          <span className="ml-1 px-2 py-0.5 rounded-full bg-red-100 text-red-600 text-xs font-semibold">{rejected.length}</span>
+        </h3>
+        <p className="text-sm text-muted-foreground mb-4">Anfragen, die abgelehnt wurden.</p>
+        {rejected.length === 0 ? (
+          <p className="text-sm text-muted-foreground text-center py-4">Keine abgelehnten Gruppen.</p>
+        ) : (
+          <div className="space-y-3">
+            {rejected.map((g) => <GroupCard key={g.id} group={g} showActions={false} />)}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
 function AppSettings() {
   const [defaultView, setDefaultView] = useLocalStorage<"kacheln" | "tabelle">("lk_defaultView", "kacheln");
   const [sortOrder, setSortOrder] = useLocalStorage<string>("lk_sortOrder", "alphabetisch");
@@ -584,6 +757,8 @@ export default function Admin() {
       {section === "categories" && (
         <CategoryManager recipes={recipes} patchRecipe={patchRecipe} patchRecipeSilent={patchRecipeSilent} refetch={refetch} />
       )}
+
+      {section === "groups" && <GroupsAdmin />}
 
       {section === "backup" && (
         <BackupSection

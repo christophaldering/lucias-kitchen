@@ -112,6 +112,32 @@ React + Vite recipe management SPA backed by the `@workspace/api-server`. Featur
 - Fonts: Dancing Script (script/title), Lora (serif headings), Inter (body)
 - Packages: recharts, framer-motion, react-hook-form, date-fns, @hookform/resolvers
 
+### Groups / Familien & Communities
+
+- **DB schema**: `lib/db/src/schema/groups.ts`
+  - `groups` table: id, name, imageUrl, status (pending/approved/rejected), rejectionReason, creatorId, createdAt, updatedAt
+  - `group_members` table: id, groupId, userId, invitedEmail, invitedByUserId, role (owner/member), memberStatus (invited/joined), createdAt
+- **Admin**: Only `lucia.aldering@googlemail.com` is the admin (hardcoded in groups route). Admin can approve/reject groups.
+- **API routes** (`artifacts/api-server/src/routes/groups.ts`):
+  - `GET /api/groups` — get user's groups (includes myRole, myMemberStatus)
+  - `GET /api/groups/admin` — get all groups with creator info (admin only)
+  - `POST /api/groups` — create group (status: pending, creator auto-added as owner+joined)
+  - `PUT /api/groups/:id/approve` — approve group (admin only)
+  - `PUT /api/groups/:id/reject` — reject with optional reason (admin only)
+  - `GET /api/groups/:id/members` — get members (must be member or admin, group must be approved)
+  - `POST /api/groups/:id/invite` — invite user by email or displayName (owner only, group must be approved)
+  - `PUT /api/groups/:id/join` — accept invitation and join
+  - `DELETE /api/groups/:id/members/:memberId` — remove member (owner only)
+- **Frontend** (`artifacts/lucias-kueche/src/hooks/useGroups.ts`): `useGroups` and `useAdminGroups` hooks
+- **UI components**: `GroupCreateModal.tsx`, `GroupMembersModal.tsx`
+- **Profil page** (`src/pages/Profil.tsx`): "Meine Gruppen" section at bottom with:
+  - "Neue Gruppe" button → GroupCreateModal
+  - Sections: Einladungen (blue), Aktive Gruppen (green), Wartet auf Freigabe (amber), Abgelehnt (red)
+  - Active group cards open GroupMembersModal with invite functionality
+- **Admin page** (`src/pages/Admin.tsx`): "Gruppen" tab added with:
+  - Ausstehende Anfragen (pending), Freigegebene Gruppen (approved), Abgelehnte Gruppen sections
+  - Approve/Reject with optional rejection reason
+
 ### Auth System
 
 - **DB schema**: `lib/db/src/schema/users.ts` — `users` table with: id, displayName, email, passwordHash, avatarUrl, bio, cookingLevel, favoriteCategories, dietaryPreference, onboardingCompleted, createdAt

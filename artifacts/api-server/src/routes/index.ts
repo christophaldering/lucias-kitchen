@@ -11,6 +11,7 @@ import mealPlansRouter from "./mealPlans";
 import uploadImageRouter from "./uploadImage";
 import authRouter from "./auth";
 import suggestWeekRouter from "./suggestWeek";
+import groupsRouter from "./groups";
 
 const router: IRouter = Router();
 
@@ -26,5 +27,6 @@ router.use(mealPlansRouter);
 router.use(uploadImageRouter);
 router.use(authRouter);
 router.use(suggestWeekRouter);
+router.use(groupsRouter);
 
 export default router;

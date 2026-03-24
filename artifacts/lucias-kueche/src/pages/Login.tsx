@@ -31,15 +31,16 @@ export default function Login() {
 
   return (
     <div className="min-h-screen relative flex items-center justify-center overflow-hidden">
-      {/* Full-screen background image */}
+      {/* Full-screen background image — Lucias echte Küche */}
       <div
         className="absolute inset-0 bg-cover bg-center"
         style={{
-          backgroundImage: `url('https://images.unsplash.com/photo-1556909114-f6e7ad7d3136?w=1600&q=80&auto=format&fit=crop')`,
+          backgroundImage: `url('/images/kueche.png')`,
+          backgroundPosition: "center 40%",
         }}
       />
-      {/* Dark overlay for readability */}
-      <div className="absolute inset-0 bg-gradient-to-br from-[#1a3a27]/75 via-[#2d5a3d]/60 to-[#4a2a10]/50" />
+      {/* Warm overlay — Küche bleibt erkennbar */}
+      <div className="absolute inset-0 bg-gradient-to-br from-[#1a1a0e]/65 via-[#2a1a0a]/50 to-[#3d2a10]/40" />
 
       {/* Glassmorphism card */}
       <div className="relative z-10 w-full max-w-md mx-4">

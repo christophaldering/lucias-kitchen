@@ -72,7 +72,8 @@ function RecipeTable({
             <th className="px-4 py-3 text-left font-semibold text-foreground hidden lg:table-cell">Schwierigkeit</th>
             <th className="px-4 py-3 text-left font-semibold text-foreground hidden lg:table-cell">Zeit</th>
             <th className="px-4 py-3 text-left font-semibold text-foreground hidden xl:table-cell">Bewertung</th>
-            <th className="px-4 py-3 text-left font-semibold text-foreground hidden xl:table-cell">Gekocht</th>
+            <th className="px-4 py-3 text-left font-semibold text-foreground hidden xl:table-cell">Anz. gekocht</th>
+            <th className="px-4 py-3 text-left font-semibold text-foreground hidden xl:table-cell">Zuletzt gekocht</th>
             <th className="px-4 py-3 text-center font-semibold text-foreground w-16">Edit</th>
           </tr>
         </thead>
@@ -109,8 +110,10 @@ function RecipeTable({
                   {r.rating === "sehr lecker" ? "⭐ sehr lecker" : r.rating === "lecker" ? "👍 lecker" : "–"}
                 </td>
                 <td className="px-4 py-3 hidden xl:table-cell text-xs text-muted-foreground">
-                  {r.cookedCount ? `🍳 ${r.cookedCount}×` : "–"}
-                  {r.lastCooked ? <span className="block">{new Date(r.lastCooked).toLocaleDateString("de-DE", { day: "2-digit", month: "2-digit", year: "numeric" })}</span> : null}
+                  {r.cookedCount ? `${r.cookedCount}×` : "–"}
+                </td>
+                <td className="px-4 py-3 hidden xl:table-cell text-xs text-muted-foreground">
+                  {r.lastCooked ? new Date(r.lastCooked).toLocaleDateString("de-DE", { day: "2-digit", month: "2-digit", year: "numeric" }) : "–"}
                 </td>
                 <td className="px-4 py-3 text-center" onClick={(e) => e.stopPropagation()}>
                   <button onClick={() => onEdit(r)}
@@ -486,8 +489,12 @@ function CategoryManager({ recipes, patchRecipe, refetch }: {
                   try {
                     const affected = recipes.filter((r) => r.category === deleteCandidate);
                     await Promise.all(affected.map((r) => patchRecipe(r.id, { category: mergeDst })));
-                    toast(`Alle Rezepte aus „${deleteCandidate}" nach „${mergeDst}" verschoben`);
+                    if (customCategories.includes(deleteCandidate!)) {
+                      persistCustomCats(customCategories.filter((c) => c !== deleteCandidate));
+                    }
+                    toast(`Alle Rezepte aus „${deleteCandidate}" nach „${mergeDst}" verschoben und Kategorie gelöscht`);
                     setDeleteCandidate(null); setMergeDst("");
+                    await refetch();
                   } catch { toast("Fehler", "err"); }
                   finally { setBusy(false); }
                 }}
@@ -609,6 +616,7 @@ function BackupSection({
   const [importPreview, setImportPreview] = useState<Partial<Recipe>[] | null>(null);
   const [deleteConfirmText, setDeleteConfirmText] = useState("");
   const [showDeleteAll, setShowDeleteAll] = useState(false);
+  const [showRestoreConfirm, setShowRestoreConfirm] = useState(false);
   const [busy, setBusy] = useState(false);
 
   const doExport = () => {
@@ -748,11 +756,25 @@ function BackupSection({
           <p className="text-sm text-muted-foreground mb-4">
             Die 13 Original-Rezepte erneut hinzufügen (bestehende Rezepte bleiben erhalten).
           </p>
-          <button onClick={doRestoreDemo} disabled={busy}
-            className="flex items-center gap-2 px-4 py-2.5 bg-amber-600 text-white rounded-xl text-sm font-semibold hover:bg-amber-700 transition-colors disabled:opacity-60">
-            {busy ? <Loader2 className="w-4 h-4 animate-spin" /> : <RefreshCw className="w-4 h-4" />}
-            Demo-Rezepte hinzufügen
-          </button>
+          {!showRestoreConfirm ? (
+            <button onClick={() => setShowRestoreConfirm(true)} disabled={busy}
+              className="flex items-center gap-2 px-4 py-2.5 bg-amber-600 text-white rounded-xl text-sm font-semibold hover:bg-amber-700 transition-colors disabled:opacity-60">
+              <RefreshCw className="w-4 h-4" />
+              Demo-Rezepte hinzufügen
+            </button>
+          ) : (
+            <div className="flex items-center gap-3">
+              <p className="text-sm text-amber-700 font-medium">13 Demo-Rezepte wirklich hinzufügen?</p>
+              <button onClick={() => { setShowRestoreConfirm(false); doRestoreDemo(); }} disabled={busy}
+                className="px-4 py-2 bg-amber-600 text-white rounded-xl text-sm font-semibold hover:bg-amber-700 transition-colors disabled:opacity-60">
+                {busy ? <Loader2 className="w-4 h-4 animate-spin inline" /> : "Ja, hinzufügen"}
+              </button>
+              <button onClick={() => setShowRestoreConfirm(false)}
+                className="px-4 py-2 bg-gray-100 text-gray-700 rounded-xl text-sm font-medium hover:bg-gray-200 transition-colors">
+                Abbrechen
+              </button>
+            </div>
+          )}
         </div>
 
         <div className="bg-white rounded-2xl border border-red-200 shadow-sm p-6">

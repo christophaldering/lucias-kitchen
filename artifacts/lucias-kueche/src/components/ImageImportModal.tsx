@@ -1,4 +1,4 @@
-import { useState, useRef } from "react";
+import { useState, useRef, useEffect } from "react";
 import { X, Camera, ImageIcon, FileText, Check, Loader2, Bot } from "lucide-react";
 import type { Recipe } from "@/types/recipe";
 import { extractImageRecipes } from "@/hooks/useRecipes";
@@ -21,6 +21,17 @@ export default function ImageImportModal({ onClose, onAdd }: Props) {
 
   const galleryRef = useRef<HTMLInputElement>(null);
   const cameraRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    return () => {
+      if (previewUrl) URL.revokeObjectURL(previewUrl);
+    };
+  }, [previewUrl]);
+
+  const handleClose = () => {
+    if (previewUrl) URL.revokeObjectURL(previewUrl);
+    onClose();
+  };
 
   const handleFile = async (file: File) => {
     const mimeType = file.type || "image/jpeg";
@@ -102,7 +113,7 @@ export default function ImageImportModal({ onClose, onAdd }: Props) {
   return (
     <div
       className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm"
-      onClick={(e) => e.target === e.currentTarget && onClose()}
+      onClick={(e) => e.target === e.currentTarget && handleClose()}
     >
       <div className="bg-[#FDF6EC] rounded-2xl shadow-2xl w-full max-w-xl max-h-[90vh] overflow-y-auto">
         {/* Header */}
@@ -113,7 +124,7 @@ export default function ImageImportModal({ onClose, onAdd }: Props) {
               Rezept aus Foto oder Kamera automatisch erkennen
             </p>
           </div>
-          <button onClick={onClose} aria-label="Schließen" className="p-1.5 hover:bg-white/20 rounded-lg transition-colors">
+          <button onClick={handleClose} aria-label="Schließen" className="p-1.5 hover:bg-white/20 rounded-lg transition-colors">
             <X className="w-5 h-5" />
           </button>
         </div>
@@ -271,7 +282,7 @@ export default function ImageImportModal({ onClose, onAdd }: Props) {
                       {selected.size} Rezept{selected.size !== 1 ? "e" : ""} hinzufügen
                     </button>
                     <button
-                      onClick={onClose}
+                      onClick={handleClose}
                       className="px-4 py-2.5 border border-border rounded-xl text-sm font-medium hover:bg-secondary transition-colors"
                     >
                       Abbrechen
@@ -301,7 +312,7 @@ export default function ImageImportModal({ onClose, onAdd }: Props) {
                 Die Rezepte wurden deiner Sammlung hinzugefügt.
               </p>
               <button
-                onClick={onClose}
+                onClick={handleClose}
                 className="mt-2 px-6 py-2.5 bg-[#4A7C59] text-white rounded-xl text-sm font-semibold hover:bg-[#3d6849] transition-colors"
               >
                 Schließen
@@ -323,7 +334,7 @@ export default function ImageImportModal({ onClose, onAdd }: Props) {
                   Nochmal versuchen
                 </button>
                 <button
-                  onClick={onClose}
+                  onClick={handleClose}
                   className="px-4 py-2.5 border border-border rounded-xl text-sm font-medium hover:bg-secondary transition-colors"
                 >
                   Schließen

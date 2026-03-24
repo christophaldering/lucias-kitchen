@@ -1,29 +1,8 @@
 import { Router, type IRouter } from "express";
 import { openai } from "@workspace/integrations-openai-ai-server";
+import { RECIPE_EXTRACTION_SYSTEM_PROMPT } from "../lib/recipeExtractionPrompt";
 
 const router: IRouter = Router();
-
-const SYSTEM_PROMPT = `Du bist ein Rezept-Extraktor. Analysiere das Bild und extrahiere alle sichtbaren Rezepte inklusive handschriftlicher Notizen und Anmerkungen. Gib das Ergebnis NUR als reines JSON zurück ohne Markdown, ohne Backticks, ohne Erklärungen.
-
-JSON-Struktur:
-{
-  "recipes": [
-    {
-      "title": "string",
-      "servings": number,
-      "prepTime": "string",
-      "totalTime": "string",
-      "difficulty": "simpel|normal|schwer",
-      "category": "Fisch|Fleisch|Pasta|Vegetarisch|Geflügel",
-      "ingredients": [
-        {"amount": "string", "unit": "string", "name": "string", "note": "string optional"}
-      ],
-      "steps": ["string"],
-      "notes": "string - handschriftliche Anmerkungen falls vorhanden",
-      "source": "string - Rezeptautor falls angegeben"
-    }
-  ]
-}`;
 
 const ALLOWED_TYPES = ["image/jpeg", "image/png", "image/webp", "image/gif"];
 
@@ -42,7 +21,7 @@ router.post("/extract-image", async (req, res) => {
       model: "gpt-4o",
       max_completion_tokens: 8192,
       messages: [
-        { role: "system", content: SYSTEM_PROMPT },
+        { role: "system", content: RECIPE_EXTRACTION_SYSTEM_PROMPT },
         {
           role: "user",
           content: [

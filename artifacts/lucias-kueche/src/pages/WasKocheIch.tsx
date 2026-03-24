@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef, useCallback } from "react";
-import { Lightbulb, Camera, X, Plus, Loader2, ChefHat, Clock, CheckCircle2, AlertCircle, UploadCloud } from "lucide-react";
+import { Lightbulb, Camera, X, Plus, Loader2, ChefHat, Clock, CheckCircle2, AlertCircle, UploadCloud, RotateCcw } from "lucide-react";
 import type { Recipe } from "@/types/recipe";
 import RecipeModal from "@/components/RecipeModal";
 
@@ -15,6 +15,8 @@ const MOOD_OPTIONS = [
   { label: "Mittel (< 1 Std)", value: "mittel", emoji: "⏱️" },
   { label: "Aufwändig", value: "aufwändig", emoji: "👨‍🍳" },
 ];
+
+type MoodState = "neutral" | "liked" | "disliked";
 
 interface SuggestedRecipe extends Recipe {
   matchScore: number;
@@ -122,15 +124,14 @@ export default function WasKocheIch() {
   const [loadingIngredients, setLoadingIngredients] = useState(true);
 
   const [selectedIngredients, setSelectedIngredients] = useState<Set<string>>(new Set());
-  const [customIngredient, setCustomIngredient] = useState("");
+  const [ingredientSearch, setIngredientSearch] = useState("");
 
   const [fridgeLoading, setFridgeLoading] = useState(false);
   const [fridgeIngredients, setFridgeIngredients] = useState<string[]>([]);
   const [fridgeError, setFridgeError] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  const [likedMoods, setLikedMoods] = useState<Set<string>>(new Set());
-  const [dislikedMoods, setDislikedMoods] = useState<Set<string>>(new Set());
+  const [moodStates, setMoodStates] = useState<Record<string, MoodState>>({});
 
   const [suggestions, setSuggestions] = useState<SuggestedRecipe[]>([]);
   const [suggestLoading, setSuggestLoading] = useState(false);
@@ -155,14 +156,14 @@ export default function WasKocheIch() {
     });
   };
 
-  const addCustomIngredient = () => {
-    const trimmed = customIngredient.trim();
+  const addIngredient = () => {
+    const trimmed = ingredientSearch.trim();
     if (!trimmed) return;
     setSelectedIngredients((prev) => new Set([...prev, trimmed]));
     if (!allIngredients.some((i) => i.toLowerCase() === trimmed.toLowerCase())) {
       setAllIngredients((prev) => [...prev, trimmed].sort((a, b) => a.localeCompare(b, "de")));
     }
-    setCustomIngredient("");
+    setIngredientSearch("");
   };
 
   const handleFridgeUpload = useCallback(async (file: File) => {
@@ -207,40 +208,36 @@ export default function WasKocheIch() {
     e.target.value = "";
   };
 
-  const toggleMood = (value: string, type: "liked" | "disliked") => {
-    if (type === "liked") {
-      setLikedMoods((prev) => {
-        const next = new Set(prev);
-        if (next.has(value)) next.delete(value);
-        else {
-          next.add(value);
-          setDislikedMoods((d) => {
-            const dn = new Set(d);
-            dn.delete(value);
-            return dn;
-          });
-        }
-        return next;
-      });
-    } else {
-      setDislikedMoods((prev) => {
-        const next = new Set(prev);
-        if (next.has(value)) next.delete(value);
-        else {
-          next.add(value);
-          setLikedMoods((l) => {
-            const ln = new Set(l);
-            ln.delete(value);
-            return ln;
-          });
-        }
-        return next;
-      });
-    }
+  const cycleMood = (value: string) => {
+    setMoodStates((prev) => {
+      const current: MoodState = prev[value] ?? "neutral";
+      const next: MoodState =
+        current === "neutral" ? "liked" : current === "liked" ? "disliked" : "neutral";
+      return { ...prev, [value]: next };
+    });
   };
+
+  const likedMoods = new Set(
+    Object.entries(moodStates)
+      .filter(([, s]) => s === "liked")
+      .map(([v]) => v)
+  );
+  const dislikedMoods = new Set(
+    Object.entries(moodStates)
+      .filter(([, s]) => s === "disliked")
+      .map(([v]) => v)
+  );
 
   const hasAnyInput =
     selectedIngredients.size > 0 || likedMoods.size > 0 || dislikedMoods.size > 0;
+
+  const resetAll = () => {
+    setSelectedIngredients(new Set());
+    setMoodStates({});
+    setIngredientSearch("");
+    setSuggestions([]);
+    setHasSearched(false);
+  };
 
   const fetchSuggestions = useCallback(async () => {
     if (!hasAnyInput) return;
@@ -276,16 +273,36 @@ export default function WasKocheIch() {
     return () => clearTimeout(timer);
   }, [selectedIngredients, likedMoods, dislikedMoods, hasAnyInput, fetchSuggestions]);
 
+  const filteredIngredients = allIngredients.filter((ing) => {
+    if (selectedIngredients.has(ing)) return false;
+    if (!ingredientSearch.trim()) return true;
+    return ing.toLowerCase().includes(ingredientSearch.trim().toLowerCase());
+  });
+
+  const searchIsExact = allIngredients.some(
+    (i) => i.toLowerCase() === ingredientSearch.trim().toLowerCase()
+  );
+  const canAdd = ingredientSearch.trim().length > 0;
+
   return (
     <div className="max-w-2xl mx-auto px-4 py-6 space-y-8">
       <div className="flex items-center gap-3 mb-2">
         <div className="w-10 h-10 rounded-2xl bg-[#4A7C59]/10 flex items-center justify-center flex-shrink-0">
           <Lightbulb className="w-5 h-5 text-[#4A7C59]" />
         </div>
-        <div>
+        <div className="flex-1">
           <h1 className="font-serif font-bold text-xl text-foreground leading-snug">Was koche ich heute?</h1>
           <p className="text-xs text-muted-foreground">Wähle Zutaten, Stimmung – und finde passende Rezepte</p>
         </div>
+        {hasAnyInput && (
+          <button
+            onClick={resetAll}
+            className="flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground transition-colors px-2 py-1 rounded-lg hover:bg-[#f5ede0]"
+          >
+            <RotateCcw className="w-3.5 h-3.5" />
+            Auswahl zurücksetzen
+          </button>
+        )}
       </div>
 
       {/* Section 1: Ingredients */}
@@ -317,37 +334,60 @@ export default function WasKocheIch() {
               </div>
             )}
 
-            <div className="flex flex-wrap gap-1.5 max-h-52 overflow-y-auto pb-1">
-              {allIngredients
-                .filter((ing) => !selectedIngredients.has(ing))
-                .map((ing) => (
-                  <button
-                    key={ing}
-                    onClick={() => toggleIngredient(ing)}
-                    className="px-3 py-1.5 rounded-full text-xs font-medium bg-[#f5ede0] text-[#7a4a2a] border border-[#e8d5c0] hover:bg-[#4A7C59]/10 hover:border-[#4A7C59]/30 transition-colors"
-                  >
-                    {ing}
-                  </button>
-                ))}
-            </div>
-
-            <div className="flex gap-2 mt-3">
+            {/* Combined search + add field */}
+            <div className="flex gap-2 mb-3">
               <input
                 type="text"
-                value={customIngredient}
-                onChange={(e) => setCustomIngredient(e.target.value)}
-                onKeyDown={(e) => e.key === "Enter" && addCustomIngredient()}
-                placeholder="Eigene Zutat hinzufügen…"
+                value={ingredientSearch}
+                onChange={(e) => setIngredientSearch(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") {
+                    if (canAdd && !searchIsExact) {
+                      addIngredient();
+                    } else if (filteredIngredients.length === 1) {
+                      toggleIngredient(filteredIngredients[0]);
+                      setIngredientSearch("");
+                    }
+                  }
+                }}
+                placeholder="Zutat suchen oder hinzufügen…"
                 className="flex-1 px-3 py-2 rounded-xl border border-border bg-[#fdfaf6] text-sm focus:outline-none focus:ring-2 focus:ring-[#4A7C59]/30"
               />
               <button
-                onClick={addCustomIngredient}
-                disabled={!customIngredient.trim()}
+                onClick={addIngredient}
+                disabled={!canAdd}
                 className="flex items-center gap-1 px-3 py-2 rounded-xl bg-[#4A7C59] text-white text-sm font-medium hover:bg-[#2d5240] disabled:opacity-40 transition-colors"
               >
                 <Plus className="w-4 h-4" />
               </button>
             </div>
+
+            {selectedIngredients.size === 0 && !ingredientSearch.trim() && (
+              <p className="text-xs text-muted-foreground mb-2 italic">
+                Wähle aus, was du zuhause hast – oder tippe eine Zutat ein.
+              </p>
+            )}
+
+            {filteredIngredients.length === 0 && ingredientSearch.trim() ? (
+              <p className="text-xs text-muted-foreground py-2">
+                Keine Treffer – drücke Enter oder + um „{ingredientSearch.trim()}" hinzuzufügen.
+              </p>
+            ) : filteredIngredients.length === 0 && !ingredientSearch.trim() && allIngredients.length > 0 ? null : (
+              <div className="flex flex-wrap gap-1.5 max-h-52 overflow-y-auto pb-1">
+                {filteredIngredients.map((ing) => (
+                  <button
+                    key={ing}
+                    onClick={() => {
+                      toggleIngredient(ing);
+                      setIngredientSearch("");
+                    }}
+                    className="px-3 py-1.5 rounded-full text-xs font-medium bg-[#f5ede0] text-[#7a4a2a] border border-[#e8d5c0] hover:bg-[#4A7C59]/10 hover:border-[#4A7C59]/30 transition-colors"
+                  >
+                    {ing}
+                  </button>
+                ))}
+              </div>
+            )}
           </>
         )}
       </section>
@@ -432,48 +472,41 @@ export default function WasKocheIch() {
         )}
       </section>
 
-      {/* Section 3: Mood Filter */}
+      {/* Section 3: Mood Filter – single tri-state row */}
       <section className="bg-white rounded-2xl border border-border p-5" style={{ boxShadow: "0 2px 12px rgba(120,70,30,0.07)" }}>
-        <h2 className="font-serif font-semibold text-base text-foreground mb-4">💭 Meine Stimmung</h2>
+        <h2 className="font-serif font-semibold text-base text-foreground mb-1">💭 Meine Stimmung</h2>
+        <p className="text-xs text-muted-foreground mb-4">Einmal klicken = Lust drauf, zweimal = kein Bock, nochmal = neutral</p>
 
-        <div className="mb-5">
-          <p className="text-xs font-semibold text-[#4A7C59] mb-2">Heute habe ich Lust auf…</p>
-          <div className="flex flex-wrap gap-2">
-            {MOOD_OPTIONS.map((opt) => (
+        <div className="flex flex-wrap gap-2">
+          {MOOD_OPTIONS.map((opt) => {
+            const state: MoodState = moodStates[opt.value] ?? "neutral";
+            const isLiked = state === "liked";
+            const isDisliked = state === "disliked";
+
+            let cardClass =
+              "flex items-center gap-1.5 px-3 py-1.5 rounded-full text-sm font-medium border transition-all select-none cursor-pointer ";
+
+            if (isLiked) {
+              cardClass += "bg-[#4A7C59] text-white border-[#4A7C59] shadow-sm";
+            } else if (isDisliked) {
+              cardClass += "bg-red-500 text-white border-red-500 shadow-sm";
+            } else {
+              cardClass += "bg-white text-foreground border-border hover:border-[#4A7C59]/40 hover:bg-[#4A7C59]/5";
+            }
+
+            return (
               <button
                 key={opt.value}
-                onClick={() => toggleMood(opt.value, "liked")}
-                className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full text-sm font-medium border transition-all ${
-                  likedMoods.has(opt.value)
-                    ? "bg-[#4A7C59] text-white border-[#4A7C59] shadow-sm"
-                    : "bg-white text-foreground border-border hover:border-[#4A7C59]/40 hover:bg-[#4A7C59]/5"
-                }`}
+                onClick={() => cycleMood(opt.value)}
+                className={cardClass}
               >
                 <span>{opt.emoji}</span>
                 {opt.label}
+                {isLiked && <span className="ml-0.5 text-xs font-bold">✓</span>}
+                {isDisliked && <span className="ml-0.5 text-xs font-bold">✗</span>}
               </button>
-            ))}
-          </div>
-        </div>
-
-        <div>
-          <p className="text-xs font-semibold text-red-500 mb-2">Heute auf keinen Fall…</p>
-          <div className="flex flex-wrap gap-2">
-            {MOOD_OPTIONS.map((opt) => (
-              <button
-                key={opt.value}
-                onClick={() => toggleMood(opt.value, "disliked")}
-                className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full text-sm font-medium border transition-all ${
-                  dislikedMoods.has(opt.value)
-                    ? "bg-red-500 text-white border-red-500 shadow-sm"
-                    : "bg-white text-foreground border-border hover:border-red-300 hover:bg-red-50/50"
-                }`}
-              >
-                <span>{opt.emoji}</span>
-                {opt.label}
-              </button>
-            ))}
-          </div>
+            );
+          })}
         </div>
       </section>
 

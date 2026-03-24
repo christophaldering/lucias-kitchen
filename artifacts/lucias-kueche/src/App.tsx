@@ -18,7 +18,6 @@ const NAV_TABS: { id: Tab; label: string; icon: React.ReactNode }[] = [
   { id: "rezepte", label: "Rezepte", icon: <BookOpen className="w-5 h-5" /> },
   { id: "wochenplan", label: "Wochenplan", icon: <CalendarDays className="w-5 h-5" /> },
   { id: "statistiken", label: "Statistiken", icon: <BarChart3 className="w-5 h-5" /> },
-  { id: "admin", label: "Admin", icon: <Settings className="w-5 h-5" /> },
 ];
 
 function getGreeting(name: string): string {
@@ -93,7 +92,7 @@ function AvatarDropdown({ onNavigate }: { onNavigate: (tab: Tab) => void }) {
               className="flex items-center gap-3 w-full px-4 py-3 text-sm text-foreground hover:bg-[#4A7C59]/5 transition-colors min-h-[48px]"
             >
               <Settings className="w-4 h-4 text-muted-foreground" />
-              Einstellungen
+              Admin
             </button>
           </div>
           <div className="border-t border-border py-1">

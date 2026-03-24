@@ -2,7 +2,7 @@ import { useState } from "react";
 import type { Recipe } from "@/types/recipe";
 import { SEASON_ICONS, SEASON_LABELS } from "@/types/recipe";
 import type { Season } from "@/types/recipe";
-import { X, Clock, ChefHat, CalendarPlus, Users, Flame, BookOpen, Check, Printer, UtensilsCrossed } from "lucide-react";
+import { X, Clock, ChefHat, CalendarPlus, Users, Flame, BookOpen, Check, Printer, UtensilsCrossed, Minus, Plus } from "lucide-react";
 import { addMealPlanEntry } from "@/hooks/useMealPlans";
 import RecipePrintView from "@/components/RecipePrintView";
 import CookingMode from "@/components/CookingMode";
@@ -20,6 +20,100 @@ const CATEGORY_EMOJIS: Record<string, string> = {
   Vegetarisch: "🌿",
   Pasta: "🍝",
 };
+
+const VULGAR_FRACTIONS: [number, string][] = [
+  [1 / 8, "⅛"],
+  [1 / 6, "⅙"],
+  [1 / 5, "⅕"],
+  [1 / 4, "¼"],
+  [1 / 3, "⅓"],
+  [3 / 8, "⅜"],
+  [2 / 5, "⅖"],
+  [1 / 2, "½"],
+  [3 / 5, "⅗"],
+  [5 / 8, "⅝"],
+  [2 / 3, "⅔"],
+  [3 / 4, "¾"],
+  [4 / 5, "⅘"],
+  [5 / 6, "⅚"],
+  [7 / 8, "⅞"],
+];
+
+function formatAmount(value: number): string {
+  if (value <= 0) return "";
+
+  const whole = Math.floor(value);
+  const frac = value - whole;
+
+  if (frac < 0.05) {
+    return whole === 0 ? "" : String(whole);
+  }
+
+  for (const [fracVal, fracStr] of VULGAR_FRACTIONS) {
+    if (Math.abs(frac - fracVal) < 0.05) {
+      return whole === 0 ? fracStr : `${whole} ${fracStr}`;
+    }
+  }
+
+  if (value < 10) {
+    const rounded = Math.round(value * 4) / 4;
+    if (rounded !== Math.round(rounded)) {
+      return rounded.toFixed(1).replace(".", ",");
+    }
+    return String(Math.round(rounded));
+  }
+
+  return String(Math.round(value));
+}
+
+function parseAmount(amount: string): number | null {
+  if (!amount || !amount.trim()) return null;
+
+  const trimmed = amount.trim().replace(",", ".");
+
+  const vulgarMap: Record<string, number> = {
+    "⅛": 1 / 8, "⅙": 1 / 6, "⅕": 1 / 5, "¼": 1 / 4,
+    "⅓": 1 / 3, "⅜": 3 / 8, "⅖": 2 / 5, "½": 1 / 2,
+    "⅗": 3 / 5, "⅝": 5 / 8, "⅔": 2 / 3, "¾": 3 / 4,
+    "⅘": 4 / 5, "⅚": 5 / 6, "⅞": 7 / 8,
+  };
+
+  for (const [char, val] of Object.entries(vulgarMap)) {
+    const wholeMatch = trimmed.match(new RegExp(`^(\\d+)\\s*${char}$`));
+    if (wholeMatch) return parseInt(wholeMatch[1], 10) + val;
+    if (trimmed === char) return val;
+  }
+
+  const fractionMatch = trimmed.match(/^(\d+)\s*\/\s*(\d+)$/);
+  if (fractionMatch) {
+    const num = parseInt(fractionMatch[1], 10);
+    const den = parseInt(fractionMatch[2], 10);
+    if (den !== 0) return num / den;
+  }
+
+  const mixedMatch = trimmed.match(/^(\d+)\s+(\d+)\s*\/\s*(\d+)$/);
+  if (mixedMatch) {
+    const whole = parseInt(mixedMatch[1], 10);
+    const num = parseInt(mixedMatch[2], 10);
+    const den = parseInt(mixedMatch[3], 10);
+    if (den !== 0) return whole + num / den;
+  }
+
+  const num = parseFloat(trimmed);
+  if (!isNaN(num)) return num;
+
+  return null;
+}
+
+function scaleAmount(amount: string, scaleFactor: number): string {
+  if (!amount || !amount.trim()) return amount;
+
+  const parsed = parseAmount(amount);
+  if (parsed === null) return amount;
+
+  const scaled = parsed * scaleFactor;
+  return formatAmount(scaled);
+}
 
 function RatingBadge({ rating }: { rating: string | null }) {
   if (!rating) return null;
@@ -52,6 +146,13 @@ export default function RecipeModal({ recipe, onClose, onAddToWeek }: Props) {
   const [selectedDate, setSelectedDate] = useState(today);
   const [saving, setSaving] = useState(false);
   const [cookingMode, setCookingMode] = useState(false);
+  const [currentServings, setCurrentServings] = useState(recipe.servings ?? 4);
+
+  const originalServings = recipe.servings ?? null;
+  const scaleFactor =
+    originalServings && originalServings > 0
+      ? currentServings / originalServings
+      : 1;
 
   const diffColor =
     recipe.difficulty === "simpel"
@@ -141,12 +242,6 @@ export default function RecipeModal({ recipe, onClose, onAddToWeek }: Props) {
               <ChefHat className="w-3.5 h-3.5" />
               {recipe.difficulty}
             </span>
-            {recipe.servings && (
-              <span className="flex items-center gap-1.5 text-sm text-muted-foreground">
-                <Users className="w-4 h-4 text-[#C1693A]" />
-                {recipe.servings} Portionen
-              </span>
-            )}
             {recipe.kcalPerPortion && (
               <span className="flex items-center gap-1.5 text-sm text-muted-foreground">
                 <Flame className="w-4 h-4 text-[#C1693A]" />
@@ -194,28 +289,61 @@ export default function RecipeModal({ recipe, onClose, onAddToWeek }: Props) {
 
           {/* Ingredients */}
           <div>
-            <h3 className="font-serif font-semibold text-lg text-foreground mb-3 flex items-center gap-2">
-              🛒 Zutaten
-              {recipe.servings && (
-                <span className="text-sm font-sans font-normal text-muted-foreground">
-                  (für {recipe.servings} Personen)
-                </span>
+            <div className="flex flex-wrap items-center justify-between gap-3 mb-3">
+              <h3 className="font-serif font-semibold text-lg text-foreground flex items-center gap-2">
+                🛒 Zutaten
+              </h3>
+              {originalServings && (
+                <div className="flex items-center gap-2">
+                  <Users className="w-4 h-4 text-[#C1693A] flex-shrink-0" />
+                  <div className="flex items-center gap-1.5">
+                    <button
+                      onClick={() => setCurrentServings((s) => Math.max(1, s - 1))}
+                      disabled={currentServings <= 1}
+                      className="w-7 h-7 flex items-center justify-center rounded-full border border-[#C1693A]/40 text-[#C1693A] hover:bg-[#C1693A]/10 transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
+                      aria-label="Portionen verringern"
+                    >
+                      <Minus className="w-3.5 h-3.5" />
+                    </button>
+                    <span className="min-w-[4rem] text-center text-sm font-semibold text-foreground">
+                      {currentServings}
+                      {currentServings !== originalServings && (
+                        <span className="block text-xs font-normal text-muted-foreground leading-none">
+                          (Orig.: {originalServings})
+                        </span>
+                      )}
+                    </span>
+                    <button
+                      onClick={() => setCurrentServings((s) => s + 1)}
+                      className="w-7 h-7 flex items-center justify-center rounded-full border border-[#C1693A]/40 text-[#C1693A] hover:bg-[#C1693A]/10 transition-colors"
+                      aria-label="Portionen erhöhen"
+                    >
+                      <Plus className="w-3.5 h-3.5" />
+                    </button>
+                  </div>
+                  <span className="text-sm text-muted-foreground">Portionen</span>
+                </div>
               )}
-            </h3>
+            </div>
             <ul className="space-y-1.5">
-              {recipe.ingredients.map((ing, i) => (
-                <li key={i} className="flex items-start gap-2 text-sm text-foreground">
-                  <span className="mt-1.5 w-1.5 h-1.5 rounded-full bg-[#C1693A] flex-shrink-0" />
-                  <span>
-                    {[ing.amount, ing.unit].filter(Boolean).join(" ")}
-                    {(ing.amount || ing.unit) && " "}
-                    <span className="font-medium">{ing.name}</span>
-                    {ing.note && (
-                      <span className="text-muted-foreground"> ({ing.note})</span>
-                    )}
-                  </span>
-                </li>
-              ))}
+              {recipe.ingredients.map((ing, i) => {
+                const scaledAmount = ing.amount
+                  ? scaleAmount(ing.amount, scaleFactor)
+                  : "";
+                return (
+                  <li key={i} className="flex items-start gap-2 text-sm text-foreground">
+                    <span className="mt-1.5 w-1.5 h-1.5 rounded-full bg-[#C1693A] flex-shrink-0" />
+                    <span>
+                      {[scaledAmount, ing.unit].filter(Boolean).join(" ")}
+                      {(scaledAmount || ing.unit) && " "}
+                      <span className="font-medium">{ing.name}</span>
+                      {ing.note && (
+                        <span className="text-muted-foreground"> ({ing.note})</span>
+                      )}
+                    </span>
+                  </li>
+                );
+              })}
             </ul>
           </div>
 

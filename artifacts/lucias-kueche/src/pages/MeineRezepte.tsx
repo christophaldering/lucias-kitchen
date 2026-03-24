@@ -74,9 +74,15 @@ function RecipeCard({
       onMouseLeave={() => setHovered(false)}
       onClick={onClick}
     >
-      <div className="h-24 flex items-center justify-center text-5xl bg-gradient-to-br from-[#f5ede0] to-[#f0e8d8]">
-        {emoji}
-      </div>
+      {recipe.imageUrl ? (
+        <div className="h-24 overflow-hidden">
+          <img src={recipe.imageUrl} alt={recipe.title} className="w-full h-full object-cover" />
+        </div>
+      ) : (
+        <div className="h-24 flex items-center justify-center text-5xl bg-gradient-to-br from-[#f5ede0] to-[#f0e8d8]">
+          {emoji}
+        </div>
+      )}
 
       <div className="p-4">
         <div className="flex flex-wrap gap-1 mb-2">

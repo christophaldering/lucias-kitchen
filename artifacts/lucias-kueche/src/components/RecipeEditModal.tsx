@@ -1,7 +1,8 @@
-import { useState, useMemo } from "react";
-import { X, Plus, Trash2, ChevronUp, ChevronDown, Save, Loader2 } from "lucide-react";
+import { useState, useMemo, useRef } from "react";
+import { X, Plus, Trash2, ChevronUp, ChevronDown, Save, Loader2, Camera, Image, XCircle } from "lucide-react";
 import type { Recipe, IngredientInput } from "@/types/recipe";
 import type { RecipeUpdatePayload } from "@/hooks/useRecipes";
+import { uploadRecipeImage } from "@/hooks/useRecipes";
 
 interface Props {
   recipe: Recipe;
@@ -49,10 +50,49 @@ export default function RecipeEditModal({ recipe, onClose, onSave, knownCategori
     }))
   );
   const [steps, setSteps] = useState<string[]>([...recipe.steps]);
+  const [imageUrl, setImageUrl] = useState<string | null>(recipe.imageUrl ?? null);
+  const [imagePreview, setImagePreview] = useState<string | null>(recipe.imageUrl ?? null);
+  const [uploadingImage, setUploadingImage] = useState(false);
+  const galleryInputRef = useRef<HTMLInputElement>(null);
+  const cameraInputRef = useRef<HTMLInputElement>(null);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
 
   const effectiveCategory = allCategories.includes(category) ? category : customCategory;
+
+  const handleImageFile = async (file: File) => {
+    if (!file.type.startsWith("image/")) {
+      setError("Bitte nur Bilddateien auswählen.");
+      return;
+    }
+    const localPreview = URL.createObjectURL(file);
+    setImagePreview((prev) => {
+      if (prev && prev.startsWith("blob:")) URL.revokeObjectURL(prev);
+      return localPreview;
+    });
+    setUploadingImage(true);
+    setError("");
+    try {
+      const url = await uploadRecipeImage(file);
+      setImageUrl(url);
+    } catch {
+      setError("Foto-Upload fehlgeschlagen. Bitte erneut versuchen.");
+      URL.revokeObjectURL(localPreview);
+      setImagePreview(imageUrl);
+    } finally {
+      setUploadingImage(false);
+    }
+  };
+
+  const handleRemoveImage = () => {
+    setImagePreview((prev) => {
+      if (prev && prev.startsWith("blob:")) URL.revokeObjectURL(prev);
+      return null;
+    });
+    setImageUrl(null);
+    if (galleryInputRef.current) galleryInputRef.current.value = "";
+    if (cameraInputRef.current) cameraInputRef.current.value = "";
+  };
 
   const addIngredient = () =>
     setIngredients((prev) => [...prev, { amount: "", unit: "", name: "", note: "" }]);
@@ -99,6 +139,7 @@ export default function RecipeEditModal({ recipe, onClose, onSave, knownCategori
           name: i.name,
           note: i.note || null,
         })),
+        imageUrl: imageUrl ?? null,
       };
       await onSave(recipe.id, payload);
       onClose();
@@ -207,6 +248,65 @@ export default function RecipeEditModal({ recipe, onClose, onSave, knownCategori
           </div>
 
           <div>
+            <label className="block text-xs font-semibold text-muted-foreground mb-2 uppercase tracking-wide">📷 Rezeptfoto</label>
+            <input
+              ref={galleryInputRef}
+              type="file"
+              accept="image/*"
+              className="hidden"
+              onChange={(e) => { const f = e.target.files?.[0]; if (f) handleImageFile(f); }}
+            />
+            <input
+              ref={cameraInputRef}
+              type="file"
+              accept="image/*"
+              capture="environment"
+              className="hidden"
+              onChange={(e) => { const f = e.target.files?.[0]; if (f) handleImageFile(f); }}
+            />
+            {imagePreview ? (
+              <div className="relative w-full rounded-xl overflow-hidden border border-border bg-white">
+                <img src={imagePreview} alt="Rezeptfoto Vorschau" className="w-full h-40 object-cover" />
+                {uploadingImage && (
+                  <div className="absolute inset-0 bg-black/40 flex items-center justify-center">
+                    <Loader2 className="w-8 h-8 text-white animate-spin" />
+                  </div>
+                )}
+                <button
+                  type="button"
+                  onClick={handleRemoveImage}
+                  className="absolute top-2 right-2 p-1 bg-white rounded-full shadow-md hover:bg-red-50 text-red-500 transition-colors"
+                  title="Foto entfernen"
+                >
+                  <XCircle className="w-5 h-5" />
+                </button>
+              </div>
+            ) : (
+              <div className="flex gap-2">
+                <button
+                  type="button"
+                  onClick={() => galleryInputRef.current?.click()}
+                  disabled={uploadingImage}
+                  className="flex items-center gap-2 px-4 py-2 border border-border rounded-xl text-sm font-medium hover:bg-secondary transition-colors disabled:opacity-50"
+                >
+                  <Image className="w-4 h-4 text-[#C1693A]" />
+                  Aus Galerie wählen
+                </button>
+                <button
+                  type="button"
+                  onClick={() => cameraInputRef.current?.click()}
+                  disabled={uploadingImage}
+                  className="flex items-center gap-2 px-4 py-2 border border-border rounded-xl text-sm font-medium hover:bg-secondary transition-colors disabled:opacity-50"
+                >
+                  <Camera className="w-4 h-4 text-[#C1693A]" />
+                  Foto aufnehmen
+                </button>
+                {uploadingImage && <Loader2 className="w-5 h-5 animate-spin text-[#C1693A] self-center" />}
+              </div>
+            )}
+          </div>
+
+          <div>
             <div className="flex items-center justify-between mb-2">
               <h3 className="font-serif font-semibold text-foreground">🛒 Zutaten</h3>
               <button onClick={addIngredient}
@@ -273,7 +373,7 @@ export default function RecipeEditModal({ recipe, onClose, onSave, knownCategori
             className="px-4 py-2 border border-border rounded-xl text-sm font-medium hover:bg-secondary transition-colors">
             Abbrechen
           </button>
-          <button onClick={handleSave} disabled={saving}
+          <button onClick={handleSave} disabled={saving || uploadingImage}
             className="flex items-center gap-2 px-5 py-2 bg-[#C1693A] text-white rounded-xl text-sm font-semibold hover:bg-[#a8572f] transition-colors disabled:opacity-60">
             {saving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
             Speichern

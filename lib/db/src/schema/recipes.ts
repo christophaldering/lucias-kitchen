@@ -17,6 +17,7 @@ export const recipesTable = pgTable("recipes", {
   cookedCount: integer("cooked_count").default(0),
   notes: text("notes"),
   steps: jsonb("steps").notNull().default([]),
+  imageUrl: text("image_url"),
 });
 
 export const recipeIngredientsTable = pgTable("recipe_ingredients", {

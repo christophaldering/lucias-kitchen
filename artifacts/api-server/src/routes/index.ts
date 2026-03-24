@@ -6,6 +6,7 @@ import recipesRouter from "./recipes";
 import extractPdfRouter from "./extractPdf";
 import extractUrlRouter from "./extractUrl";
 import mealPlansRouter from "./mealPlans";
+import uploadImageRouter from "./uploadImage";
 
 const router: IRouter = Router();
 
@@ -16,5 +17,6 @@ router.use(recipesRouter);
 router.use(extractPdfRouter);
 router.use(extractUrlRouter);
 router.use(mealPlansRouter);
+router.use(uploadImageRouter);
 
 export default router;

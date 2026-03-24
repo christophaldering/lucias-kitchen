@@ -30,6 +30,7 @@ export interface Recipe {
   notes: string | null;
   steps: string[];
   ingredients: RecipeIngredient[];
+  imageUrl?: string | null;
 }
 
 export const ALL_CATEGORIES = [

@@ -93,6 +93,16 @@ export default function RecipeModal({ recipe, onClose, onAddToWeek }: Props) {
           </button>
         </div>
 
+        {recipe.imageUrl && (
+          <div className="w-full overflow-hidden max-h-56">
+            <img
+              src={recipe.imageUrl}
+              alt={recipe.title}
+              className="w-full h-56 object-cover"
+            />
+          </div>
+        )}
+
         <div className="p-6 space-y-6">
           {/* Meta badges */}
           <div className="flex flex-wrap gap-3 items-center">

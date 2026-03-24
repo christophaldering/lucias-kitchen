@@ -16,6 +16,7 @@ export interface RecipeUpdatePayload {
   notes?: string | null;
   steps: string[];
   ingredients: IngredientInput[];
+  imageUrl?: string | null;
 }
 
 const API_BASE = "/api";
@@ -114,6 +115,24 @@ export function useRecipes() {
     deleteAllRecipes,
     restoreDemo,
   };
+}
+
+export async function uploadRecipeImage(file: File): Promise<string> {
+  const formData = new FormData();
+  formData.append("image", file);
+
+  const res = await fetch(`${API_BASE}/upload-image`, {
+    method: "POST",
+    body: formData,
+  });
+
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error(err.message ?? `Upload fehlgeschlagen: HTTP ${res.status}`);
+  }
+
+  const { imageUrl } = await res.json();
+  return imageUrl;
 }
 
 export async function extractPdfRecipes(

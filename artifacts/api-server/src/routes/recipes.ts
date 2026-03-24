@@ -29,6 +29,7 @@ const recipeBodySchema = z.object({
   notes: z.string().optional().nullable(),
   steps: z.array(z.string()).default([]),
   ingredients: z.array(ingredientSchema).default([]),
+  imageUrl: z.string().optional().nullable(),
 });
 
 async function getRecipesWithIngredients() {
@@ -73,6 +74,7 @@ router.post("/recipes", async (req, res) => {
         cookedCount: recipeData.cookedCount ?? 0,
         notes: recipeData.notes ?? null,
         steps: recipeData.steps,
+        imageUrl: recipeData.imageUrl ?? null,
       }).returning();
 
       if (ingredients.length > 0) {
@@ -133,6 +135,7 @@ router.put("/recipes/:id", async (req, res) => {
         cookedCount: recipeData.cookedCount ?? 0,
         notes: recipeData.notes ?? null,
         steps: recipeData.steps,
+        imageUrl: recipeData.imageUrl ?? null,
       })
       .where(eq(recipesTable.id, id))
       .returning();

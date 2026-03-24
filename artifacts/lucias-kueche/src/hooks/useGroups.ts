@@ -121,6 +121,21 @@ export function useGroups() {
     if (!res.ok) throw new Error("Mitglied konnte nicht entfernt werden");
   }, []);
 
+  const renameGroup = useCallback(async (groupId: number, name: string) => {
+    const res = await fetch(`${API_BASE}/groups/${groupId}`, {
+      method: "PUT",
+      headers: authHeaders(),
+      body: JSON.stringify({ name }),
+    });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      throw new Error(err.message ?? "Umbenennung fehlgeschlagen");
+    }
+    const group = await res.json();
+    await fetchGroups();
+    return group as Group;
+  }, [fetchGroups]);
+
   const familyInvite = useCallback(async (email: string) => {
     const res = await fetch(`${API_BASE}/groups/family-invite`, {
       method: "POST",
@@ -136,7 +151,7 @@ export function useGroups() {
     return data;
   }, [fetchGroups]);
 
-  return { groups, loading, error, fetchGroups, createGroup, joinGroup, inviteMember, getMembers, removeMember, familyInvite };
+  return { groups, loading, error, fetchGroups, createGroup, joinGroup, inviteMember, getMembers, removeMember, familyInvite, renameGroup };
 }
 
 export function useAdminGroups() {

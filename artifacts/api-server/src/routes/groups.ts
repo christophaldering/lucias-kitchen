@@ -119,6 +119,54 @@ router.post("/groups", authMiddleware, async (req, res) => {
   }
 });
 
+router.put("/groups/:id", authMiddleware, async (req, res) => {
+  try {
+    const groupId = Number(req.params["id"]);
+    if (isNaN(groupId)) {
+      res.status(400).json({ error: "invalid_id" });
+      return;
+    }
+
+    const schema = z.object({
+      name: z.string().min(1).max(100),
+    });
+
+    const { name } = schema.parse(req.body);
+    const userId = req.authUser!.id;
+
+    const myMembership = await db
+      .select()
+      .from(groupMembersTable)
+      .where(and(eq(groupMembersTable.groupId, groupId), eq(groupMembersTable.userId, userId)))
+      .then((r) => r[0]);
+
+    if (!myMembership || myMembership.role !== "owner") {
+      res.status(403).json({ error: "not_owner", message: "Nur der Gruppeninhaber kann den Namen ändern" });
+      return;
+    }
+
+    const [updated] = await db
+      .update(groupsTable)
+      .set({ name, updatedAt: new Date() })
+      .where(eq(groupsTable.id, groupId))
+      .returning();
+
+    if (!updated) {
+      res.status(404).json({ error: "not_found" });
+      return;
+    }
+
+    res.json(updated);
+  } catch (err) {
+    if (err instanceof z.ZodError) {
+      res.status(400).json({ error: "validation_error", issues: err.issues });
+      return;
+    }
+    req.log.error({ err }, "Failed to rename group");
+    res.status(500).json({ error: "internal_error" });
+  }
+});
+
 router.put("/groups/:id/approve", authMiddleware, async (req, res) => {
   try {
     if (!isAdmin(req.authUser!.email)) {

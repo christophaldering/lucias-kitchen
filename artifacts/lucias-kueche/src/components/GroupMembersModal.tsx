@@ -1,5 +1,5 @@
-import { useState, useEffect } from "react";
-import { X, Loader2, UserPlus, Trash2, Users } from "lucide-react";
+import { useState, useEffect, useRef } from "react";
+import { X, Loader2, UserPlus, Trash2, Users, Pencil, Check } from "lucide-react";
 import { useGroups, type Group, type GroupMember } from "@/hooks/useGroups";
 
 function toast(msg: string, type: "ok" | "err" = "ok") {
@@ -19,11 +19,17 @@ interface Props {
 }
 
 export default function GroupMembersModal({ group, onClose, isOwner }: Props) {
-  const { getMembers, inviteMember, removeMember } = useGroups();
+  const { getMembers, inviteMember, removeMember, renameGroup } = useGroups();
   const [members, setMembers] = useState<GroupMember[]>([]);
   const [loadingMembers, setLoadingMembers] = useState(true);
   const [inviteInput, setInviteInput] = useState("");
   const [inviting, setBusy] = useState(false);
+
+  const [editingName, setEditingName] = useState(false);
+  const [displayedName, setDisplayedName] = useState(group.name);
+  const [nameInput, setNameInput] = useState(group.name);
+  const [savingName, setSavingName] = useState(false);
+  const nameInputRef = useRef<HTMLInputElement>(null);
 
   const loadMembers = async () => {
     setLoadingMembers(true);
@@ -40,6 +46,13 @@ export default function GroupMembersModal({ group, onClose, isOwner }: Props) {
   useEffect(() => {
     loadMembers();
   }, [group.id]);
+
+  useEffect(() => {
+    if (editingName && nameInputRef.current) {
+      nameInputRef.current.focus();
+      nameInputRef.current.select();
+    }
+  }, [editingName]);
 
   const handleInvite = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -71,6 +84,44 @@ export default function GroupMembersModal({ group, onClose, isOwner }: Props) {
     }
   };
 
+  const handleStartRename = () => {
+    setNameInput(displayedName);
+    setEditingName(true);
+  };
+
+  const handleCancelRename = () => {
+    setEditingName(false);
+    setNameInput(displayedName);
+  };
+
+  const handleSaveName = async () => {
+    const trimmed = nameInput.trim();
+    if (!trimmed || trimmed === displayedName) {
+      setEditingName(false);
+      return;
+    }
+    setSavingName(true);
+    try {
+      await renameGroup(group.id, trimmed);
+      setDisplayedName(trimmed);
+      toast("Gruppenname aktualisiert ✓");
+      setEditingName(false);
+    } catch (err) {
+      toast(err instanceof Error ? err.message : "Umbenennung fehlgeschlagen", "err");
+    } finally {
+      setSavingName(false);
+    }
+  };
+
+  const handleNameKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
+    if (e.key === "Enter") {
+      e.preventDefault();
+      handleSaveName();
+    } else if (e.key === "Escape") {
+      handleCancelRename();
+    }
+  };
+
   const initials = (name: string | null) =>
     (name ?? "?")
       .split(" ")
@@ -83,13 +134,54 @@ export default function GroupMembersModal({ group, onClose, isOwner }: Props) {
     <div className="fixed inset-0 z-[200] flex items-center justify-center bg-black/50 p-4">
       <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md max-h-[80vh] flex flex-col">
         <div className="flex items-center justify-between px-6 pt-6 pb-4 border-b border-border">
-          <div className="flex items-center gap-2">
-            <Users className="w-5 h-5 text-[#4A7C59]" />
-            <h2 className="font-serif text-lg font-semibold truncate">{group.name}</h2>
+          <div className="flex items-center gap-2 flex-1 min-w-0">
+            <Users className="w-5 h-5 text-[#4A7C59] flex-shrink-0" />
+            {editingName ? (
+              <div className="flex items-center gap-2 flex-1 min-w-0">
+                <input
+                  ref={nameInputRef}
+                  value={nameInput}
+                  onChange={(e) => setNameInput(e.target.value)}
+                  onKeyDown={handleNameKeyDown}
+                  className="flex-1 min-w-0 px-2 py-1 text-base font-semibold font-serif border border-[#4A7C59]/40 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#4A7C59]/30"
+                  maxLength={100}
+                />
+                <button
+                  onClick={handleSaveName}
+                  disabled={savingName || !nameInput.trim()}
+                  className="p-1.5 rounded-lg bg-[#4A7C59] text-white hover:bg-[#3d6849] transition-colors disabled:opacity-50 flex-shrink-0"
+                  title="Speichern"
+                >
+                  {savingName ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Check className="w-3.5 h-3.5" />}
+                </button>
+                <button
+                  onClick={handleCancelRename}
+                  className="p-1.5 rounded-lg hover:bg-gray-100 transition-colors flex-shrink-0"
+                  title="Abbrechen"
+                >
+                  <X className="w-3.5 h-3.5 text-muted-foreground" />
+                </button>
+              </div>
+            ) : (
+              <>
+                <h2 className="font-serif text-lg font-semibold truncate">{displayedName}</h2>
+                {isOwner && (
+                  <button
+                    onClick={handleStartRename}
+                    className="p-1.5 rounded-lg hover:bg-gray-100 transition-colors flex-shrink-0"
+                    title="Gruppenname ändern"
+                  >
+                    <Pencil className="w-3.5 h-3.5 text-muted-foreground" />
+                  </button>
+                )}
+              </>
+            )}
           </div>
-          <button onClick={onClose} className="p-2 rounded-full hover:bg-gray-100 transition-colors flex-shrink-0">
-            <X className="w-5 h-5 text-muted-foreground" />
-          </button>
+          {!editingName && (
+            <button onClick={onClose} className="p-2 rounded-full hover:bg-gray-100 transition-colors flex-shrink-0 ml-2">
+              <X className="w-5 h-5 text-muted-foreground" />
+            </button>
+          )}
         </div>
 
         <div className="flex-1 overflow-y-auto p-6 space-y-4">

@@ -19,6 +19,8 @@ import recipeSuggestionsRouter from "./recipeSuggestions";
 import mealInvitationsRouter from "./mealInvitations";
 import bulkImportRouter from "./bulkImport";
 import storageRouter from "./storage";
+import pantryRouter from "./pantry";
+import kochideeChatRouter from "./kochideeChat";
 
 const router: IRouter = Router();
 
@@ -42,5 +44,7 @@ router.use(recipeSuggestionsRouter);
 router.use(mealInvitationsRouter);
 router.use(bulkImportRouter);
 router.use(storageRouter);
+router.use(pantryRouter);
+router.use(kochideeChatRouter);
 
 export default router;

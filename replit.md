@@ -36,7 +36,7 @@ The project is structured as a pnpm monorepo with distinct packages for deployab
         - **Onboarding Flow:** Multi-step welcome for new users.
         - **Profile Page:** Comprehensive user profile management including avatar, personal data, password, cooking preferences, and dynamic badges.
         - **Meal Invitations:** A full-featured system for hosts to create invitations with various modes (surprise, wishlist, vote, choice) and for guests to RSVP and interact.
-        - **"What to Cook Today?" / "Kochidee":** Intelligent recipe suggestion system based on ingredient selection, fridge photo analysis (OpenAI Vision), and mood filters.
+        - **"What to Cook Today?" / "Kochidee":** Enhanced AI-powered recipe suggestion system with 4 features: (A) Conversational KI-Assistent chat that extracts ingredients and asks follow-up questions (max 3 rounds); (B) Animated fridge scan overlay with per-ingredient ✓/✗ confirmation and uncertain recognition marking; (C) "Was muss weg?" expiry priority mode (🔴🟡🟢) with weighted recipe scoring and expiry warnings on cards; (D) "Mein Vorrat" pantry management with persistent storage, default ingredients shown as base indicators, and AI pantry context integration.
         - **Recipe Management:** Gallery view, search, filters, recipe detail modal, quick new-recipe creation via FAB, PDF upload, and URL import.
         - **Wochenplan & Einkaufsliste:** Date-based weekly meal planner and dynamic shopping list generation.
         - **Statistiken & Muster:** Data visualization using Recharts for cooking statistics and user patterns.
@@ -45,7 +45,8 @@ The project is structured as a pnpm monorepo with distinct packages for deployab
 
 ## Feature Specifications:
 - **API Server:** Handles all backend logic, data persistence, and API endpoints. Routes are organized under `src/routes/`.
-- **Database Schema:** Defined using Drizzle ORM, including tables for users, recipes, meal plans, invitations, notifications, and groups.
+- **Database Schema:** Defined using Drizzle ORM, including tables for users, recipes, meal plans, invitations, notifications, groups, and user_pantry (for persistent ingredient storage with expiry priorities).
+- **New API Routes:** `GET/POST/DELETE /api/pantry` for pantry CRUD (auth required), `POST /api/pantry/batch` for bulk save, `POST /api/kochidee-chat` for AI-powered conversation flow.
 - **Client-side Generation:** Orval generates React Query hooks and Zod schemas from the OpenAPI spec, ensuring type-safety and consistency between frontend and backend.
 
 # External Dependencies

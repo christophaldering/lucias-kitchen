@@ -1,7 +1,7 @@
 import { Router, type IRouter } from "express";
 import { db } from "@workspace/db";
 import { cookingLogTable, recipesTable, recipeIngredientsTable } from "@workspace/db/schema";
-import { eq, and, desc } from "drizzle-orm";
+import { eq, and, desc, inArray } from "drizzle-orm";
 import { z } from "zod/v4";
 import { authMiddleware } from "./auth";
 import { sql } from "drizzle-orm";
@@ -95,6 +95,47 @@ router.post("/cooking-log", authMiddleware, async (req, res) => {
     }
     req.log.error({ err }, "Failed to create cooking log entry");
     res.status(500).json({ error: "internal_error", message: "Failed to create cooking log entry" });
+  }
+});
+
+router.get("/cooking-log/ingredient-frequency", authMiddleware, async (req, res) => {
+  try {
+    const userId = req.authUser!.id;
+    const logEntries = await db
+      .select({ recipeId: cookingLogTable.recipeId })
+      .from(cookingLogTable)
+      .where(eq(cookingLogTable.userId, userId));
+
+    if (logEntries.length < 10) {
+      res.json({ count: logEntries.length, topIngredients: [] });
+      return;
+    }
+
+    const recipeIds = [...new Set(logEntries.map((e) => e.recipeId))];
+    const ingredients = await db
+      .select({ name: recipeIngredientsTable.name, recipeId: recipeIngredientsTable.recipeId })
+      .from(recipeIngredientsTable)
+      .where(inArray(recipeIngredientsTable.recipeId, recipeIds));
+
+    const freq: Record<string, number> = {};
+    for (const entry of logEntries) {
+      const recipeIngredients = ingredients.filter((i) => i.recipeId === entry.recipeId);
+      for (const ing of recipeIngredients) {
+        const normalized = ing.name.trim().toLowerCase();
+        if (normalized.length === 0) continue;
+        freq[normalized] = (freq[normalized] ?? 0) + 1;
+      }
+    }
+
+    const sorted = Object.entries(freq)
+      .sort(([, a], [, b]) => b - a)
+      .slice(0, 10)
+      .map(([name, count]) => ({ name, count }));
+
+    res.json({ count: logEntries.length, topIngredients: sorted });
+  } catch (err) {
+    req.log.error({ err }, "Failed to fetch ingredient frequency");
+    res.status(500).json({ error: "internal_error" });
   }
 });
 

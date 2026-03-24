@@ -113,15 +113,23 @@
   padding-bottom: env(safe-area-inset-bottom, 0px);
 }
 
+/* Hide scrollbar but keep scroll functionality */
+.no-scrollbar {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}
+.no-scrollbar::-webkit-scrollbar {
+  display: none;
+}
+
 /* FAB */
 .fab {
   filter: drop-shadow(0 4px 12px rgba(193, 105, 58, 0.45));
-  transition: transform 0.15s ease, filter 0.15s ease;
+  transition: transform 0.2s ease, filter 0.15s ease;
 }
 .fab:hover {
-  transform: scale(1.08);
   filter: drop-shadow(0 6px 16px rgba(193, 105, 58, 0.55));
 }
 .fab:active {
-  transform: scale(0.96);
+  opacity: 0.9;
 }

@@ -1,5 +1,5 @@
 import { useState, useMemo, useEffect, useRef } from "react";
-import { Recipe, formatIngredient } from "@/types/recipe";
+import { Recipe } from "@/types/recipe";
 import { useRecipes } from "@/hooks/useRecipes";
 import { Clock, Search, ChefHat, Upload, Link, Camera, Loader2, LayoutGrid, Table, Settings2, Plus, ArrowUp, ArrowDown, ArrowUpDown } from "lucide-react";
 import RecipeModal from "@/components/RecipeModal";
@@ -252,6 +252,7 @@ export default function MeineRezepte({ onNavigate: _onNavigate }: MeineRezeptePr
   const [showImageModal, setShowImageModal] = useState(false);
   const [showNewRecipeModal, setShowNewRecipeModal] = useState(false);
 
+  const [fabOpen, setFabOpen] = useState(false);
   const [managedSelected, setManagedSelected] = useState<Set<number>>(new Set());
   const [tableSelected, setTableSelected] = useState<Set<number>>(new Set());
   const [tableSortKey, setTableSortKey] = useState<TableSortKey>("title");
@@ -498,38 +499,15 @@ export default function MeineRezepte({ onNavigate: _onNavigate }: MeineRezeptePr
                 </button>
               </div>
 
-              <button
-                onClick={() => setShowUrlModal(true)}
-                className="flex items-center gap-2 px-4 py-3 bg-[#3d6849] text-white rounded-xl text-sm font-semibold hover:bg-[#2d5240] transition-colors whitespace-nowrap shadow-sm min-h-[48px]"
-              >
-                <Link className="w-4 h-4" />
-                <span className="hidden sm:inline">URL importieren</span>
-                <span className="sm:hidden">URL</span>
-              </button>
-              <button
-                onClick={() => setShowPdfModal(true)}
-                className="flex items-center gap-2 px-4 py-3 bg-[#C1693A] text-white rounded-xl text-sm font-semibold hover:bg-[#a8572f] transition-colors whitespace-nowrap shadow-sm min-h-[48px]"
-              >
-                <Upload className="w-4 h-4" />
-                <span className="hidden sm:inline">PDF hochladen</span>
-                <span className="sm:hidden">PDF</span>
-              </button>
-              <button
-                onClick={() => setShowImageModal(true)}
-                className="flex items-center gap-2 px-4 py-2.5 bg-[#6b5ca5] text-white rounded-xl text-sm font-semibold hover:bg-[#5a4c8e] transition-colors whitespace-nowrap shadow-sm"
-              >
-                <Camera className="w-4 h-4" />
-                Foto importieren
-              </button>
             </div>
 
-            {/* Category filter */}
-            <div className="flex flex-wrap gap-2">
+            {/* Combined filter chips — single scrollable row */}
+            <div className="flex gap-2 overflow-x-auto pb-1 no-scrollbar">
               {allCategories.map((cat) => (
                 <button
                   key={cat}
                   onClick={() => setActiveCategory(cat)}
-                  className={`px-3 py-2 rounded-full text-sm font-medium transition-colors min-h-[36px] ${
+                  className={`flex-shrink-0 px-3 py-1.5 rounded-full text-sm font-medium transition-colors min-h-[36px] ${
                     activeCategory === cat
                       ? "bg-[#3d6849] text-white"
                       : "bg-white text-foreground border border-border hover:border-[#4A7C59]/40"
@@ -538,15 +516,15 @@ export default function MeineRezepte({ onNavigate: _onNavigate }: MeineRezeptePr
                   {cat}
                 </button>
               ))}
-            </div>
 
-            {/* Time filter */}
-            <div className="flex gap-2">
+              {/* Divider between category and time chips */}
+              <div className="flex-shrink-0 w-px bg-border mx-1 self-stretch" />
+
               {["Alle", "Unter 30 Min", "Unter 1 Std"].map((t) => (
                 <button
                   key={t}
                   onClick={() => setTimeFilter(t)}
-                  className={`px-3 py-1.5 rounded-full text-xs font-medium transition-colors flex items-center gap-1 min-h-[36px] ${
+                  className={`flex-shrink-0 px-3 py-1.5 rounded-full text-xs font-medium transition-colors flex items-center gap-1 min-h-[36px] ${
                     timeFilter === t
                       ? "bg-[#C1693A] text-white"
                       : "bg-white text-muted-foreground border border-border hover:border-[#C1693A]/40"
@@ -718,20 +696,65 @@ export default function MeineRezepte({ onNavigate: _onNavigate }: MeineRezeptePr
             />
           )}
 
-          {/* Floating Action Button */}
-          <button
-            onClick={() => setShowNewRecipeModal(true)}
-            className="fab fixed bottom-24 right-5 z-50 w-14 h-14 rounded-full flex items-center justify-center text-white"
-            style={{
-              background: "linear-gradient(135deg, #C1693A 0%, #d4855a 100%)",
-              minWidth: "56px",
-              minHeight: "56px",
-            }}
-            title="Neues Rezept erstellen"
-            aria-label="Neues Rezept erstellen"
-          >
-            <Plus className="w-7 h-7" />
-          </button>
+          {/* Speed-Dial FAB */}
+          {fabOpen && (
+            <div
+              className="fixed inset-0 z-40"
+              onClick={() => setFabOpen(false)}
+            />
+          )}
+          <div className="fixed bottom-24 right-5 z-50 flex flex-col items-end gap-3">
+            {fabOpen && (
+              <>
+                <button
+                  onClick={() => { setFabOpen(false); setShowImageModal(true); }}
+                  className="flex items-center gap-2 pr-4 pl-3 py-2.5 rounded-full text-white text-sm font-semibold shadow-lg whitespace-nowrap"
+                  style={{ background: "#6b5ca5" }}
+                >
+                  <Camera className="w-4 h-4" />
+                  Foto importieren
+                </button>
+                <button
+                  onClick={() => { setFabOpen(false); setShowPdfModal(true); }}
+                  className="flex items-center gap-2 pr-4 pl-3 py-2.5 rounded-full text-white text-sm font-semibold shadow-lg whitespace-nowrap"
+                  style={{ background: "#C1693A" }}
+                >
+                  <Upload className="w-4 h-4" />
+                  PDF hochladen
+                </button>
+                <button
+                  onClick={() => { setFabOpen(false); setShowUrlModal(true); }}
+                  className="flex items-center gap-2 pr-4 pl-3 py-2.5 rounded-full text-white text-sm font-semibold shadow-lg whitespace-nowrap"
+                  style={{ background: "#3d6849" }}
+                >
+                  <Link className="w-4 h-4" />
+                  URL importieren
+                </button>
+                <button
+                  onClick={() => { setFabOpen(false); setShowNewRecipeModal(true); }}
+                  className="flex items-center gap-2 pr-4 pl-3 py-2.5 rounded-full text-white text-sm font-semibold shadow-lg whitespace-nowrap"
+                  style={{ background: "#2d5240" }}
+                >
+                  <Plus className="w-4 h-4" />
+                  Manuell erfassen
+                </button>
+              </>
+            )}
+            <button
+              onClick={() => setFabOpen((o) => !o)}
+              className="fab w-14 h-14 rounded-full flex items-center justify-center text-white shadow-xl"
+              style={{
+                background: "linear-gradient(135deg, #C1693A 0%, #d4855a 100%)",
+                minWidth: "56px",
+                minHeight: "56px",
+                transform: fabOpen ? "rotate(45deg)" : "rotate(0deg)",
+              }}
+              title="Rezept hinzufügen"
+              aria-label="Rezept hinzufügen"
+            >
+              <Plus className="w-7 h-7" />
+            </button>
+          </div>
         </>
       )}
     </div>

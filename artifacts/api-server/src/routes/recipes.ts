@@ -1,6 +1,6 @@
 import { Router, type IRouter } from "express";
 import { db } from "@workspace/db";
-import { recipesTable, recipeIngredientsTable, recipePhotosTable, recipeFavoritesTable, usersTable } from "@workspace/db/schema";
+import { recipesTable, recipeIngredientsTable, recipePhotosTable, recipeFavoritesTable, usersTable, groupMembersTable, groupsTable } from "@workspace/db/schema";
 import { eq, inArray, sql, desc, and } from "drizzle-orm";
 import { z } from "zod/v4";
 import { seedRecipes } from "../db/seedRecipes";
@@ -193,6 +193,104 @@ router.get("/recipes", async (req, res) => {
   } catch (err) {
     req.log.error({ err }, "Failed to fetch recipes");
     res.status(500).json({ error: "internal_error", message: "Failed to fetch recipes" });
+  }
+});
+
+router.get("/recipes/duplicates", authMiddleware, async (req, res) => {
+  try {
+    const currentUserId = req.authUser!.id;
+
+    const familyGroupRows = await db
+      .select({ groupId: groupMembersTable.groupId })
+      .from(groupMembersTable)
+      .innerJoin(groupsTable, eq(groupsTable.id, groupMembersTable.groupId))
+      .where(and(eq(groupMembersTable.userId, currentUserId), eq(groupMembersTable.memberStatus, "joined"), eq(groupsTable.status, "approved")));
+
+    const familyGroupIds = familyGroupRows.map((r) => r.groupId);
+
+    let familyUserIds: number[] = [currentUserId];
+    if (familyGroupIds.length > 0) {
+      const memberRows = await db
+        .select({ userId: groupMembersTable.userId })
+        .from(groupMembersTable)
+        .where(and(inArray(groupMembersTable.groupId, familyGroupIds), eq(groupMembersTable.memberStatus, "joined")));
+      const memberUserIds = memberRows
+        .map((r) => r.userId)
+        .filter((id): id is number => id != null);
+      familyUserIds = [...new Set([currentUserId, ...memberUserIds])];
+    }
+
+    const allRecipes = await db.select().from(recipesTable).orderBy(recipesTable.id);
+    const recipes = allRecipes.filter(
+      (r) => r.createdBy == null || familyUserIds.includes(r.createdBy)
+    );
+
+    const recipeIds = recipes.map((r) => r.id);
+    const ingredients = recipeIds.length > 0
+      ? await db.select().from(recipeIngredientsTable)
+          .where(inArray(recipeIngredientsTable.recipeId, recipeIds))
+          .orderBy(recipeIngredientsTable.id)
+      : [];
+
+    const ingByRecipe = new Map<number, string[]>();
+    for (const ing of ingredients) {
+      const list = ingByRecipe.get(ing.recipeId) ?? [];
+      list.push(ing.name.toLowerCase().trim());
+      ingByRecipe.set(ing.recipeId, list);
+    }
+
+    const groups: { recipes: Array<typeof recipes[0] & { ingredientCount: number; isOwner: boolean }> }[] = [];
+    const used = new Set<number>();
+
+    for (let i = 0; i < recipes.length; i++) {
+      if (used.has(recipes[i].id)) continue;
+      const group: typeof recipes = [recipes[i]];
+
+      for (let j = i + 1; j < recipes.length; j++) {
+        if (used.has(recipes[j].id)) continue;
+        const a = recipes[i];
+        const b = recipes[j];
+
+        const sameTitle = a.title.toLowerCase().trim() === b.title.toLowerCase().trim();
+
+        const sameSource =
+          a.source && b.source &&
+          a.source.trim().toLowerCase() === b.source.trim().toLowerCase();
+
+        const ingsA = ingByRecipe.get(a.id) ?? [];
+        const ingsB = ingByRecipe.get(b.id) ?? [];
+        let ingredientSimilar = false;
+        if (ingsA.length > 0 && ingsB.length > 0) {
+          const setA = new Set(ingsA);
+          const setB = new Set(ingsB);
+          const intersection = [...setA].filter((x) => setB.has(x)).length;
+          const union = new Set([...setA, ...setB]).size;
+          const jaccard = union > 0 ? intersection / union : 0;
+          ingredientSimilar = jaccard >= 0.8;
+        }
+
+        if (sameTitle || sameSource || ingredientSimilar) {
+          group.push(b);
+          used.add(b.id);
+        }
+      }
+
+      if (group.length > 1) {
+        used.add(recipes[i].id);
+        groups.push({
+          recipes: group.map((r) => ({
+            ...r,
+            ingredientCount: (ingByRecipe.get(r.id) ?? []).length,
+            isOwner: r.createdBy == null || r.createdBy === currentUserId,
+          })),
+        });
+      }
+    }
+
+    res.json({ groups });
+  } catch (err) {
+    req.log.error({ err }, "Failed to detect duplicates");
+    res.status(500).json({ error: "internal_error", message: "Failed to detect duplicates" });
   }
 });
 

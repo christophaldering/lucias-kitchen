@@ -2,12 +2,13 @@ import { useState, useRef } from "react";
 import {
   Loader2, Trash2, Edit2, Download, Tag, RefreshCw,
   Upload, Check, AlertTriangle, Settings, Database, Sliders,
-  X, Plus, ChevronsUpDown, Users, CheckCircle, XCircle, Clock, FolderOpen
+  X, Plus, ChevronsUpDown, Users, CheckCircle, XCircle, Clock, FolderOpen, Copy
 } from "lucide-react";
 import { useRecipes } from "@/hooks/useRecipes";
 import { useAdminGroups, type AdminGroup } from "@/hooks/useGroups";
 import type { Recipe } from "@/types/recipe";
 import BulkImportTab from "@/components/BulkImportTab";
+import DuplicatesTab from "@/components/DuplicatesTab";
 
 const CATEGORY_EMOJIS: Record<string, string> = {
   Fisch: "🐟", Geflügel: "🍗", Fleisch: "🥩", Vegetarisch: "🌿", Pasta: "🍝",
@@ -16,6 +17,7 @@ const CATEGORY_EMOJIS: Record<string, string> = {
 const SECTION_TABS = [
   { id: "categories", label: "Kategorien", icon: Tag },
   { id: "groups", label: "Gruppen", icon: Users },
+  { id: "duplicates", label: "Duplikate", icon: Copy },
   { id: "backup", label: "Backup & Import", icon: Database },
   { id: "bulk-import", label: "Massen-Import", icon: FolderOpen },
   { id: "settings", label: "App-Einstellungen", icon: Sliders },
@@ -761,6 +763,8 @@ export default function Admin() {
       )}
 
       {section === "groups" && <GroupsAdmin />}
+
+      {section === "duplicates" && <DuplicatesTab />}
 
       {section === "backup" && (
         <BackupSection

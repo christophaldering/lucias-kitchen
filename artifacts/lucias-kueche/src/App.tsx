@@ -1,6 +1,6 @@
 import { useState, useRef, useEffect } from "react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { Utensils, CalendarDays, BarChart3, Settings, LogOut, ChevronDown, User, BookOpen, Lightbulb } from "lucide-react";
+import { Utensils, CalendarDays, BarChart3, Settings, LogOut, ChevronDown, User, BookOpen, Lightbulb, Mail } from "lucide-react";
 import MeineRezepte from "@/pages/MeineRezepte";
 import Wochenplan from "@/pages/Wochenplan";
 import Statistiken from "@/pages/Statistiken";
@@ -9,19 +9,14 @@ import Profil from "@/pages/Profil";
 import Login from "@/pages/Login";
 import Onboarding from "@/pages/Onboarding";
 import WasKocheIch from "@/pages/WasKocheIch";
+import Einladungen from "@/pages/Einladungen";
 import { AuthProvider, useAuth } from "@/contexts/AuthContext";
 import { NotificationBell } from "@/components/NotificationBell";
+import { useNotifications } from "@/hooks/useInvitations";
 
 const queryClient = new QueryClient();
 
-type Tab = "rezepte" | "wochenplan" | "statistiken" | "admin" | "profil" | "was-koche-ich";
-
-const NAV_TABS: { id: Tab; label: string; icon: React.ReactNode }[] = [
-  { id: "rezepte", label: "Rezepte", icon: <BookOpen className="w-5 h-5" /> },
-  { id: "was-koche-ich", label: "Kochidee", icon: <Lightbulb className="w-5 h-5" /> },
-  { id: "wochenplan", label: "Wochenplan", icon: <CalendarDays className="w-5 h-5" /> },
-  { id: "statistiken", label: "Statistiken", icon: <BarChart3 className="w-5 h-5" /> },
-];
+type Tab = "rezepte" | "wochenplan" | "statistiken" | "admin" | "profil" | "was-koche-ich" | "einladungen";
 
 function getGreeting(name: string): string {
   const hour = new Date().getHours();
@@ -113,7 +108,15 @@ function AvatarDropdown({ onNavigate }: { onNavigate: (tab: Tab) => void }) {
   );
 }
 
-function BottomNav({ activeTab, onTabChange }: { activeTab: Tab; onTabChange: (tab: Tab) => void }) {
+function BottomNav({ activeTab, onTabChange, unreadCount }: { activeTab: Tab; onTabChange: (tab: Tab) => void; unreadCount: number }) {
+  const NAV_TABS: { id: Tab; label: string; icon: React.ReactNode; badge?: number }[] = [
+    { id: "rezepte", label: "Rezepte", icon: <BookOpen className="w-5 h-5" /> },
+    { id: "was-koche-ich", label: "Kochidee", icon: <Lightbulb className="w-5 h-5" /> },
+    { id: "wochenplan", label: "Wochenplan", icon: <CalendarDays className="w-5 h-5" /> },
+    { id: "einladungen", label: "Einladungen", icon: <Mail className="w-5 h-5" />, badge: unreadCount },
+    { id: "statistiken", label: "Statistiken", icon: <BarChart3 className="w-5 h-5" /> },
+  ];
+
   return (
     <nav
       className="fixed bottom-0 left-0 right-0 z-40 border-t border-white/20 bottom-nav"
@@ -138,10 +141,13 @@ function BottomNav({ activeTab, onTabChange }: { activeTab: Tab; onTabChange: (t
                   style={{ background: "linear-gradient(90deg, #d4855a, #e8a87a)" }}
                 />
               )}
-              <span
-                className={`transition-all ${isActive ? "text-[#e8a87a] scale-110" : "text-green-300/70"}`}
-              >
+              <span className={`relative transition-all ${isActive ? "text-[#e8a87a] scale-110" : "text-green-300/70"}`}>
                 {tab.icon}
+                {tab.badge != null && tab.badge > 0 && (
+                  <span className="absolute -top-1.5 -right-1.5 w-4 h-4 bg-orange-500 text-white text-[9px] font-bold rounded-full flex items-center justify-center">
+                    {tab.badge > 9 ? "9+" : tab.badge}
+                  </span>
+                )}
               </span>
               <span
                 className={`text-[10px] font-semibold tracking-wide transition-colors leading-none ${
@@ -162,6 +168,7 @@ function AppShell() {
   const { user, loading } = useAuth();
   const [activeTab, setActiveTab] = useState<Tab>("rezepte");
   const [openRecipeId, setOpenRecipeId] = useState<number | null>(null);
+  const { unreadCount } = useNotifications();
 
   function handleOpenRecipeFromNotification(recipeId: number) {
     setActiveTab("rezepte");
@@ -191,7 +198,6 @@ function AppShell() {
 
   return (
     <>
-      {/* Compact header – only logo + avatar */}
       <header
         className="sticky top-0 z-40 text-white"
         style={{
@@ -217,18 +223,17 @@ function AppShell() {
         </div>
       </header>
 
-      {/* Main content with bottom padding for nav */}
       <main className="min-h-screen pb-24" style={{ minHeight: "calc(100vh - 56px)" }}>
         {activeTab === "rezepte" && <MeineRezepte onNavigate={(tab) => setActiveTab(tab as Tab)} initialOpenRecipeId={openRecipeId} onRecipeOpened={() => setOpenRecipeId(null)} />}
         {activeTab === "was-koche-ich" && <WasKocheIch />}
-        {activeTab === "wochenplan" && <Wochenplan />}
+        {activeTab === "wochenplan" && <Wochenplan onNavigate={(tab) => setActiveTab(tab as Tab)} />}
         {activeTab === "statistiken" && <Statistiken />}
         {activeTab === "admin" && <Admin />}
         {activeTab === "profil" && <Profil />}
+        {activeTab === "einladungen" && <Einladungen />}
       </main>
 
-      {/* Fixed bottom navigation */}
-      <BottomNav activeTab={activeTab} onTabChange={setActiveTab} />
+      <BottomNav activeTab={activeTab} onTabChange={setActiveTab} unreadCount={unreadCount} />
     </>
   );
 }

@@ -4,8 +4,13 @@ import { useMealPlans } from "@/hooks/useMealPlans";
 import { useNutritionSummary } from "@/hooks/useNutritionSummary";
 import RecipeModal from "@/components/RecipeModal";
 import AiWeekSuggestModal, { type SuggestionEntry } from "@/components/AiWeekSuggestModal";
+import CreateInvitationDialog from "@/components/CreateInvitationDialog";
+import RespondInvitationDialog from "@/components/RespondInvitationDialog";
 import type { Recipe } from "@/types/recipe";
-import { X, ShoppingCart, Copy, Check, Loader2, ChevronLeft, ChevronRight, CalendarDays, Plus, Flame, Wand2 } from "lucide-react";
+import { X, ShoppingCart, Copy, Check, Loader2, ChevronLeft, ChevronRight, CalendarDays, Plus, Flame, Wand2, Mail } from "lucide-react";
+import { useInvitations } from "@/hooks/useInvitations";
+import { useAuth } from "@/contexts/AuthContext";
+import type { MealInvitation } from "@/hooks/useInvitations";
 
 type IngCategory = "Gemüse" | "Fleisch & Fisch" | "Milchprodukte" | "Vorrat" | "Sonstiges";
 
@@ -89,8 +94,14 @@ function showToast(message: string, type: "success" | "error" = "success") {
   setTimeout(() => el.remove(), 3000);
 }
 
-export default function Wochenplan() {
+interface WochenplanProps {
+  onNavigate?: (tab: string) => void;
+}
+
+export default function Wochenplan({ onNavigate }: WochenplanProps = {}) {
+  const { user } = useAuth();
   const { recipes, loading: recipesLoading } = useRecipes();
+  const { invitations, createInvitation, submitWish, updateRsvp, refetch: refetchInvitations } = useInvitations();
 
   const today = useMemo(() => {
     const d = new Date();
@@ -120,6 +131,8 @@ export default function Wochenplan() {
   const [modalRecipe, setModalRecipe] = useState<Recipe | null>(null);
 
   const [showAiModal, setShowAiModal] = useState(false);
+  const [inviteDate, setInviteDate] = useState<string | null>(null);
+  const [respondingInvitation, setRespondingInvitation] = useState<MealInvitation | null>(null);
 
   const [shoppingRange, setShoppingRange] = useState<ShoppingRange>("this_week");
   const [customFrom, setCustomFrom] = useState(toIsoDate(today));
@@ -267,6 +280,22 @@ export default function Wochenplan() {
 
   const isTodaySelected = selectedDate === toIsoDate(today);
 
+  const invitationForDate = useMemo(() => {
+    return invitations.find(
+      (inv) => inv.date === selectedDate && inv.status !== "cancelled"
+    ) ?? null;
+  }, [invitations, selectedDate]);
+
+  const invitationBadgeForDate = useMemo(() => {
+    const result: Record<string, MealInvitation> = {};
+    for (const inv of invitations) {
+      if (inv.status !== "cancelled") {
+        result[inv.date] = inv;
+      }
+    }
+    return result;
+  }, [invitations]);
+
   if (recipesLoading) {
     return (
       <div className="flex flex-col items-center py-20 gap-3 text-muted-foreground">
@@ -346,6 +375,7 @@ export default function Wochenplan() {
               const isToday = dateStr === toIsoDate(today);
               const isSelected = dateStr === selectedDate;
               const hasRecipe = !!planByDate[dateStr];
+              const hasInvitation = !!invitationBadgeForDate[dateStr];
 
               return (
                 <button
@@ -359,6 +389,9 @@ export default function Wochenplan() {
                       : "text-muted-foreground hover:bg-[#4A7C59]/5 hover:text-foreground"
                   }`}
                 >
+                  {hasInvitation && (
+                    <span className="absolute top-1 right-1 w-2 h-2 rounded-full bg-blue-500" />
+                  )}
                   <span className={`text-[10px] font-bold uppercase tracking-wider mb-0.5 ${isSelected ? "text-white/80" : ""}`}>
                     {DAY_NAMES_SHORT[day.getDay()]}
                   </span>
@@ -368,16 +401,18 @@ export default function Wochenplan() {
                   <span className={`text-[10px] leading-none mt-0.5 ${isSelected ? "text-white/70" : "text-muted-foreground"}`}>
                     {day.getMonth() + 1}.
                   </span>
-                  {/* Green dot indicator for recipes */}
-                  <span
-                    className={`mt-1 w-1.5 h-1.5 rounded-full transition-colors ${
-                      hasRecipe
-                        ? isSelected
-                          ? "bg-white/80"
-                          : "bg-[#4A7C59]"
-                        : "bg-transparent"
-                    }`}
-                  />
+                  {/* Dot indicators */}
+                  <div className="flex gap-0.5 mt-1">
+                    <span
+                      className={`w-1.5 h-1.5 rounded-full transition-colors ${
+                        hasRecipe
+                          ? isSelected
+                            ? "bg-white/80"
+                            : "bg-[#4A7C59]"
+                          : "bg-transparent"
+                      }`}
+                    />
+                  </div>
                 </button>
               );
             })}
@@ -494,6 +529,59 @@ export default function Wochenplan() {
                       </button>
                     )}
                   </div>
+                </div>
+              )}
+
+              {/* Invitation section */}
+              {invitationForDate ? (
+                <div className="mt-4 pt-4 border-t border-gray-100">
+                  <div className={`flex items-center gap-3 p-3 rounded-xl ${
+                    invitationForDate.isHost
+                      ? "bg-[#4A7C59]/5 border border-[#4A7C59]/20"
+                      : "bg-blue-50 border border-blue-200"
+                  }`}>
+                    <Mail className={`w-4 h-4 flex-shrink-0 ${invitationForDate.isHost ? "text-[#4A7C59]" : "text-blue-600"}`} />
+                    <div className="flex-1 min-w-0">
+                      <p className={`text-xs font-semibold ${invitationForDate.isHost ? "text-[#4A7C59]" : "text-blue-700"}`}>
+                        {invitationForDate.isHost
+                          ? `Kocheinladung · ${invitationForDate.members.length} Gäste`
+                          : `Einladung von ${invitationForDate.host?.displayName}`}
+                      </p>
+                      <p className="text-xs text-gray-500 mt-0.5">
+                        {invitationForDate.status === "decided" && invitationForDate.finalRecipe
+                          ? `Rezept: ${invitationForDate.finalRecipe.title}`
+                          : invitationForDate.status === "decided"
+                          ? "Entschieden"
+                          : "Offen"}
+                      </p>
+                    </div>
+                    <button
+                      onClick={() => {
+                        if (invitationForDate.isHost) {
+                          onNavigate?.("einladungen");
+                        } else {
+                          setRespondingInvitation(invitationForDate);
+                        }
+                      }}
+                      className={`text-xs font-medium px-3 py-1.5 rounded-lg transition-colors ${
+                        invitationForDate.isHost
+                          ? "bg-[#4A7C59] text-white hover:bg-[#3d6849]"
+                          : "bg-blue-600 text-white hover:bg-blue-700"
+                      }`}
+                    >
+                      {invitationForDate.isHost ? "Verwalten" : "Antworten"}
+                    </button>
+                  </div>
+                </div>
+              ) : (
+                <div className="mt-4 pt-4 border-t border-gray-100">
+                  <button
+                    onClick={() => setInviteDate(selectedDate)}
+                    className="flex items-center gap-2 text-xs text-[#4A7C59] hover:underline"
+                  >
+                    <Mail className="w-3.5 h-3.5" />
+                    + Kocheinladung erstellen
+                  </button>
                 </div>
               )}
             </div>
@@ -689,6 +777,39 @@ export default function Wochenplan() {
         allRecipes={recipes}
         onConfirm={handleAiConfirm}
       />
+
+      {/* Create Invitation Dialog */}
+      {inviteDate && (
+        <CreateInvitationDialog
+          date={inviteDate}
+          recipes={recipes}
+          onClose={() => setInviteDate(null)}
+          onCreate={async (payload) => {
+            await createInvitation(payload);
+            showToast("Einladung gesendet!");
+            refetchInvitations();
+          }}
+        />
+      )}
+
+      {/* Respond to Invitation Dialog */}
+      {respondingInvitation && user && (
+        <RespondInvitationDialog
+          invitation={respondingInvitation}
+          recipes={recipes}
+          currentUserId={user.id}
+          onClose={() => setRespondingInvitation(null)}
+          onSubmitWish={async (payload) => {
+            await submitWish(respondingInvitation.id, payload);
+            showToast("Antwort gespeichert");
+          }}
+          onRsvp={async (rsvp) => {
+            await updateRsvp(respondingInvitation.id, rsvp);
+            const label = rsvp === "coming" ? "Zusage" : rsvp === "not_coming" ? "Absage" : "Status";
+            showToast(`${label} gespeichert`);
+          }}
+        />
+      )}
     </div>
   );
 }

@@ -16,6 +16,7 @@ import cookingLogRouter from "./cookingLog";
 import commentsRouter from "./comments";
 import notificationsRouter from "./notifications";
 import recipeSuggestionsRouter from "./recipeSuggestions";
+import mealInvitationsRouter from "./mealInvitations";
 
 const router: IRouter = Router();
 
@@ -36,5 +37,6 @@ router.use(cookingLogRouter);
 router.use(commentsRouter);
 router.use(notificationsRouter);
 router.use(recipeSuggestionsRouter);
+router.use(mealInvitationsRouter);
 
 export default router;

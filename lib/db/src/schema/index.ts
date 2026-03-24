@@ -5,3 +5,4 @@ export * from "./users";
 export * from "./groups";
 export * from "./comments";
 export * from "./notifications";
+export * from "./invitations";

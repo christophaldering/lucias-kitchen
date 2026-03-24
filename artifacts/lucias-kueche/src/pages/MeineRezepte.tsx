@@ -1,9 +1,10 @@
 import { useState, useMemo } from "react";
 import { Recipe, formatIngredient } from "@/types/recipe";
 import { useRecipes } from "@/hooks/useRecipes";
-import { Clock, Search, ChefHat, Upload, Loader2, LayoutGrid, Table } from "lucide-react";
+import { Clock, Search, ChefHat, Upload, Loader2, LayoutGrid, Table, Settings2 } from "lucide-react";
 import RecipeModal from "@/components/RecipeModal";
 import PdfUploadModal from "@/components/PdfUploadModal";
+import RecipeManagement from "@/components/RecipeManagement";
 
 const CATEGORY_EMOJIS: Record<string, string> = {
   Fisch: "🐟",
@@ -156,20 +157,36 @@ function RecipeTableRow({ recipe, onClick }: { recipe: Recipe; onClick: () => vo
   );
 }
 
+type PageMode = "galerie" | "verwalten";
+
 export default function MeineRezepte() {
-  const { recipes, loading, error, addRecipes } = useRecipes();
+  const { recipes, loading, error, addRecipes, refetch, patchRecipeSilent, deleteRecipeSilent, updateRecipe } = useRecipes();
 
   const defaultView = useLocalStorage<"kacheln" | "tabelle">("lk_defaultView", "kacheln");
   const savedSortOrder = useLocalStorage<string>("lk_sortOrder", "alphabetisch");
   const showNotes = useLocalStorage<boolean>("lk_showNotes", true);
   const showCookCount = useLocalStorage<boolean>("lk_showCookCount", true);
 
+  const [pageMode, setPageMode] = useState<PageMode>("galerie");
   const [search, setSearch] = useState("");
   const [activeCategory, setActiveCategory] = useState("Alle");
   const [timeFilter, setTimeFilter] = useState("Alle");
   const [viewMode, setViewMode] = useState<"kacheln" | "tabelle">(defaultView);
   const [selected, setSelected] = useState<Recipe | null>(null);
   const [showPdfModal, setShowPdfModal] = useState(false);
+
+  const [managedSelected, setManagedSelected] = useState<Set<number>>(new Set());
+
+  const toggleSelect = (id: number) => setManagedSelected((prev) => {
+    const next = new Set(prev);
+    if (next.has(id)) next.delete(id); else next.add(id);
+    return next;
+  });
+
+  const toggleAll = () => {
+    if (managedSelected.size === recipes.length) setManagedSelected(new Set());
+    else setManagedSelected(new Set(recipes.map((r) => r.id)));
+  };
 
   const allCategories = useMemo(() => {
     const cats = Array.from(new Set(recipes.map((r) => r.category))).sort();
@@ -216,154 +233,207 @@ export default function MeineRezepte() {
 
   return (
     <div className="max-w-6xl mx-auto px-4 py-8">
-      <div className="mb-8 space-y-4">
-        <div className="flex items-center gap-3">
-          <div className="relative flex-1 max-w-md">
-            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
-            <input
-              type="text"
-              placeholder="Rezept suchen…"
-              value={search}
-              onChange={(e) => setSearch(e.target.value)}
-              className="w-full pl-10 pr-4 py-2.5 rounded-xl border border-border bg-white text-sm focus:outline-none focus:ring-2 focus:ring-[#4A7C59]/30"
-            />
-          </div>
-
-          <div className="flex gap-1 bg-white border border-border rounded-xl p-1">
-            <button
-              onClick={() => setViewMode("kacheln")}
-              className={`p-1.5 rounded-lg transition-colors ${viewMode === "kacheln" ? "bg-[#4A7C59] text-white" : "text-muted-foreground hover:text-foreground"}`}
-              title="Kachelansicht">
-              <LayoutGrid className="w-4 h-4" />
-            </button>
-            <button
-              onClick={() => setViewMode("tabelle")}
-              className={`p-1.5 rounded-lg transition-colors ${viewMode === "tabelle" ? "bg-[#4A7C59] text-white" : "text-muted-foreground hover:text-foreground"}`}
-              title="Tabellenansicht">
-              <Table className="w-4 h-4" />
-            </button>
-          </div>
-
+      <div className="mb-6 flex items-center gap-2">
+        <div className="flex gap-1 bg-white border border-border rounded-xl p-1">
           <button
-            onClick={() => setShowPdfModal(true)}
-            className="flex items-center gap-2 px-4 py-2.5 bg-[#C1693A] text-white rounded-xl text-sm font-semibold hover:bg-[#a8572f] transition-colors whitespace-nowrap shadow-sm"
+            onClick={() => setPageMode("galerie")}
+            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-medium transition-colors ${pageMode === "galerie" ? "bg-[#4A7C59] text-white" : "text-muted-foreground hover:text-foreground"}`}
           >
-            <Upload className="w-4 h-4" />
-            PDF hochladen
+            <LayoutGrid className="w-4 h-4" />
+            Galerie
           </button>
-        </div>
-
-        <div className="flex flex-wrap gap-2">
-          {allCategories.map((cat) => (
-            <button
-              key={cat}
-              onClick={() => setActiveCategory(cat)}
-              className={`px-3 py-1.5 rounded-full text-sm font-medium transition-colors ${
-                activeCategory === cat
-                  ? "bg-[#4A7C59] text-white"
-                  : "bg-white text-foreground border border-border hover:border-[#4A7C59]/40"
-              }`}
-            >
-              {cat}
-            </button>
-          ))}
-        </div>
-
-        <div className="flex gap-2">
-          {["Alle", "Unter 30 Min", "Unter 1 Std"].map((t) => (
-            <button
-              key={t}
-              onClick={() => setTimeFilter(t)}
-              className={`px-3 py-1.5 rounded-full text-xs font-medium transition-colors flex items-center gap-1 ${
-                timeFilter === t
-                  ? "bg-[#C1693A] text-white"
-                  : "bg-white text-muted-foreground border border-border hover:border-[#C1693A]/40"
-              }`}
-            >
-              <Clock className="w-3 h-3" />
-              {t}
-            </button>
-          ))}
+          <button
+            onClick={() => setPageMode("verwalten")}
+            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-medium transition-colors ${pageMode === "verwalten" ? "bg-[#4A7C59] text-white" : "text-muted-foreground hover:text-foreground"}`}
+          >
+            <Settings2 className="w-4 h-4" />
+            Verwalten
+          </button>
         </div>
       </div>
 
-      {loading && (
-        <div className="flex flex-col items-center py-20 gap-3 text-muted-foreground">
-          <Loader2 className="w-8 h-8 animate-spin text-[#4A7C59]" />
-          <p className="font-serif text-lg">Rezepte werden geladen…</p>
-        </div>
-      )}
-
-      {error && !loading && (
-        <div className="text-center py-16">
-          <p className="text-4xl mb-4">⚠️</p>
-          <p className="font-serif text-lg text-foreground">{error}</p>
-        </div>
-      )}
-
-      {!loading && !error && (
+      {pageMode === "verwalten" ? (
         <>
-          <p className="text-sm text-muted-foreground mb-6">
-            {filtered.length} von {recipes.length} Rezepten
-            {savedSortOrder !== "alphabetisch" && (
-              <span className="ml-2 text-xs text-muted-foreground/70">
-                (sortiert: {savedSortOrder === "kategorie" ? "nach Kategorie" : savedSortOrder === "bewertung" ? "nach Bewertung" : savedSortOrder === "zuletzt_gekocht" ? "zuletzt gekocht" : "am häufigsten gekocht"})
-              </span>
-            )}
-          </p>
-
-          {filtered.length === 0 ? (
-            <div className="text-center py-16 text-muted-foreground">
-              <p className="text-4xl mb-4">🔍</p>
-              <p className="font-serif text-lg">Kein Rezept gefunden.</p>
+          {loading && (
+            <div className="flex flex-col items-center py-20 gap-3 text-muted-foreground">
+              <Loader2 className="w-8 h-8 animate-spin text-[#4A7C59]" />
+              <p className="font-serif text-lg">Rezepte werden geladen…</p>
             </div>
-          ) : viewMode === "kacheln" ? (
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-5">
-              {filtered.map((recipe) => (
-                <RecipeCard
-                  key={recipe.id}
-                  recipe={recipe}
-                  onClick={() => setSelected(recipe)}
-                  showNotes={showNotes}
-                  showCookCount={showCookCount}
-                />
-              ))}
+          )}
+          {error && !loading && (
+            <div className="text-center py-16">
+              <p className="text-4xl mb-4">⚠️</p>
+              <p className="font-serif text-lg text-foreground">{error}</p>
             </div>
-          ) : (
-            <div className="overflow-x-auto rounded-2xl border border-border bg-white shadow-sm">
-              <table className="w-full text-sm">
-                <thead>
-                  <tr className="border-b border-border bg-[#4A7C59]/5">
-                    <th className="px-4 py-3 text-left font-semibold text-foreground">Titel</th>
-                    <th className="px-4 py-3 text-left font-semibold text-foreground hidden sm:table-cell">Kategorie</th>
-                    <th className="px-4 py-3 text-left font-semibold text-foreground hidden md:table-cell">Schwierigkeit</th>
-                    <th className="px-4 py-3 text-left font-semibold text-foreground hidden md:table-cell">Zeit</th>
-                    <th className="px-4 py-3 text-left font-semibold text-foreground hidden lg:table-cell">Bewertung</th>
-                    <th className="px-4 py-3 text-left font-semibold text-foreground hidden xl:table-cell">Gekocht</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {filtered.map((recipe) => (
-                    <RecipeTableRow key={recipe.id} recipe={recipe} onClick={() => setSelected(recipe)} />
-                  ))}
-                </tbody>
-              </table>
+          )}
+          {!loading && !error && (
+            <div className="pb-28">
+              <RecipeManagement
+                recipes={recipes}
+                selected={managedSelected}
+                onToggle={toggleSelect}
+                onToggleAll={toggleAll}
+                patchRecipeSilent={patchRecipeSilent}
+                deleteRecipeSilent={deleteRecipeSilent}
+                updateRecipe={updateRecipe}
+                refetch={refetch}
+                onClearSelect={() => setManagedSelected(new Set())}
+              />
             </div>
           )}
         </>
-      )}
+      ) : (
+        <>
+          <div className="mb-8 space-y-4">
+            <div className="flex items-center gap-3">
+              <div className="relative flex-1 max-w-md">
+                <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+                <input
+                  type="text"
+                  placeholder="Rezept suchen…"
+                  value={search}
+                  onChange={(e) => setSearch(e.target.value)}
+                  className="w-full pl-10 pr-4 py-2.5 rounded-xl border border-border bg-white text-sm focus:outline-none focus:ring-2 focus:ring-[#4A7C59]/30"
+                />
+              </div>
 
-      {selected && (
-        <RecipeModal recipe={selected} onClose={() => setSelected(null)} />
-      )}
+              <div className="flex gap-1 bg-white border border-border rounded-xl p-1">
+                <button
+                  onClick={() => setViewMode("kacheln")}
+                  className={`p-1.5 rounded-lg transition-colors ${viewMode === "kacheln" ? "bg-[#4A7C59] text-white" : "text-muted-foreground hover:text-foreground"}`}
+                  title="Kachelansicht">
+                  <LayoutGrid className="w-4 h-4" />
+                </button>
+                <button
+                  onClick={() => setViewMode("tabelle")}
+                  className={`p-1.5 rounded-lg transition-colors ${viewMode === "tabelle" ? "bg-[#4A7C59] text-white" : "text-muted-foreground hover:text-foreground"}`}
+                  title="Tabellenansicht">
+                  <Table className="w-4 h-4" />
+                </button>
+              </div>
 
-      {showPdfModal && (
-        <PdfUploadModal
-          onClose={() => setShowPdfModal(false)}
-          onAdd={async (newRecipes) => {
-            await addRecipes(newRecipes);
-          }}
-        />
+              <button
+                onClick={() => setShowPdfModal(true)}
+                className="flex items-center gap-2 px-4 py-2.5 bg-[#C1693A] text-white rounded-xl text-sm font-semibold hover:bg-[#a8572f] transition-colors whitespace-nowrap shadow-sm"
+              >
+                <Upload className="w-4 h-4" />
+                PDF hochladen
+              </button>
+            </div>
+
+            <div className="flex flex-wrap gap-2">
+              {allCategories.map((cat) => (
+                <button
+                  key={cat}
+                  onClick={() => setActiveCategory(cat)}
+                  className={`px-3 py-1.5 rounded-full text-sm font-medium transition-colors ${
+                    activeCategory === cat
+                      ? "bg-[#4A7C59] text-white"
+                      : "bg-white text-foreground border border-border hover:border-[#4A7C59]/40"
+                  }`}
+                >
+                  {cat}
+                </button>
+              ))}
+            </div>
+
+            <div className="flex gap-2">
+              {["Alle", "Unter 30 Min", "Unter 1 Std"].map((t) => (
+                <button
+                  key={t}
+                  onClick={() => setTimeFilter(t)}
+                  className={`px-3 py-1.5 rounded-full text-xs font-medium transition-colors flex items-center gap-1 ${
+                    timeFilter === t
+                      ? "bg-[#C1693A] text-white"
+                      : "bg-white text-muted-foreground border border-border hover:border-[#C1693A]/40"
+                  }`}
+                >
+                  <Clock className="w-3 h-3" />
+                  {t}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          {loading && (
+            <div className="flex flex-col items-center py-20 gap-3 text-muted-foreground">
+              <Loader2 className="w-8 h-8 animate-spin text-[#4A7C59]" />
+              <p className="font-serif text-lg">Rezepte werden geladen…</p>
+            </div>
+          )}
+
+          {error && !loading && (
+            <div className="text-center py-16">
+              <p className="text-4xl mb-4">⚠️</p>
+              <p className="font-serif text-lg text-foreground">{error}</p>
+            </div>
+          )}
+
+          {!loading && !error && (
+            <>
+              <p className="text-sm text-muted-foreground mb-6">
+                {filtered.length} von {recipes.length} Rezepten
+                {savedSortOrder !== "alphabetisch" && (
+                  <span className="ml-2 text-xs text-muted-foreground/70">
+                    (sortiert: {savedSortOrder === "kategorie" ? "nach Kategorie" : savedSortOrder === "bewertung" ? "nach Bewertung" : savedSortOrder === "zuletzt_gekocht" ? "zuletzt gekocht" : "am häufigsten gekocht"})
+                  </span>
+                )}
+              </p>
+
+              {filtered.length === 0 ? (
+                <div className="text-center py-16 text-muted-foreground">
+                  <p className="text-4xl mb-4">🔍</p>
+                  <p className="font-serif text-lg">Kein Rezept gefunden.</p>
+                </div>
+              ) : viewMode === "kacheln" ? (
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-5">
+                  {filtered.map((recipe) => (
+                    <RecipeCard
+                      key={recipe.id}
+                      recipe={recipe}
+                      onClick={() => setSelected(recipe)}
+                      showNotes={showNotes}
+                      showCookCount={showCookCount}
+                    />
+                  ))}
+                </div>
+              ) : (
+                <div className="overflow-x-auto rounded-2xl border border-border bg-white shadow-sm">
+                  <table className="w-full text-sm">
+                    <thead>
+                      <tr className="border-b border-border bg-[#4A7C59]/5">
+                        <th className="px-4 py-3 text-left font-semibold text-foreground">Titel</th>
+                        <th className="px-4 py-3 text-left font-semibold text-foreground hidden sm:table-cell">Kategorie</th>
+                        <th className="px-4 py-3 text-left font-semibold text-foreground hidden md:table-cell">Schwierigkeit</th>
+                        <th className="px-4 py-3 text-left font-semibold text-foreground hidden md:table-cell">Zeit</th>
+                        <th className="px-4 py-3 text-left font-semibold text-foreground hidden lg:table-cell">Bewertung</th>
+                        <th className="px-4 py-3 text-left font-semibold text-foreground hidden xl:table-cell">Gekocht</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {filtered.map((recipe) => (
+                        <RecipeTableRow key={recipe.id} recipe={recipe} onClick={() => setSelected(recipe)} />
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </>
+          )}
+
+          {selected && (
+            <RecipeModal recipe={selected} onClose={() => setSelected(null)} />
+          )}
+
+          {showPdfModal && (
+            <PdfUploadModal
+              onClose={() => setShowPdfModal(false)}
+              onAdd={async (newRecipes) => {
+                await addRecipes(newRecipes);
+              }}
+            />
+          )}
+        </>
       )}
     </div>
   );

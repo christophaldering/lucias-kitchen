@@ -150,7 +150,6 @@ export default function RecipeModal({ recipe, onClose, onAddToWeek, onToggleFavo
   const [cookingMode, setCookingMode] = useState(false);
   const [currentServings, setCurrentServings] = useState(recipe.servings ?? 4);
   const [favLoading, setFavLoading] = useState(false);
-  const [cookingMode, setCookingMode] = useState(false);
 
   const originalServings = recipe.servings ?? null;
   const scaleFactor =

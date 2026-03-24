@@ -21,6 +21,17 @@ export default function RecipePrintView({ recipe }: Props) {
       ? "Normal"
       : "Schwer";
 
+  const metaParts: string[] = [];
+  if (recipe.prepTime) metaParts.push(`ca. ${recipe.prepTime.replace("ca. ", "")}`);
+  else if (recipe.totalTime) metaParts.push(`ca. ${recipe.totalTime.replace("ca. ", "")}`);
+  if (recipe.servings) metaParts.push(`${recipe.servings} Portionen`);
+  metaParts.push(diffLabel);
+
+  const currentUrl =
+    typeof window !== "undefined"
+      ? window.location.origin + window.location.pathname + `#rezept-${recipe.id}`
+      : `#rezept-${recipe.id}`;
+
   return createPortal(
     <div className="print-only recipe-print-view">
       <style>{`
@@ -35,10 +46,16 @@ export default function RecipePrintView({ recipe }: Props) {
             margin: 18mm 16mm 18mm 16mm;
             size: A4 portrait;
           }
+          .print-step-num {
+            -webkit-print-color-adjust: exact;
+            print-color-adjust: exact;
+          }
         }
+
         .print-only {
           display: none;
         }
+
         .recipe-print-view {
           font-family: Georgia, "Times New Roman", serif;
           color: #1a1a0e;
@@ -46,96 +63,116 @@ export default function RecipePrintView({ recipe }: Props) {
           margin: 0 auto;
           background: #fff;
         }
-        .print-header {
-          border-bottom: 2.5px solid #4A7C59;
-          padding-bottom: 14px;
-          margin-bottom: 18px;
-        }
-        .print-site-label {
-          font-size: 11px;
-          letter-spacing: 0.12em;
-          text-transform: uppercase;
-          color: #4A7C59;
-          font-family: Arial, sans-serif;
-          margin-bottom: 6px;
-        }
-        .print-title {
-          font-size: 26px;
-          font-weight: bold;
-          color: #1a1a0e;
-          margin: 0 0 4px 0;
-          line-height: 1.2;
-        }
-        .print-category {
-          font-size: 13px;
-          color: #4A7C59;
-          font-family: Arial, sans-serif;
-        }
-        .print-image {
-          width: 100%;
-          max-height: 220px;
-          object-fit: cover;
-          border-radius: 4px;
-          margin-bottom: 18px;
-          display: block;
-        }
-        .print-meta {
+
+        /* ── Header ── */
+        .print-header-top {
           display: flex;
-          flex-wrap: wrap;
-          gap: 20px;
-          background: #f5f0e8;
-          border: 1px solid #d4c9b0;
-          border-radius: 6px;
-          padding: 12px 16px;
-          margin-bottom: 18px;
+          justify-content: space-between;
+          align-items: baseline;
+          margin-bottom: 5px;
         }
-        .print-meta-item {
-          font-size: 12px;
-          font-family: Arial, sans-serif;
+        .print-header-category {
+          font-family: Arial, Helvetica, sans-serif;
+          font-size: 10px;
+          font-weight: 700;
+          letter-spacing: 0.18em;
+          text-transform: uppercase;
           color: #3a3a2a;
         }
-        .print-meta-label {
-          font-weight: bold;
-          color: #4A7C59;
-          display: block;
-          margin-bottom: 1px;
+        .print-header-brand {
+          font-family: Arial, Helvetica, sans-serif;
           font-size: 10px;
+          letter-spacing: 0.14em;
           text-transform: uppercase;
-          letter-spacing: 0.08em;
+          color: #3a3a2a;
         }
-        .print-section-title {
-          font-size: 16px;
+        .print-header-rule {
+          border: none;
+          border-top: 1.5px solid #1a1a0e;
+          border-bottom: 1px solid #1a1a0e;
+          height: 4px;
+          background: transparent;
+          margin: 0 0 12px 0;
+        }
+        .print-title {
+          font-family: Georgia, "Times New Roman", serif;
+          font-size: 31px;
           font-weight: bold;
-          color: #4A7C59;
-          border-bottom: 1px solid #c8d8c4;
-          padding-bottom: 4px;
-          margin: 18px 0 10px 0;
+          color: #1a1a0e;
+          margin: 12px 0 5px 0;
+          line-height: 1.15;
         }
+        .print-meta-line {
+          font-family: Arial, Helvetica, sans-serif;
+          font-size: 12px;
+          font-style: italic;
+          color: #555;
+          margin-bottom: 14px;
+        }
+
+        /* ── Image ── */
+        .print-image {
+          width: 100%;
+          max-height: 170px;
+          object-fit: cover;
+          border: 1px solid #ccc;
+          border-radius: 0;
+          display: block;
+          margin-bottom: 16px;
+        }
+
+        /* ── Two-column body ── */
+        .print-body {
+          display: flex;
+          gap: 24px;
+          align-items: flex-start;
+        }
+        .print-col-ingredients {
+          flex: 0 0 38%;
+          width: 38%;
+        }
+        .print-col-steps {
+          flex: 1 1 62%;
+          width: 62%;
+        }
+
+        /* ── Section titles ── */
+        .print-section-title {
+          font-family: Georgia, "Times New Roman", serif;
+          font-size: 14px;
+          font-weight: bold;
+          color: #1a1a0e;
+          border-bottom: 1.5px solid #1a1a0e;
+          padding-bottom: 3px;
+          margin: 0 0 9px 0;
+          letter-spacing: 0.02em;
+        }
+
+        /* ── Ingredients ── */
         .print-ingredients {
           list-style: none;
           padding: 0;
           margin: 0;
-          columns: 2;
-          column-gap: 32px;
         }
         .print-ingredients li {
-          font-size: 13px;
-          padding: 3px 0;
+          font-size: 12px;
+          padding: 2.5px 0;
           break-inside: avoid;
           display: flex;
           align-items: flex-start;
-          gap: 6px;
-          font-family: Arial, sans-serif;
+          gap: 5px;
+          font-family: Arial, Helvetica, sans-serif;
+          line-height: 1.45;
         }
-        .print-ing-dot {
-          display: inline-block;
-          width: 5px;
-          height: 5px;
-          border-radius: 50%;
-          background: #C1693A;
+        .print-ing-dash {
           flex-shrink: 0;
-          margin-top: 5px;
+          font-size: 11px;
+          color: #555;
+          margin-top: 1px;
+          line-height: 1.45;
         }
+
+        /* ── Steps ── */
         .print-steps {
           list-style: none;
           padding: 0;
@@ -143,92 +180,96 @@ export default function RecipePrintView({ recipe }: Props) {
         }
         .print-steps li {
           display: flex;
-          gap: 12px;
-          font-size: 13px;
-          font-family: Arial, sans-serif;
-          margin-bottom: 10px;
+          gap: 10px;
+          font-size: 12px;
+          font-family: Arial, Helvetica, sans-serif;
+          margin-bottom: 9px;
           line-height: 1.55;
           break-inside: avoid;
+          align-items: flex-start;
         }
         .print-step-num {
           flex-shrink: 0;
-          width: 22px;
-          height: 22px;
+          width: 20px;
+          height: 20px;
           border-radius: 50%;
           background: #4A7C59;
           color: #fff;
-          font-size: 11px;
+          font-size: 10px;
           font-weight: bold;
           display: flex;
           align-items: center;
           justify-content: center;
-          font-family: Arial, sans-serif;
-          margin-top: 1px;
+          font-family: Arial, Helvetica, sans-serif;
+          margin-top: 2px;
         }
+
+        /* ── Tips box ── */
         .print-tips {
-          background: #fdf8f0;
           border-left: 3px solid #C1693A;
-          padding: 10px 14px;
-          border-radius: 0 4px 4px 0;
-          font-size: 13px;
+          padding: 8px 12px;
+          background: transparent;
+          font-size: 12px;
           font-style: italic;
-          color: #5c3b1c;
+          color: #3a3a2a;
           line-height: 1.5;
-          font-family: Arial, sans-serif;
+          font-family: Arial, Helvetica, sans-serif;
           break-inside: avoid;
+          margin-bottom: 16px;
         }
         .print-tips-label {
           font-style: normal;
           font-weight: bold;
           color: #C1693A;
-          font-size: 11px;
+          font-size: 10px;
           text-transform: uppercase;
-          letter-spacing: 0.08em;
-          margin-bottom: 4px;
+          letter-spacing: 0.1em;
+          margin-bottom: 3px;
           display: block;
         }
+
+        /* ── Footer ── */
         .print-footer {
-          margin-top: 28px;
-          padding-top: 12px;
-          border-top: 1px solid #c8d8c4;
+          margin-top: 24px;
+          padding-top: 10px;
+          border-top: 1px solid #aaa;
           display: flex;
           align-items: flex-end;
           justify-content: space-between;
         }
         .print-footer-left {
-          font-size: 11px;
-          font-family: Arial, sans-serif;
+          font-size: 10px;
+          font-family: Arial, Helvetica, sans-serif;
           color: #888;
-          line-height: 1.6;
+          line-height: 1.7;
         }
         .print-qr-block {
           display: flex;
           flex-direction: column;
           align-items: center;
-          gap: 4px;
+          gap: 3px;
         }
         .print-qr-label {
-          font-size: 11px;
-          font-family: Arial, sans-serif;
-          color: #4A7C59;
-          font-weight: bold;
-          letter-spacing: 0.04em;
+          font-size: 10px;
+          font-family: Arial, Helvetica, sans-serif;
+          color: #888;
+          letter-spacing: 0.03em;
           text-align: center;
-        }
-        .print-ingredients-block {
-          page-break-inside: avoid;
-        }
-        .print-steps-block {
-          page-break-inside: avoid;
         }
       `}</style>
 
-      <div className="print-header">
-        <div className="print-site-label">Lucia's Küche · Rezeptausdruck</div>
+      {/* ── Header ── */}
+      <div>
+        <div className="print-header-top">
+          <span className="print-header-category">{recipe.category}</span>
+          <span className="print-header-brand">Lucia's Küche</span>
+        </div>
+        <div className="print-header-rule" />
         <h1 className="print-title">{recipe.title}</h1>
-        <div className="print-category">{recipe.category}</div>
+        <div className="print-meta-line">{metaParts.join(" · ")}</div>
       </div>
 
+      {/* ── Image ── */}
       {recipe.imageUrl && (
         <img
           className="print-image"
@@ -237,49 +278,7 @@ export default function RecipePrintView({ recipe }: Props) {
         />
       )}
 
-      <div className="print-meta">
-        {recipe.prepTime && (
-          <div className="print-meta-item">
-            <span className="print-meta-label">Vorbereitung</span>
-            {recipe.prepTime.replace("ca. ", "")}
-          </div>
-        )}
-        {recipe.totalTime && recipe.totalTime !== recipe.prepTime && (
-          <div className="print-meta-item">
-            <span className="print-meta-label">Gesamt</span>
-            {recipe.totalTime.replace("ca. ", "")}
-          </div>
-        )}
-        <div className="print-meta-item">
-          <span className="print-meta-label">Schwierigkeit</span>
-          {diffLabel}
-        </div>
-        {recipe.servings && (
-          <div className="print-meta-item">
-            <span className="print-meta-label">Portionen</span>
-            {recipe.servings}
-          </div>
-        )}
-        {recipe.kcalPerPortion && (
-          <div className="print-meta-item">
-            <span className="print-meta-label">Kalorien</span>
-            {recipe.kcalPerPortion} kcal/Portion
-          </div>
-        )}
-        {recipe.rating && (
-          <div className="print-meta-item">
-            <span className="print-meta-label">Bewertung</span>
-            {recipe.rating === "sehr lecker" ? "★★ Sehr lecker" : "★ Lecker"}
-          </div>
-        )}
-        {recipe.source && (
-          <div className="print-meta-item">
-            <span className="print-meta-label">Quelle</span>
-            {recipe.source}
-          </div>
-        )}
-      </div>
-
+      {/* ── Tips (above columns, full width) ── */}
       {recipe.notes && (
         <div className="print-tips">
           <span className="print-tips-label">Lucia's Tipps</span>
@@ -287,52 +286,54 @@ export default function RecipePrintView({ recipe }: Props) {
         </div>
       )}
 
-      <div className="print-ingredients-block">
-        <div className="print-section-title">
-          Zutaten
-          {recipe.servings ? ` (für ${recipe.servings} Personen)` : ""}
+      {/* ── Two-column body ── */}
+      <div className="print-body">
+        {/* Left: Ingredients */}
+        <div className="print-col-ingredients">
+          <div className="print-section-title">
+            Zutaten{recipe.servings ? ` (${recipe.servings} Pers.)` : ""}
+          </div>
+          <ul className="print-ingredients">
+            {recipe.ingredients.map((ing, i) => (
+              <li key={i}>
+                <span className="print-ing-dash">–</span>
+                <span>
+                  {ing.amount && <strong>{ing.amount}</strong>}
+                  {ing.unit && <> {ing.unit}</>}
+                  {(ing.amount || ing.unit) && <> </>}
+                  {ing.name}
+                  {ing.note && <span style={{ color: "#888" }}> ({ing.note})</span>}
+                </span>
+              </li>
+            ))}
+          </ul>
         </div>
-        <ul className="print-ingredients">
-          {recipe.ingredients.map((ing, i) => (
-            <li key={i}>
-              <span className="print-ing-dot" />
-              <span>
-                {[ing.amount, ing.unit].filter(Boolean).join(" ")}
-                {(ing.amount || ing.unit) ? " " : ""}
-                <strong>{ing.name}</strong>
-                {ing.note && <span style={{ color: "#888" }}> ({ing.note})</span>}
-              </span>
-            </li>
-          ))}
-        </ul>
+
+        {/* Right: Steps */}
+        <div className="print-col-steps">
+          <div className="print-section-title">Zubereitung</div>
+          <ol className="print-steps">
+            {(recipe.steps as string[]).map((step, i) => (
+              <li key={i}>
+                <span className="print-step-num">{i + 1}</span>
+                <span>{step}</span>
+              </li>
+            ))}
+          </ol>
+        </div>
       </div>
 
-      <div className="print-steps-block">
-        <div className="print-section-title">Zubereitung</div>
-        <ol className="print-steps">
-          {(recipe.steps as string[]).map((step, i) => (
-            <li key={i}>
-              <span className="print-step-num">{i + 1}</span>
-              <span>{step}</span>
-            </li>
-          ))}
-        </ol>
-      </div>
-
+      {/* ── Footer ── */}
       <div className="print-footer">
         <div className="print-footer-left">
           <div>Ausgedruckt am {printDate}</div>
-          <div>Lucia's Küche – persönliches Rezeptbuch</div>
-          <div style={{ marginTop: "2px", wordBreak: "break-all" }}>
-            {typeof window !== "undefined" ? window.location.origin + window.location.pathname : ""}
-            {`#rezept-${recipe.id}`}
-          </div>
+          <div style={{ wordBreak: "break-all" }}>{currentUrl}</div>
         </div>
         <div className="print-qr-block">
           <QRCodeSVG
             value={qrValue}
-            size={72}
-            fgColor="#2d5240"
+            size={64}
+            fgColor="#1a1a0e"
             bgColor="#ffffff"
             level="M"
           />

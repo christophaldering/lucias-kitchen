@@ -1,9 +1,9 @@
-import { useState } from "react";
-import { X, ChevronRight, ChevronLeft, Users, Utensils, Star, Shuffle } from "lucide-react";
+import { useState, useEffect } from "react";
+import { X, ChevronRight, ChevronLeft, Users, Utensils, Star, Shuffle, CheckCheck } from "lucide-react";
 import type { InvitationMode } from "@/hooks/useInvitations";
-import { useUsers } from "@/hooks/useInvitations";
 import { useAuth } from "@/contexts/AuthContext";
 import type { Recipe } from "@/types/recipe";
+import { useGroups, type Group, type GroupMember } from "@/hooks/useGroups";
 
 interface Props {
   date: string;
@@ -47,21 +47,46 @@ const MODE_OPTIONS: { id: InvitationMode; label: string; description: string; ic
 
 export default function CreateInvitationDialog({ date, recipes, onClose, onCreate }: Props) {
   const { user } = useAuth();
-  const { users } = useUsers();
-  const otherUsers = users.filter((u) => u.id !== user?.id);
+  const { groups, getMembers } = useGroups();
+
+  const activeGroups = groups.filter(
+    (g) => g.status === "approved" && g.myMemberStatus === "joined"
+  );
 
   const [step, setStep] = useState(1);
   const [mode, setMode] = useState<InvitationMode | null>(null);
+  const [selectedGroup, setSelectedGroup] = useState<Group | null>(null);
+  const [groupMembers, setGroupMembers] = useState<GroupMember[]>([]);
+  const [loadingMembers, setLoadingMembers] = useState(false);
   const [selectedMembers, setSelectedMembers] = useState<number[]>([]);
   const [selectedRecipes, setSelectedRecipes] = useState<number[]>([]);
   const [deadline, setDeadline] = useState("");
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
 
+  const invitableMembers = groupMembers.filter(
+    (m) => m.userId !== null && m.userId !== user?.id && m.memberStatus === "joined"
+  );
+
+  useEffect(() => {
+    if (!selectedGroup) return;
+    setLoadingMembers(true);
+    setSelectedMembers([]);
+    getMembers(selectedGroup.id)
+      .then((members) => setGroupMembers(members))
+      .catch(() => setGroupMembers([]))
+      .finally(() => setLoadingMembers(false));
+  }, [selectedGroup, getMembers]);
+
   function toggleMember(uid: number) {
     setSelectedMembers((prev) =>
       prev.includes(uid) ? prev.filter((id) => id !== uid) : [...prev, uid]
     );
+  }
+
+  function selectAllMembers() {
+    const allIds = invitableMembers.map((m) => m.userId!);
+    setSelectedMembers(allIds);
   }
 
   function toggleRecipe(rid: number) {
@@ -92,7 +117,39 @@ export default function CreateInvitationDialog({ date, recipes, onClose, onCreat
     }
   }
 
-  const maxSteps = mode === "vote" || mode === "choice" ? 4 : 3;
+  function handleNext() {
+    if (step === 1 && mode) {
+      if (activeGroups.length === 1) {
+        setSelectedGroup(activeGroups[0]!);
+        setStep(3);
+      } else {
+        setStep(2);
+      }
+    } else if (step < maxSteps) {
+      setStep((s) => s + 1);
+    } else {
+      handleSave();
+    }
+  }
+
+  function handleBack() {
+    if (step === 3 && activeGroups.length === 1) {
+      setStep(1);
+    } else {
+      setStep((s) => s - 1);
+    }
+  }
+
+  const hasRecipeStep = mode === "vote" || mode === "choice";
+  const maxSteps = hasRecipeStep ? 5 : 4;
+
+  const isNextDisabled =
+    (step === 1 && !mode) ||
+    (step === 2 && !selectedGroup) ||
+    (step === 3 && selectedMembers.length === 0) ||
+    saving;
+
+  const isLastStep = step === maxSteps;
 
   return (
     <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/50 p-4">
@@ -147,39 +204,106 @@ export default function CreateInvitationDialog({ date, recipes, onClose, onCreat
             </div>
           )}
 
-          {/* Step 2: Select members */}
+          {/* Step 2: Group selection */}
           {step === 2 && (
             <div>
-              <p className="text-sm font-medium text-gray-700 mb-3">Wen möchtest du einladen?</p>
-              {otherUsers.length === 0 ? (
+              <p className="text-sm font-medium text-gray-700 mb-3">Aus welcher Gruppe möchtest du einladen?</p>
+              {activeGroups.length === 0 ? (
+                <div className="text-center py-8 px-4">
+                  <Users className="w-10 h-10 text-gray-300 mx-auto mb-3" />
+                  <p className="text-sm text-gray-500 mb-4">
+                    Du bist noch in keiner aktiven Gruppe. Erstelle zuerst eine Gruppe, um Mitglieder einladen zu können.
+                  </p>
+                  <a
+                    href="/groups"
+                    className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl bg-[#4A7C59] text-white text-sm font-medium hover:bg-[#3d6849]"
+                    onClick={onClose}
+                  >
+                    <Users className="w-4 h-4" />
+                    Gruppe anlegen
+                  </a>
+                </div>
+              ) : (
+                <div className="space-y-2 max-h-64 overflow-y-auto">
+                  {activeGroups.map((group) => (
+                    <button
+                      key={group.id}
+                      onClick={() => setSelectedGroup(group)}
+                      className={`w-full flex items-center gap-3 p-3 rounded-xl border-2 text-left transition-all ${
+                        selectedGroup?.id === group.id
+                          ? "border-[#4A7C59] bg-[#4A7C59]/5"
+                          : "border-gray-200 hover:border-[#4A7C59]/40"
+                      }`}
+                    >
+                      {group.imageUrl ? (
+                        <img src={group.imageUrl} alt={group.name} className="w-10 h-10 rounded-full object-cover flex-shrink-0" />
+                      ) : (
+                        <div className="w-10 h-10 rounded-full bg-[#4A7C59]/10 flex items-center justify-center flex-shrink-0">
+                          <Users className="w-5 h-5 text-[#4A7C59]" />
+                        </div>
+                      )}
+                      <div className="flex-1 min-w-0">
+                        <p className="font-medium text-sm text-gray-900 truncate">{group.name}</p>
+                        <p className="text-xs text-gray-500">{group.myRole === "owner" ? "Erstellt von dir" : "Mitglied"}</p>
+                      </div>
+                      {selectedGroup?.id === group.id && (
+                        <span className="text-[#4A7C59] text-xs font-semibold flex-shrink-0">✓</span>
+                      )}
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* Step 3: Select members from group */}
+          {step === 3 && (
+            <div>
+              <div className="flex items-center justify-between mb-3">
+                <p className="text-sm font-medium text-gray-700">
+                  Wen aus „{selectedGroup?.name}" möchtest du einladen?
+                </p>
+                {invitableMembers.length > 0 && (
+                  <button
+                    onClick={selectAllMembers}
+                    className="flex items-center gap-1 text-xs text-[#4A7C59] font-medium hover:underline flex-shrink-0 ml-2"
+                  >
+                    <CheckCheck className="w-3.5 h-3.5" />
+                    Alle einladen
+                  </button>
+                )}
+              </div>
+              {loadingMembers ? (
+                <p className="text-sm text-gray-400 text-center py-6">Lade Mitglieder…</p>
+              ) : invitableMembers.length === 0 ? (
                 <p className="text-sm text-gray-500 text-center py-6">
-                  Keine anderen Nutzer gefunden. Registriere weitere Familienmitglieder.
+                  Keine einladbaren Mitglieder in dieser Gruppe gefunden.
                 </p>
               ) : (
                 <div className="space-y-2 max-h-64 overflow-y-auto">
-                  {otherUsers.map((u) => (
+                  {invitableMembers.map((m) => (
                     <button
-                      key={u.id}
-                      onClick={() => toggleMember(u.id)}
+                      key={m.id}
+                      onClick={() => toggleMember(m.userId!)}
                       className={`w-full flex items-center gap-3 p-3 rounded-xl border-2 text-left transition-all ${
-                        selectedMembers.includes(u.id)
+                        selectedMembers.includes(m.userId!)
                           ? "border-[#4A7C59] bg-[#4A7C59]/5"
                           : "border-gray-200 hover:border-[#4A7C59]/40"
                       }`}
                     >
                       <div className="w-9 h-9 rounded-full overflow-hidden border-2 border-gray-200 flex-shrink-0">
-                        {u.avatarUrl ? (
-                          <img src={u.avatarUrl} alt={u.displayName} className="w-full h-full object-cover" />
+                        {m.avatarUrl ? (
+                          <img src={m.avatarUrl} alt={m.displayName ?? ""} className="w-full h-full object-cover" />
                         ) : (
                           <div className="w-full h-full bg-[#C1693A] flex items-center justify-center">
                             <span className="text-white text-xs font-bold">
-                              {u.displayName.slice(0, 2).toUpperCase()}
+                              {(m.displayName ?? "?").slice(0, 2).toUpperCase()}
                             </span>
                           </div>
                         )}
                       </div>
-                      <span className="font-medium text-sm text-gray-900">{u.displayName}</span>
-                      {selectedMembers.includes(u.id) && (
+                      <span className="font-medium text-sm text-gray-900 flex-1">{m.displayName ?? m.invitedEmail ?? "Unbekannt"}</span>
+                      {selectedMembers.includes(m.userId!) && (
                         <span className="ml-auto text-[#4A7C59] text-xs font-semibold">✓</span>
                       )}
                     </button>
@@ -189,8 +313,8 @@ export default function CreateInvitationDialog({ date, recipes, onClose, onCreat
             </div>
           )}
 
-          {/* Step 3: Recipe options (for vote/choice modes) */}
-          {step === 3 && (mode === "vote" || mode === "choice") && (
+          {/* Step 4: Recipe options (for vote/choice modes) */}
+          {step === 4 && hasRecipeStep && (
             <div>
               <p className="text-sm font-medium text-gray-700 mb-1">
                 Rezepte zur Auswahl stellen <span className="text-gray-400">(max. 5)</span>
@@ -227,9 +351,8 @@ export default function CreateInvitationDialog({ date, recipes, onClose, onCreat
             </div>
           )}
 
-          {/* Step 3 (no recipes) or Step 4: Deadline */}
-          {((step === 3 && mode !== "vote" && mode !== "choice") ||
-            (step === 4 && (mode === "vote" || mode === "choice"))) && (
+          {/* Last step: Deadline */}
+          {((step === 4 && !hasRecipeStep) || (step === 5 && hasRecipeStep)) && (
             <div>
               <p className="text-sm font-medium text-gray-700 mb-3">Optionale Frist für Antworten</p>
               <input
@@ -252,35 +375,27 @@ export default function CreateInvitationDialog({ date, recipes, onClose, onCreat
         <div className="px-5 pb-5 flex gap-3">
           {step > 1 && (
             <button
-              onClick={() => setStep((s) => s - 1)}
+              onClick={handleBack}
               className="flex items-center gap-1 px-4 py-2.5 rounded-xl border border-gray-200 text-sm text-gray-700 hover:bg-gray-50"
             >
               <ChevronLeft className="w-4 h-4" />
               Zurück
             </button>
           )}
-          <button
-            onClick={() => {
-              if (step < maxSteps) {
-                setStep((s) => s + 1);
-              } else {
-                handleSave();
-              }
-            }}
-            disabled={
-              (step === 1 && !mode) ||
-              (step === 2 && selectedMembers.length === 0) ||
-              saving
-            }
-            className="flex-1 flex items-center justify-center gap-1 px-4 py-2.5 rounded-xl bg-[#4A7C59] text-white text-sm font-medium hover:bg-[#3d6849] disabled:opacity-50 transition-colors"
-          >
-            {saving ? "Wird gesendet…" : step === maxSteps ? "Einladung senden" : (
-              <>
-                Weiter
-                <ChevronRight className="w-4 h-4" />
-              </>
-            )}
-          </button>
+          {!(step === 2 && activeGroups.length === 0) && (
+            <button
+              onClick={handleNext}
+              disabled={isNextDisabled}
+              className="flex-1 flex items-center justify-center gap-1 px-4 py-2.5 rounded-xl bg-[#4A7C59] text-white text-sm font-medium hover:bg-[#3d6849] disabled:opacity-50 transition-colors"
+            >
+              {saving ? "Wird gesendet…" : isLastStep ? "Einladung senden" : (
+                <>
+                  Weiter
+                  <ChevronRight className="w-4 h-4" />
+                </>
+              )}
+            </button>
+          )}
         </div>
       </div>
     </div>

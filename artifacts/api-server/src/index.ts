@@ -1,6 +1,7 @@
 import app from "./app";
 import { logger } from "./lib/logger";
 import { seedRecipes } from "./db/seedRecipes";
+import { seedUser } from "./db/seedUser";
 
 const rawPort = process.env["PORT"];
 
@@ -28,5 +29,11 @@ app.listen(port, async (err) => {
     await seedRecipes();
   } catch (seedErr) {
     logger.error({ err: seedErr }, "Failed to seed recipes");
+  }
+
+  try {
+    await seedUser();
+  } catch (seedErr) {
+    logger.error({ err: seedErr }, "Failed to seed user");
   }
 });

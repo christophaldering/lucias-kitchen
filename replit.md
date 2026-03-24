@@ -94,6 +94,11 @@ Generated React Query hooks and fetch client from the OpenAPI spec (e.g. `useHea
 ### `artifacts/lucias-kueche` (`@workspace/lucias-kueche`)
 
 React + Vite recipe management SPA backed by the `@workspace/api-server`. Features:
+- **Authentication**: JWT-based login (email/password). Single user system (lucia.aldering@googlemail.com). Protected by AuthContext/useAuth hook. Non-authenticated users redirected to login page.
+- **Login Page** (`src/pages/Login.tsx`): Beautiful split-screen design with atmospheric kitchen gradient on the left, minimal login form on the right. Loading animation during login.
+- **Onboarding** (`src/pages/Onboarding.tsx`): First-time welcome flow with 6 action cards. Shown when `user.onboardingCompleted === false`. Completing onboarding navigates to main app.
+- **Profil Page** (`src/pages/Profil.tsx`): Route `/profil` accessible via nav tab and avatar dropdown. Includes: avatar upload, personal data editor, password change with strength indicator, cooking personality (level, styles, dietary), recipe statistics, and dynamic badge system.
+- **Navigation**: Avatar dropdown in header top-right. Shows time-based greeting (Guten Morgen/Tag/Abend). Dropdown has: Mein Profil, Einstellungen, Abmelden. Profil tab added to nav.
 - **Meine Rezepte**: Recipe gallery with category/time filters, search, recipe detail modal (structured ingredients, preparation steps, metadata). "PDF hochladen" button opens the PDF upload modal.
 - **Wochenplan & Einkaufsliste**: Date-based calendar weekly planner with navigation (previous/next week, "Heute" button to return to current week). Each day cell shows real calendar date. Meal plan entries are persisted in the DB (`meal_plans` table). Shopping list has date-range filter: "Diese Woche", "Nächste 7 Tage", or custom from/to date picker.
 - **Statistiken & Muster**: Pie/bar/horizontal-bar charts (Recharts) for category distribution, cooking time, difficulty, top favorites (by rating + cook count), and Lucia's cook profile.
@@ -104,6 +109,20 @@ React + Vite recipe management SPA backed by the `@workspace/api-server`. Featur
 - Color palette: cream #FDF6EC, forest green #4A7C59, terracotta #C1693A
 - Fonts: Dancing Script (script/title), Lora (serif headings), Inter (body)
 - Packages: recharts, framer-motion, react-hook-form, date-fns, @hookform/resolvers
+
+### Auth System
+
+- **DB schema**: `lib/db/src/schema/users.ts` — `users` table with: id, displayName, email, passwordHash, avatarUrl, bio, cookingLevel, favoriteCategories, dietaryPreference, onboardingCompleted, createdAt
+- **Seeded user**: lucia.aldering@googlemail.com / #weltbestekoechin2026 (bcrypt hashed)
+- **Auth routes** (`artifacts/api-server/src/routes/auth.ts`):
+  - `POST /api/auth/login` — returns JWT (30d) + user object (no passwordHash)
+  - `GET /api/auth/me` — returns current user (requires Bearer token)
+  - `POST /api/auth/logout` — clears session (stateless, client handles token deletion)
+  - `PUT /api/auth/profile` — updates displayName, bio, cookingLevel, favoriteCategories, dietaryPreference, onboardingCompleted
+  - `PUT /api/auth/password` — verifies old password, sets new bcrypt hash
+  - `POST /api/auth/avatar` — saves avatarUrl (base64 data URL)
+- **JWT secret**: env var `JWT_SECRET` (fallback: hardcoded dev secret)
+- **Frontend auth**: `src/contexts/AuthContext.tsx` — AuthProvider + useAuth hook. Token stored in `localStorage` key `lk_auth_token`.
 
 ### `scripts` (`@workspace/scripts`)
 

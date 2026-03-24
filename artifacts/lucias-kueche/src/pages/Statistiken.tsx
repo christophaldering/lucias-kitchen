@@ -1,8 +1,9 @@
 import { useRecipes } from "@/hooks/useRecipes";
+import { useKcalHistory } from "@/hooks/useNutritionSummary";
 import {
   PieChart, Pie, Cell, BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer,
 } from "recharts";
-import { Loader2 } from "lucide-react";
+import { Loader2, Flame } from "lucide-react";
 import type { Recipe } from "@/types/recipe";
 
 const COLORS = ["#4A7C59", "#C1693A", "#7BA05B", "#D4956A", "#5B8E7D", "#E8A96B"];
@@ -76,6 +77,7 @@ const insights = [
 
 export default function Statistiken() {
   const { recipes, loading, error } = useRecipes();
+  const { history: kcalHistory, loading: kcalLoading } = useKcalHistory(4);
 
   if (loading) {
     return (
@@ -243,6 +245,41 @@ export default function Statistiken() {
             </div>
           ))}
         </div>
+      </div>
+
+      {/* Kcal-Verlauf der letzten 4 Wochen */}
+      <div className="bg-white rounded-2xl border border-border shadow-sm p-6">
+        <h3 className="font-serif font-semibold text-lg mb-4 text-foreground flex items-center gap-2">
+          <Flame className="w-5 h-5 text-[#C1693A]" />
+          Kcal-Verlauf (letzte 4 Wochen)
+        </h3>
+        {kcalLoading ? (
+          <div className="flex items-center gap-2 text-muted-foreground text-sm py-8 justify-center">
+            <Loader2 className="w-4 h-4 animate-spin" />
+            <span>Wird geladen…</span>
+          </div>
+        ) : kcalHistory.every((w) => w.totalKcal === 0) ? (
+          <p className="text-sm text-muted-foreground text-center py-8">
+            Noch keine Kcal-Daten aus dem Wochenplan vorhanden.
+          </p>
+        ) : (
+          <>
+            <ResponsiveContainer width="100%" height={200}>
+              <BarChart data={kcalHistory} margin={{ top: 0, right: 10, left: -10, bottom: 0 }}>
+                <XAxis dataKey="label" tick={{ fontSize: 11 }} />
+                <YAxis tick={{ fontSize: 11 }} allowDecimals={false} />
+                <Tooltip
+                  formatter={(value: number) => [`${value.toLocaleString("de-DE")} kcal`, "Gesamt-Kcal"]}
+                  labelFormatter={(label) => `Woche ${label}`}
+                />
+                <Bar dataKey="totalKcal" name="Kcal" fill="#C1693A" radius={[6, 6, 0, 0]} />
+              </BarChart>
+            </ResponsiveContainer>
+            <p className="text-xs text-muted-foreground mt-3 text-center">
+              Basierend auf geplanten Rezepten mit Kcal-Angabe im Wochenplan.
+            </p>
+          </>
+        )}
       </div>
 
       {/* Teaser */}

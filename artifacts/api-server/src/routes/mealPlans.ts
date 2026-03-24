@@ -71,6 +71,132 @@ router.post("/meal-plans", async (req, res) => {
   }
 });
 
+router.get("/meal-plans/nutrition-summary", async (req, res) => {
+  try {
+    const from = req.query.from as string | undefined;
+    const to = req.query.to as string | undefined;
+
+    if (!from || !to) {
+      res.status(400).json({ error: "bad_request", message: "from and to are required" });
+      return;
+    }
+
+    const plans = await db
+      .select()
+      .from(mealPlansTable)
+      .where(and(gte(mealPlansTable.date, from), lte(mealPlansTable.date, to)))
+      .orderBy(mealPlansTable.date);
+
+    const allRecipes = await db.select().from(recipesTable);
+
+    let totalKcal = 0;
+    let withKcal = 0;
+    let withoutKcal = 0;
+
+    const byDate: Record<string, number | null> = {};
+
+    for (const plan of plans) {
+      const recipe = allRecipes.find((r) => r.id === plan.recipeId);
+      if (recipe && recipe.kcalPerPortion != null) {
+        totalKcal += recipe.kcalPerPortion;
+        withKcal++;
+        byDate[plan.date] = recipe.kcalPerPortion;
+      } else {
+        withoutKcal++;
+        byDate[plan.date] = null;
+      }
+    }
+
+    const daysWithKcal = withKcal;
+    const avgKcalPerDay = daysWithKcal > 0 ? Math.round(totalKcal / daysWithKcal) : null;
+
+    res.json({
+      from,
+      to,
+      totalKcal,
+      avgKcalPerDay,
+      daysWithKcal,
+      daysWithoutKcal: withoutKcal,
+      totalDays: plans.length,
+      byDate,
+    });
+  } catch (err) {
+    req.log.error({ err }, "Failed to fetch nutrition summary");
+    res.status(500).json({ error: "internal_error", message: "Failed to fetch nutrition summary" });
+  }
+});
+
+router.get("/meal-plans/kcal-history", async (req, res) => {
+  try {
+    const weeksBack = Number(req.query.weeks ?? 4);
+
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+
+    const getMonday = (d: Date): Date => {
+      const date = new Date(d);
+      const day = date.getDay();
+      const diff = day === 0 ? -6 : 1 - day;
+      date.setDate(date.getDate() + diff);
+      date.setHours(0, 0, 0, 0);
+      return date;
+    };
+
+    const addDays = (d: Date, n: number): Date => {
+      const result = new Date(d);
+      result.setDate(result.getDate() + n);
+      return result;
+    };
+
+    const toIsoDate = (d: Date): string => d.toISOString().split("T")[0];
+
+    const currentMonday = getMonday(today);
+    const weeks: Array<{ label: string; from: string; to: string }> = [];
+
+    for (let i = weeksBack - 1; i >= 0; i--) {
+      const weekStart = addDays(currentMonday, -i * 7);
+      const weekEnd = addDays(weekStart, 6);
+      weeks.push({
+        label: `KW ${weekStart.getDate()}.${weekStart.getMonth() + 1}.`,
+        from: toIsoDate(weekStart),
+        to: toIsoDate(weekEnd),
+      });
+    }
+
+    const allRecipes = await db.select().from(recipesTable);
+
+    const result = await Promise.all(
+      weeks.map(async (week) => {
+        const plans = await db
+          .select()
+          .from(mealPlansTable)
+          .where(and(gte(mealPlansTable.date, week.from), lte(mealPlansTable.date, week.to)));
+
+        let totalKcal = 0;
+        for (const plan of plans) {
+          const recipe = allRecipes.find((r) => r.id === plan.recipeId);
+          if (recipe?.kcalPerPortion != null) {
+            totalKcal += recipe.kcalPerPortion;
+          }
+        }
+
+        return {
+          label: week.label,
+          from: week.from,
+          to: week.to,
+          totalKcal,
+          plannedDays: plans.length,
+        };
+      })
+    );
+
+    res.json(result);
+  } catch (err) {
+    req.log.error({ err }, "Failed to fetch kcal history");
+    res.status(500).json({ error: "internal_error", message: "Failed to fetch kcal history" });
+  }
+});
+
 router.delete("/meal-plans/:id", async (req, res) => {
   try {
     const id = Number(req.params.id);

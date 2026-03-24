@@ -1,9 +1,10 @@
 import { useState, useMemo } from "react";
 import { useRecipes } from "@/hooks/useRecipes";
 import { useMealPlans } from "@/hooks/useMealPlans";
+import { useNutritionSummary } from "@/hooks/useNutritionSummary";
 import RecipeModal from "@/components/RecipeModal";
 import type { Recipe } from "@/types/recipe";
-import { X, ShoppingCart, Copy, Check, Loader2, ChevronLeft, ChevronRight, CalendarDays, Plus } from "lucide-react";
+import { X, ShoppingCart, Copy, Check, Loader2, ChevronLeft, ChevronRight, CalendarDays, Plus, Flame } from "lucide-react";
 
 type IngCategory = "Gemüse" | "Fleisch & Fisch" | "Milchprodukte" | "Vorrat" | "Sonstiges";
 
@@ -138,6 +139,11 @@ export default function Wochenplan() {
     toIsoDate(weekEnd)
   );
 
+  const { summary: nutritionSummary, loading: nutritionLoading, refetch: refetchNutrition } = useNutritionSummary(
+    toIsoDate(weekStart),
+    toIsoDate(weekEnd)
+  );
+
   const shoppingFrom = useMemo(() => {
     if (shoppingRange === "this_week") return toIsoDate(getMonday(today));
     if (shoppingRange === "next_7") return toIsoDate(today);
@@ -188,6 +194,7 @@ export default function Wochenplan() {
     try {
       await addMealPlan(dateStr, recipeId);
       setAddingDay(null);
+      refetchNutrition();
     } catch {
       showToast("Fehler beim Speichern", "error");
     }
@@ -196,6 +203,7 @@ export default function Wochenplan() {
   const handleRemove = async (id: number) => {
     try {
       await deleteMealPlan(id);
+      refetchNutrition();
     } catch {
       showToast("Fehler beim Löschen", "error");
     }
@@ -463,6 +471,59 @@ export default function Wochenplan() {
               )}
             </div>
           </div>
+        </div>
+      )}
+
+      {/* Nutrition summary for the week */}
+      {!plansLoading && (
+        <div className="bg-white rounded-2xl border border-border shadow-sm p-5 mb-6">
+          <h3 className="font-serif text-lg font-semibold text-foreground flex items-center gap-2 mb-4">
+            <Flame className="w-5 h-5 text-[#C1693A]" />
+            Nährwert-Übersicht
+            <span className="text-xs font-sans font-normal text-muted-foreground ml-1">({weekLabel})</span>
+          </h3>
+          {nutritionLoading ? (
+            <div className="flex items-center gap-2 text-muted-foreground text-sm py-2">
+              <Loader2 className="w-4 h-4 animate-spin" />
+              <span>Wird berechnet…</span>
+            </div>
+          ) : !nutritionSummary || nutritionSummary.totalDays === 0 ? (
+            <p className="text-sm text-muted-foreground">
+              Noch keine Rezepte geplant – Nährwerte können nicht berechnet werden.
+            </p>
+          ) : (
+            <div className="space-y-3">
+              <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
+                <div className="bg-[#C1693A]/5 rounded-xl p-3 text-center border border-[#C1693A]/10">
+                  <p className="text-2xl font-bold text-[#C1693A] font-serif">
+                    {nutritionSummary.totalKcal.toLocaleString("de-DE")}
+                  </p>
+                  <p className="text-xs text-muted-foreground mt-0.5">Gesamt-Kcal</p>
+                </div>
+                <div className="bg-[#4A7C59]/5 rounded-xl p-3 text-center border border-[#4A7C59]/10">
+                  <p className="text-2xl font-bold text-[#4A7C59] font-serif">
+                    {nutritionSummary.avgKcalPerDay != null
+                      ? nutritionSummary.avgKcalPerDay.toLocaleString("de-DE")
+                      : "–"}
+                  </p>
+                  <p className="text-xs text-muted-foreground mt-0.5">Ø Kcal / erfasster Tag</p>
+                </div>
+                <div className="bg-secondary rounded-xl p-3 text-center border border-border col-span-2 sm:col-span-1">
+                  <p className="text-2xl font-bold text-foreground font-serif">
+                    {nutritionSummary.daysWithKcal}/{nutritionSummary.totalDays}
+                  </p>
+                  <p className="text-xs text-muted-foreground mt-0.5">Tage erfasst</p>
+                </div>
+              </div>
+              {nutritionSummary.daysWithoutKcal > 0 && (
+                <p className="text-xs text-muted-foreground bg-amber-50 border border-amber-200 rounded-lg px-3 py-2">
+                  ⚠️ {nutritionSummary.daysWithoutKcal}{" "}
+                  {nutritionSummary.daysWithoutKcal === 1 ? "Rezept hat" : "Rezepte haben"} keine Kcal-Angabe und{" "}
+                  {nutritionSummary.daysWithoutKcal === 1 ? "ist" : "sind"} nicht in der Summe enthalten.
+                </p>
+              )}
+            </div>
+          )}
         </div>
       )}
 

@@ -1,6 +1,7 @@
 import { pgTable, text, serial, integer, jsonb, date, unique, timestamp } from "drizzle-orm/pg-core";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod/v4";
+import { usersTable } from "./users";
 
 export const recipesTable = pgTable("recipes", {
   id: serial("id").primaryKey(),
@@ -20,6 +21,7 @@ export const recipesTable = pgTable("recipes", {
   imageUrl: text("image_url"),
   createdAt: timestamp("created_at").defaultNow(),
   seasons: text("seasons").array().default([]),
+  createdBy: integer("created_by").references(() => usersTable.id, { onDelete: "set null" }),
 });
 
 export const recipeIngredientsTable = pgTable("recipe_ingredients", {
@@ -35,8 +37,18 @@ export const mealPlansTable = pgTable("meal_plans", {
   id: serial("id").primaryKey(),
   date: date("date").notNull(),
   recipeId: integer("recipe_id").notNull().references(() => recipesTable.id, { onDelete: "cascade" }),
+  userId: integer("user_id").references(() => usersTable.id, { onDelete: "cascade" }),
 }, (t) => [
-  unique("meal_plans_date_unique").on(t.date),
+  unique("meal_plans_date_user_unique").on(t.date, t.userId),
+]);
+
+export const recipeFavoritesTable = pgTable("recipe_favorites", {
+  id: serial("id").primaryKey(),
+  userId: integer("user_id").notNull().references(() => usersTable.id, { onDelete: "cascade" }),
+  recipeId: integer("recipe_id").notNull().references(() => recipesTable.id, { onDelete: "cascade" }),
+  createdAt: timestamp("created_at").defaultNow(),
+}, (t) => [
+  unique("recipe_favorites_user_recipe_unique").on(t.userId, t.recipeId),
 ]);
 
 export const recipePhotosTable = pgTable("recipe_photos", {
@@ -58,3 +70,4 @@ export type InsertRecipeIngredient = z.infer<typeof insertRecipeIngredientSchema
 export type RecipeIngredient = typeof recipeIngredientsTable.$inferSelect;
 
 export type MealPlan = typeof mealPlansTable.$inferSelect;
+export type RecipeFavorite = typeof recipeFavoritesTable.$inferSelect;

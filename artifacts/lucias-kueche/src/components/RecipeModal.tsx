@@ -1,8 +1,8 @@
 import { useState } from "react";
 import type { Recipe } from "@/types/recipe";
+import { X, Clock, ChefHat, CalendarPlus, Users, Flame, BookOpen, Check, Printer, UtensilsCrossed, Minus, Plus, Star } from "lucide-react";
 import { SEASON_ICONS, SEASON_LABELS } from "@/types/recipe";
 import type { Season } from "@/types/recipe";
-import { X, Clock, ChefHat, CalendarPlus, Users, Flame, BookOpen, Check, Printer, UtensilsCrossed, Minus, Plus } from "lucide-react";
 import { addMealPlanEntry } from "@/hooks/useMealPlans";
 import RecipePrintView from "@/components/RecipePrintView";
 import CookingMode from "@/components/CookingMode";
@@ -12,6 +12,7 @@ interface Props {
   recipe: Recipe;
   onClose: () => void;
   onAddToWeek?: (id: number) => void;
+  onToggleFavorite?: (id: number, isFavorite: boolean) => void;
 }
 
 const CATEGORY_EMOJIS: Record<string, string> = {
@@ -139,7 +140,7 @@ function showToast(message: string, type: "success" | "error" = "success") {
   setTimeout(() => el.remove(), 3000);
 }
 
-export default function RecipeModal({ recipe, onClose, onAddToWeek }: Props) {
+export default function RecipeModal({ recipe, onClose, onAddToWeek, onToggleFavorite }: Props) {
   const emoji = CATEGORY_EMOJIS[recipe.category] ?? "🍽️";
   const today = toIsoDate(new Date());
 
@@ -148,12 +149,17 @@ export default function RecipeModal({ recipe, onClose, onAddToWeek }: Props) {
   const [saving, setSaving] = useState(false);
   const [cookingMode, setCookingMode] = useState(false);
   const [currentServings, setCurrentServings] = useState(recipe.servings ?? 4);
+  const [favLoading, setFavLoading] = useState(false);
+  const [cookingMode, setCookingMode] = useState(false);
 
   const originalServings = recipe.servings ?? null;
   const scaleFactor =
     originalServings && originalServings > 0
       ? currentServings / originalServings
       : 1;
+
+  const isOwner = recipe.isOwner !== false;
+  const isFavorite = recipe.isFavorite ?? false;
 
   const diffColor =
     recipe.difficulty === "simpel"
@@ -180,6 +186,22 @@ export default function RecipeModal({ recipe, onClose, onAddToWeek }: Props) {
     return <CookingMode recipe={recipe} onClose={() => setCookingMode(false)} />;
   }
 
+  const handleToggleFavorite = async () => {
+    if (!onToggleFavorite) return;
+    setFavLoading(true);
+    try {
+      await onToggleFavorite(recipe.id, isFavorite);
+    } catch {
+      showToast("Fehler beim Merken", "error");
+    } finally {
+      setFavLoading(false);
+    }
+  };
+
+  if (cookingMode) {
+    return <CookingMode recipe={recipe} onClose={() => setCookingMode(false)} />;
+  }
+
   return (
     <>
     <div
@@ -196,6 +218,18 @@ export default function RecipeModal({ recipe, onClose, onAddToWeek }: Props) {
             <h2 className="font-serif text-xl font-semibold leading-snug">
               {recipe.title}
             </h2>
+            {!isOwner && recipe.owner && (
+              <div className="flex items-center gap-1.5 mt-1">
+                {recipe.owner.avatarUrl ? (
+                  <img src={recipe.owner.avatarUrl} alt={recipe.owner.displayName} className="w-5 h-5 rounded-full object-cover border border-white/30" />
+                ) : (
+                  <div className="w-5 h-5 rounded-full bg-white/20 flex items-center justify-center text-[10px] font-bold">
+                    {recipe.owner.displayName.charAt(0).toUpperCase()}
+                  </div>
+                )}
+                <span className="text-xs text-green-200">von {recipe.owner.displayName}</span>
+              </div>
+            )}
           </div>
           <div className="flex items-center gap-1 flex-shrink-0">
             <button
@@ -418,6 +452,21 @@ export default function RecipeModal({ recipe, onClose, onAddToWeek }: Props) {
                 >
                   <CalendarPlus className="w-4 h-4" />
                   Zum Kalender hinzufügen
+                </button>
+              )}
+
+              {!isOwner && onToggleFavorite && (
+                <button
+                  onClick={handleToggleFavorite}
+                  disabled={favLoading}
+                  className={`flex items-center gap-2 px-4 py-2.5 rounded-xl text-sm font-semibold transition-colors disabled:opacity-60 ${
+                    isFavorite
+                      ? "bg-amber-500 text-white hover:bg-amber-600"
+                      : "border border-border text-foreground hover:bg-secondary"
+                  }`}
+                >
+                  <Star className={`w-4 h-4 ${isFavorite ? "fill-white" : ""}`} />
+                  {isFavorite ? "Gemerkt ✓" : "⭐ Merken"}
                 </button>
               )}
 

@@ -92,24 +92,28 @@ function BulkActionsBar({
   if (count === 0) return null;
 
   const selectedRecipes = recipes.filter((r) => selected.has(r.id));
+  const ownedSelectedRecipes = selectedRecipes.filter((r) => r.isOwner !== false);
+  const ownedSelectedIds = new Set(ownedSelectedRecipes.map((r) => r.id));
 
   const doBulkPatch = async (patch: Record<string, unknown>) => {
+    if (ownedSelectedIds.size === 0) { toast("Keine eigenen Rezepte ausgewählt", "err"); return; }
     setBusy(true);
     try {
-      await Promise.all([...selected].map((id) => patchRecipeSilent(id, patch)));
+      await Promise.all([...ownedSelectedIds].map((id) => patchRecipeSilent(id, patch)));
       await refetch();
-      toast(`${count} Rezept${count !== 1 ? "e" : ""} aktualisiert`);
+      toast(`${ownedSelectedIds.size} Rezept${ownedSelectedIds.size !== 1 ? "e" : ""} aktualisiert`);
       onClearSelect();
     } catch { toast("Fehler beim Aktualisieren", "err"); }
     finally { setBusy(false); }
   };
 
   const doDelete = async () => {
+    if (ownedSelectedIds.size === 0) { toast("Keine eigenen Rezepte ausgewählt", "err"); setShowDeleteConfirm(false); return; }
     setBusy(true);
     try {
-      await Promise.all([...selected].map((id) => deleteRecipeSilent(id)));
+      await Promise.all([...ownedSelectedIds].map((id) => deleteRecipeSilent(id)));
       await refetch();
-      toast(`${count} Rezept${count !== 1 ? "e" : ""} gelöscht`);
+      toast(`${ownedSelectedIds.size} Rezept${ownedSelectedIds.size !== 1 ? "e" : ""} gelöscht`);
       onClearSelect();
       setShowDeleteConfirm(false);
     } catch { toast("Fehler beim Löschen", "err"); }
@@ -120,11 +124,11 @@ function BulkActionsBar({
     const today = new Date().toISOString().slice(0, 10);
     setBusy(true);
     try {
-      await Promise.all(selectedRecipes.map((r) =>
+      await Promise.all(ownedSelectedRecipes.map((r) =>
         patchRecipeSilent(r.id, { lastCooked: today, cookedCount: (r.cookedCount ?? 0) + 1 })
       ));
       await refetch();
-      toast(`${count} Rezept${count !== 1 ? "e" : ""} als heute gekocht markiert`);
+      toast(`${ownedSelectedRecipes.length} Rezept${ownedSelectedRecipes.length !== 1 ? "e" : ""} als heute gekocht markiert`);
       onClearSelect();
     } catch { toast("Fehler", "err"); }
     finally { setBusy(false); }
@@ -360,19 +364,27 @@ function RecipeTable({
         <tbody>
           {sorted.map((r, i) => {
             const isSel = selected.has(r.id);
+            const isOwner = r.isOwner !== false;
             const createdLabel = r.createdAt
               ? new Date(r.createdAt).toLocaleDateString("de-DE", { day: "2-digit", month: "2-digit", year: "numeric" })
               : "–";
             return (
               <tr key={r.id}
-                onClick={() => onEdit(r)}
-                className={`border-b border-border/50 transition-colors cursor-pointer ${isSel ? "bg-[#4A7C59]/5" : i % 2 === 0 ? "bg-white" : "bg-gray-50/50"} hover:bg-[#4A7C59]/10`}>
+                onClick={() => isOwner && onEdit(r)}
+                className={`border-b border-border/50 transition-colors ${isOwner ? "cursor-pointer hover:bg-[#4A7C59]/10" : "cursor-default"} ${isSel ? "bg-[#4A7C59]/5" : i % 2 === 0 ? "bg-white" : "bg-gray-50/50"}`}>
                 <td className="px-4 py-3" onClick={(e) => e.stopPropagation()}>
                   <input type="checkbox" checked={isSel} onChange={() => onToggle(r.id)}
                     className="w-4 h-4 rounded accent-[#4A7C59] cursor-pointer" />
                 </td>
                 <td className="px-4 py-3">
-                  <span className="font-medium text-foreground line-clamp-1">{r.title}</span>
+                  <div className="flex items-center gap-2">
+                    <span className="font-medium text-foreground line-clamp-1">{r.title}</span>
+                    {!isOwner && (
+                      <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-blue-50 text-blue-600 border border-blue-200 font-medium flex-shrink-0">
+                        {r.owner?.displayName ?? "Geteilt"}
+                      </span>
+                    )}
+                  </div>
                   <span className="block text-xs text-muted-foreground md:hidden">{CATEGORY_EMOJIS[r.category] ?? "🍽️"} {r.category}</span>
                 </td>
                 <td className="px-4 py-3 hidden md:table-cell">
@@ -402,10 +414,14 @@ function RecipeTable({
                   {createdLabel}
                 </td>
                 <td className="px-4 py-3 text-center" onClick={(e) => e.stopPropagation()}>
-                  <button onClick={() => onEdit(r)}
-                    className="p-1.5 rounded-lg hover:bg-[#C1693A]/10 text-muted-foreground hover:text-[#C1693A] transition-colors">
-                    <Edit2 className="w-4 h-4" />
-                  </button>
+                  {isOwner ? (
+                    <button onClick={() => onEdit(r)}
+                      className="p-1.5 rounded-lg hover:bg-[#C1693A]/10 text-muted-foreground hover:text-[#C1693A] transition-colors">
+                      <Edit2 className="w-4 h-4" />
+                    </button>
+                  ) : (
+                    <span className="text-xs text-muted-foreground/50">–</span>
+                  )}
                 </td>
               </tr>
             );

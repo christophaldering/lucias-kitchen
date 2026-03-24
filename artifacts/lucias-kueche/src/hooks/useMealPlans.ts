@@ -5,10 +5,24 @@ export interface MealPlanEntry {
   id: number;
   date: string;
   recipeId: number;
+  userId?: number | null;
   recipe: (Recipe & { ingredients: Recipe["ingredients"] }) | null;
 }
 
 const API_BASE = "/api";
+
+function getToken(): string | null {
+  try {
+    return localStorage.getItem("lk_auth_token");
+  } catch {
+    return null;
+  }
+}
+
+function authHeaders(): HeadersInit {
+  const token = getToken();
+  return token ? { Authorization: `Bearer ${token}` } : {};
+}
 
 export function useMealPlans(from: string, to: string) {
   const [plans, setPlans] = useState<MealPlanEntry[]>([]);
@@ -19,7 +33,7 @@ export function useMealPlans(from: string, to: string) {
     setLoading(true);
     setError(null);
     try {
-      const res = await fetch(`${API_BASE}/meal-plans?from=${from}&to=${to}`);
+      const res = await fetch(`${API_BASE}/meal-plans?from=${from}&to=${to}`, { headers: authHeaders() });
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const data = await res.json();
       setPlans(data);
@@ -37,7 +51,7 @@ export function useMealPlans(from: string, to: string) {
   const addMealPlan = useCallback(async (date: string, recipeId: number): Promise<MealPlanEntry> => {
     const res = await fetch(`${API_BASE}/meal-plans`, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: { "Content-Type": "application/json", ...authHeaders() },
       body: JSON.stringify({ date, recipeId }),
     });
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
@@ -47,7 +61,10 @@ export function useMealPlans(from: string, to: string) {
   }, [fetchPlans]);
 
   const deleteMealPlan = useCallback(async (id: number) => {
-    const res = await fetch(`${API_BASE}/meal-plans/${id}`, { method: "DELETE" });
+    const res = await fetch(`${API_BASE}/meal-plans/${id}`, {
+      method: "DELETE",
+      headers: authHeaders(),
+    });
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
     setPlans((prev) => prev.filter((p) => p.id !== id));
   }, []);
@@ -58,7 +75,7 @@ export function useMealPlans(from: string, to: string) {
 export async function addMealPlanEntry(date: string, recipeId: number): Promise<MealPlanEntry> {
   const res = await fetch(`${API_BASE}/meal-plans`, {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers: { "Content-Type": "application/json", ...authHeaders() },
     body: JSON.stringify({ date, recipeId }),
   });
   if (!res.ok) throw new Error(`HTTP ${res.status}`);

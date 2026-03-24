@@ -12,15 +12,22 @@
     {
       "idx": 1,
       "version": "7",
-      "when": 1774370714744,
-      "tag": "0001_brave_runaways",
-      "breakpoints": true
-    }
-    ,{
-      "idx": 1,
-      "version": "7",
       "when": 1774350942626,
       "tag": "0001_add_seasons_to_recipes",
+      "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1774370435908,
+      "tag": "0001_add_ownership_and_favorites",
+      "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "7",
+      "when": 1774370714744,
+      "tag": "0001_brave_runaways",
       "breakpoints": true
     }
   ]

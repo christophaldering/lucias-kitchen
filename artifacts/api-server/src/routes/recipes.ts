@@ -1,10 +1,11 @@
 import { Router, type IRouter } from "express";
 import { db } from "@workspace/db";
-import { recipesTable, recipeIngredientsTable, recipePhotosTable } from "@workspace/db/schema";
+import { recipesTable, recipeIngredientsTable, recipePhotosTable, recipeFavoritesTable, usersTable } from "@workspace/db/schema";
 import { eq, inArray, sql, desc, and } from "drizzle-orm";
 import { z } from "zod/v4";
 import { seedRecipes } from "../db/seedRecipes";
 import { singleImageUploadMiddleware, UPLOADS_DIR } from "../lib/imageUpload";
+import { authMiddleware } from "./auth";
 import path from "path";
 import fs from "fs";
 
@@ -38,20 +39,58 @@ const recipeBodySchema = z.object({
   seasons: z.array(z.enum(VALID_SEASONS)).default([]),
 });
 
-async function getRecipesWithIngredients() {
-  const recipes = await db.select().from(recipesTable).orderBy(recipesTable.id);
+async function getRecipesWithIngredients(currentUserId?: number, filter?: string) {
+  let recipes = await db.select().from(recipesTable).orderBy(recipesTable.id);
   const ingredients = await db.select().from(recipeIngredientsTable).orderBy(recipeIngredientsTable.id);
-  return recipes.map((r) => ({
-    ...r,
-    ingredients: ingredients.filter((i) => i.recipeId === r.id),
-  }));
+
+  let favorites: Set<number> = new Set();
+  if (currentUserId) {
+    const favRows = await db.select({ recipeId: recipeFavoritesTable.recipeId })
+      .from(recipeFavoritesTable)
+      .where(eq(recipeFavoritesTable.userId, currentUserId));
+    favorites = new Set(favRows.map((f) => f.recipeId));
+  }
+
+  const ownerIds = [...new Set(recipes.map((r) => r.createdBy).filter((id): id is number => id != null))];
+  const owners: Map<number, { displayName: string; avatarUrl: string | null }> = new Map();
+  if (ownerIds.length > 0) {
+    const ownerRows = await db.select({ id: usersTable.id, displayName: usersTable.displayName, avatarUrl: usersTable.avatarUrl })
+      .from(usersTable)
+      .where(inArray(usersTable.id, ownerIds));
+    for (const o of ownerRows) {
+      owners.set(o.id, { displayName: o.displayName, avatarUrl: o.avatarUrl });
+    }
+  }
+
+  let result = recipes.map((r) => {
+    const isOwner = r.createdBy == null || (currentUserId != null && r.createdBy === currentUserId);
+    const owner = r.createdBy != null ? owners.get(r.createdBy) ?? null : null;
+    return {
+      ...r,
+      ingredients: ingredients.filter((i) => i.recipeId === r.id),
+      isOwner,
+      isFavorite: favorites.has(r.id),
+      owner,
+    };
+  });
+
+  if (filter === "mine" && currentUserId != null) {
+    result = result.filter((r) => r.createdBy === currentUserId || r.createdBy == null);
+  } else if (filter === "favorites" && currentUserId != null) {
+    result = result.filter((r) => favorites.has(r.id));
+  }
+
+  return result;
 }
 
 router.get("/recipes/search", async (req, res) => {
   try {
     const q = String(req.query.q ?? "").trim();
+    const currentUserId = req.authUser?.id;
+    const filter = req.query.filter as string | undefined;
+
     if (!q) {
-      const recipes = await getRecipesWithIngredients();
+      const recipes = await getRecipesWithIngredients(currentUserId, filter);
       return res.json(recipes);
     }
 
@@ -86,10 +125,42 @@ router.get("/recipes/search", async (req, res) => {
     const recipes = await db.select().from(recipesTable).where(inArray(recipesTable.id, ids)).orderBy(recipesTable.id);
     const ingredients = await db.select().from(recipeIngredientsTable).where(inArray(recipeIngredientsTable.recipeId, ids)).orderBy(recipeIngredientsTable.id);
 
-    const result = recipes.map((r) => ({
-      ...r,
-      ingredients: ingredients.filter((i) => i.recipeId === r.id),
-    }));
+    let favorites: Set<number> = new Set();
+    if (currentUserId) {
+      const favRows = await db.select({ recipeId: recipeFavoritesTable.recipeId })
+        .from(recipeFavoritesTable)
+        .where(eq(recipeFavoritesTable.userId, currentUserId));
+      favorites = new Set(favRows.map((f) => f.recipeId));
+    }
+
+    const ownerIds = [...new Set(recipes.map((r) => r.createdBy).filter((id): id is number => id != null))];
+    const owners: Map<number, { displayName: string; avatarUrl: string | null }> = new Map();
+    if (ownerIds.length > 0) {
+      const ownerRows = await db.select({ id: usersTable.id, displayName: usersTable.displayName, avatarUrl: usersTable.avatarUrl })
+        .from(usersTable)
+        .where(inArray(usersTable.id, ownerIds));
+      for (const o of ownerRows) {
+        owners.set(o.id, { displayName: o.displayName, avatarUrl: o.avatarUrl });
+      }
+    }
+
+    let result = recipes.map((r) => {
+      const isOwner = r.createdBy == null || (currentUserId != null && r.createdBy === currentUserId);
+      const owner = r.createdBy != null ? owners.get(r.createdBy) ?? null : null;
+      return {
+        ...r,
+        ingredients: ingredients.filter((i) => i.recipeId === r.id),
+        isOwner,
+        isFavorite: favorites.has(r.id),
+        owner,
+      };
+    });
+
+    if (filter === "mine" && currentUserId != null) {
+      result = result.filter((r) => r.createdBy === currentUserId || r.createdBy == null);
+    } else if (filter === "favorites" && currentUserId != null) {
+      result = result.filter((r) => favorites.has(r.id));
+    }
 
     return res.json(result);
   } catch (err) {
@@ -100,7 +171,9 @@ router.get("/recipes/search", async (req, res) => {
 
 router.get("/recipes", async (req, res) => {
   try {
-    const recipes = await getRecipesWithIngredients();
+    const currentUserId = req.authUser?.id;
+    const filter = req.query.filter as string | undefined;
+    const recipes = await getRecipesWithIngredients(currentUserId, filter);
     res.json(recipes);
   } catch (err) {
     req.log.error({ err }, "Failed to fetch recipes");
@@ -108,7 +181,7 @@ router.get("/recipes", async (req, res) => {
   }
 });
 
-router.post("/recipes", async (req, res) => {
+router.post("/recipes", authMiddleware, async (req, res) => {
   try {
     const body = req.body;
     const items = Array.isArray(body) ? body : [body];
@@ -133,6 +206,7 @@ router.post("/recipes", async (req, res) => {
         steps: recipeData.steps,
         imageUrl: recipeData.imageUrl ?? null,
         seasons: recipeData.seasons ?? [],
+        createdBy: req.authUser!.id,
       }).returning();
 
       if (ingredients.length > 0) {
@@ -152,7 +226,13 @@ router.post("/recipes", async (req, res) => {
         .from(recipeIngredientsTable)
         .where(eq(recipeIngredientsTable.recipeId, recipe.id));
 
-      created.push({ ...recipe, ingredients: recipeIngredients });
+      created.push({
+        ...recipe,
+        ingredients: recipeIngredients,
+        isOwner: true,
+        isFavorite: false,
+        owner: null,
+      });
     }
 
     res.status(201).json(created.length === 1 ? created[0] : created);
@@ -166,11 +246,22 @@ router.post("/recipes", async (req, res) => {
   }
 });
 
-router.put("/recipes/:id", async (req, res) => {
+router.put("/recipes/:id", authMiddleware, async (req, res) => {
   try {
     const id = Number(req.params.id);
     if (isNaN(id)) {
       res.status(400).json({ error: "bad_request", message: "Invalid recipe id" });
+      return;
+    }
+
+    const [existing] = await db.select().from(recipesTable).where(eq(recipesTable.id, id));
+    if (!existing) {
+      res.status(404).json({ error: "not_found", message: "Recipe not found" });
+      return;
+    }
+
+    if (existing.createdBy != null && existing.createdBy !== req.authUser!.id) {
+      res.status(403).json({ error: "forbidden", message: "Du kannst nur deine eigenen Rezepte bearbeiten" });
       return;
     }
 
@@ -222,7 +313,7 @@ router.put("/recipes/:id", async (req, res) => {
       .from(recipeIngredientsTable)
       .where(eq(recipeIngredientsTable.recipeId, id));
 
-    res.json({ ...updated, ingredients: updatedIngredients });
+    res.json({ ...updated, ingredients: updatedIngredients, isOwner: true, isFavorite: false, owner: null });
   } catch (err) {
     if (err instanceof z.ZodError) {
       res.status(400).json({ error: "validation_error", issues: err.issues });
@@ -233,11 +324,22 @@ router.put("/recipes/:id", async (req, res) => {
   }
 });
 
-router.patch("/recipes/:id", async (req, res) => {
+router.patch("/recipes/:id", authMiddleware, async (req, res) => {
   try {
     const id = Number(req.params.id);
     if (isNaN(id)) {
       res.status(400).json({ error: "bad_request", message: "Invalid recipe id" });
+      return;
+    }
+
+    const [existing] = await db.select().from(recipesTable).where(eq(recipesTable.id, id));
+    if (!existing) {
+      res.status(404).json({ error: "not_found", message: "Recipe not found" });
+      return;
+    }
+
+    if (existing.createdBy != null && existing.createdBy !== req.authUser!.id) {
+      res.status(403).json({ error: "forbidden", message: "Du kannst nur deine eigenen Rezepte bearbeiten" });
       return;
     }
 
@@ -268,7 +370,7 @@ router.patch("/recipes/:id", async (req, res) => {
       .from(recipeIngredientsTable)
       .where(eq(recipeIngredientsTable.recipeId, id));
 
-    res.json({ ...updated, ingredients });
+    res.json({ ...updated, ingredients, isOwner: true, isFavorite: false, owner: null });
   } catch (err) {
     if (err instanceof z.ZodError) {
       res.status(400).json({ error: "validation_error", issues: err.issues });
@@ -279,11 +381,22 @@ router.patch("/recipes/:id", async (req, res) => {
   }
 });
 
-router.delete("/recipes/:id", async (req, res) => {
+router.delete("/recipes/:id", authMiddleware, async (req, res) => {
   try {
     const id = Number(req.params.id);
     if (isNaN(id)) {
       res.status(400).json({ error: "bad_request", message: "Invalid recipe id" });
+      return;
+    }
+
+    const [existing] = await db.select().from(recipesTable).where(eq(recipesTable.id, id));
+    if (!existing) {
+      res.status(404).json({ error: "not_found", message: "Recipe not found" });
+      return;
+    }
+
+    if (existing.createdBy != null && existing.createdBy !== req.authUser!.id) {
+      res.status(403).json({ error: "forbidden", message: "Du kannst nur deine eigenen Rezepte löschen" });
       return;
     }
 
@@ -301,6 +414,53 @@ router.delete("/recipes/:id", async (req, res) => {
   } catch (err) {
     req.log.error({ err }, "Failed to delete recipe");
     res.status(500).json({ error: "internal_error", message: "Failed to delete recipe" });
+  }
+});
+
+router.post("/recipes/:id/favorite", authMiddleware, async (req, res) => {
+  try {
+    const recipeId = Number(req.params.id);
+    if (isNaN(recipeId)) {
+      res.status(400).json({ error: "bad_request", message: "Invalid recipe id" });
+      return;
+    }
+
+    const userId = req.authUser!.id;
+
+    const [recipe] = await db.select().from(recipesTable).where(eq(recipesTable.id, recipeId));
+    if (!recipe) {
+      res.status(404).json({ error: "not_found", message: "Recipe not found" });
+      return;
+    }
+
+    await db.insert(recipeFavoritesTable)
+      .values({ userId, recipeId })
+      .onConflictDoNothing();
+
+    res.json({ success: true, recipeId, isFavorite: true });
+  } catch (err) {
+    req.log.error({ err }, "Failed to add favorite");
+    res.status(500).json({ error: "internal_error", message: "Failed to add favorite" });
+  }
+});
+
+router.delete("/recipes/:id/favorite", authMiddleware, async (req, res) => {
+  try {
+    const recipeId = Number(req.params.id);
+    if (isNaN(recipeId)) {
+      res.status(400).json({ error: "bad_request", message: "Invalid recipe id" });
+      return;
+    }
+
+    const userId = req.authUser!.id;
+
+    await db.delete(recipeFavoritesTable)
+      .where(and(eq(recipeFavoritesTable.userId, userId), eq(recipeFavoritesTable.recipeId, recipeId)));
+
+    res.json({ success: true, recipeId, isFavorite: false });
+  } catch (err) {
+    req.log.error({ err }, "Failed to remove favorite");
+    res.status(500).json({ error: "internal_error", message: "Failed to remove favorite" });
   }
 });
 
@@ -367,7 +527,7 @@ const suggestBodySchema = z.object({
 router.post("/recipes/suggest", async (req, res) => {
   try {
     const { ingredients, moods, exclusions } = suggestBodySchema.parse(req.body);
-    const allRecipes = await getRecipesWithIngredients();
+    const allRecipes = await getRecipesWithIngredients(req.authUser?.id);
 
     const QUICK_MAX_MINUTES = 30;
     const MEDIUM_MAX_MINUTES = 60;
@@ -438,7 +598,6 @@ router.post("/recipes/suggest", async (req, res) => {
         if (ingredients.length === 0 && moods.length === 0) return null;
         if (score === 0) {
           if (moods.length > 0 && moodMatch) {
-            // keep with 0 ingredient matches but mood match counted already
           } else if (ingredients.length > 0) {
             return null;
           }

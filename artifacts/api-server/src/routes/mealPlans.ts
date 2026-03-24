@@ -3,23 +3,33 @@ import { db } from "@workspace/db";
 import { mealPlansTable, recipesTable, recipeIngredientsTable } from "@workspace/db/schema";
 import { eq, and, gte, lte } from "drizzle-orm";
 import { z } from "zod/v4";
+import { authMiddleware } from "./auth";
 
 const router: IRouter = Router();
 
-router.get("/meal-plans", async (req, res) => {
+router.get("/meal-plans", authMiddleware, async (req, res) => {
   try {
     const from = req.query.from as string | undefined;
     const to = req.query.to as string | undefined;
+    const userId = req.authUser!.id;
 
     let plans;
     if (from && to) {
       plans = await db
         .select()
         .from(mealPlansTable)
-        .where(and(gte(mealPlansTable.date, from), lte(mealPlansTable.date, to)))
+        .where(and(
+          eq(mealPlansTable.userId, userId),
+          gte(mealPlansTable.date, from),
+          lte(mealPlansTable.date, to)
+        ))
         .orderBy(mealPlansTable.date);
     } else {
-      plans = await db.select().from(mealPlansTable).orderBy(mealPlansTable.date);
+      plans = await db
+        .select()
+        .from(mealPlansTable)
+        .where(eq(mealPlansTable.userId, userId))
+        .orderBy(mealPlansTable.date);
     }
 
     const allRecipes = await db.select().from(recipesTable);
@@ -39,7 +49,7 @@ router.get("/meal-plans", async (req, res) => {
   }
 });
 
-router.post("/meal-plans", async (req, res) => {
+router.post("/meal-plans", authMiddleware, async (req, res) => {
   try {
     const schema = z.object({
       date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "Date must be YYYY-MM-DD"),
@@ -47,12 +57,13 @@ router.post("/meal-plans", async (req, res) => {
     });
 
     const { date, recipeId } = schema.parse(req.body);
+    const userId = req.authUser!.id;
 
     const [plan] = await db
       .insert(mealPlansTable)
-      .values({ date, recipeId })
+      .values({ date, recipeId, userId })
       .onConflictDoUpdate({
-        target: mealPlansTable.date,
+        target: [mealPlansTable.date, mealPlansTable.userId],
         set: { recipeId },
       })
       .returning();
@@ -71,10 +82,11 @@ router.post("/meal-plans", async (req, res) => {
   }
 });
 
-router.get("/meal-plans/nutrition-summary", async (req, res) => {
+router.get("/meal-plans/nutrition-summary", authMiddleware, async (req, res) => {
   try {
     const from = req.query.from as string | undefined;
     const to = req.query.to as string | undefined;
+    const userId = req.authUser!.id;
 
     if (!from || !to) {
       res.status(400).json({ error: "bad_request", message: "from and to are required" });
@@ -84,7 +96,11 @@ router.get("/meal-plans/nutrition-summary", async (req, res) => {
     const plans = await db
       .select()
       .from(mealPlansTable)
-      .where(and(gte(mealPlansTable.date, from), lte(mealPlansTable.date, to)))
+      .where(and(
+        eq(mealPlansTable.userId, userId),
+        gte(mealPlansTable.date, from),
+        lte(mealPlansTable.date, to)
+      ))
       .orderBy(mealPlansTable.date);
 
     const allRecipes = await db.select().from(recipesTable);
@@ -126,9 +142,10 @@ router.get("/meal-plans/nutrition-summary", async (req, res) => {
   }
 });
 
-router.get("/meal-plans/kcal-history", async (req, res) => {
+router.get("/meal-plans/kcal-history", authMiddleware, async (req, res) => {
   try {
     const weeksBack = Number(req.query.weeks ?? 4);
+    const userId = req.authUser!.id;
 
     const today = new Date();
     today.setHours(0, 0, 0, 0);
@@ -170,7 +187,11 @@ router.get("/meal-plans/kcal-history", async (req, res) => {
         const plans = await db
           .select()
           .from(mealPlansTable)
-          .where(and(gte(mealPlansTable.date, week.from), lte(mealPlansTable.date, week.to)));
+          .where(and(
+            eq(mealPlansTable.userId, userId),
+            gte(mealPlansTable.date, week.from),
+            lte(mealPlansTable.date, week.to)
+          ));
 
         let totalKcal = 0;
         for (const plan of plans) {
@@ -197,7 +218,7 @@ router.get("/meal-plans/kcal-history", async (req, res) => {
   }
 });
 
-router.delete("/meal-plans/:id", async (req, res) => {
+router.delete("/meal-plans/:id", authMiddleware, async (req, res) => {
   try {
     const id = Number(req.params.id);
     if (isNaN(id)) {
@@ -205,9 +226,11 @@ router.delete("/meal-plans/:id", async (req, res) => {
       return;
     }
 
+    const userId = req.authUser!.id;
+
     const [deleted] = await db
       .delete(mealPlansTable)
-      .where(eq(mealPlansTable.id, id))
+      .where(and(eq(mealPlansTable.id, id), eq(mealPlansTable.userId, userId)))
       .returning();
 
     if (!deleted) {

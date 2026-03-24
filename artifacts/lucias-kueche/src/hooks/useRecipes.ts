@@ -22,16 +22,33 @@ export interface RecipeUpdatePayload {
 
 const API_BASE = "/api";
 
-export function useRecipes() {
+function getToken(): string | null {
+  try {
+    return localStorage.getItem("lk_auth_token");
+  } catch {
+    return null;
+  }
+}
+
+function authHeaders(): HeadersInit {
+  const token = getToken();
+  return token ? { Authorization: `Bearer ${token}` } : {};
+}
+
+export type RecipeFilter = "all" | "mine" | "favorites";
+
+export function useRecipes(filter: RecipeFilter = "all") {
   const [recipes, setRecipes] = useState<Recipe[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
-  const fetchRecipes = useCallback(async () => {
+  const fetchRecipes = useCallback(async (f?: RecipeFilter) => {
     setLoading(true);
     setError(null);
     try {
-      const res = await fetch(`${API_BASE}/recipes`);
+      const activeFilter = f ?? filter;
+      const url = activeFilter === "all" ? `${API_BASE}/recipes` : `${API_BASE}/recipes?filter=${activeFilter}`;
+      const res = await fetch(url, { headers: authHeaders() });
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const data = await res.json();
       setRecipes(data);
@@ -40,7 +57,7 @@ export function useRecipes() {
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [filter]);
 
   useEffect(() => {
     fetchRecipes();
@@ -49,7 +66,7 @@ export function useRecipes() {
   const addRecipes = useCallback(async (newRecipes: Partial<Recipe>[]) => {
     const res = await fetch(`${API_BASE}/recipes`, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: { "Content-Type": "application/json", ...authHeaders() },
       body: JSON.stringify(newRecipes),
     });
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
@@ -59,7 +76,7 @@ export function useRecipes() {
   const updateRecipe = useCallback(async (id: number, data: RecipeUpdatePayload) => {
     const res = await fetch(`${API_BASE}/recipes/${id}`, {
       method: "PUT",
-      headers: { "Content-Type": "application/json" },
+      headers: { "Content-Type": "application/json", ...authHeaders() },
       body: JSON.stringify(data),
     });
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
@@ -69,7 +86,7 @@ export function useRecipes() {
   const patchRecipeSilent = useCallback(async (id: number, patch: Record<string, unknown>) => {
     const res = await fetch(`${API_BASE}/recipes/${id}`, {
       method: "PATCH",
-      headers: { "Content-Type": "application/json" },
+      headers: { "Content-Type": "application/json", ...authHeaders() },
       body: JSON.stringify(patch),
     });
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
@@ -81,7 +98,10 @@ export function useRecipes() {
   }, [fetchRecipes, patchRecipeSilent]);
 
   const deleteRecipeSilent = useCallback(async (id: number) => {
-    const res = await fetch(`${API_BASE}/recipes/${id}`, { method: "DELETE" });
+    const res = await fetch(`${API_BASE}/recipes/${id}`, {
+      method: "DELETE",
+      headers: authHeaders(),
+    });
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
   }, []);
 
@@ -91,16 +111,32 @@ export function useRecipes() {
   }, [fetchRecipes, deleteRecipeSilent]);
 
   const deleteAllRecipes = useCallback(async () => {
-    const res = await fetch(`${API_BASE}/recipes`, { method: "DELETE" });
+    const res = await fetch(`${API_BASE}/recipes`, { method: "DELETE", headers: authHeaders() });
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
     await fetchRecipes();
   }, [fetchRecipes]);
 
   const restoreDemo = useCallback(async () => {
-    const res = await fetch(`${API_BASE}/recipes/seed`, { method: "POST" });
+    const res = await fetch(`${API_BASE}/recipes/seed`, { method: "POST", headers: authHeaders() });
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
     await fetchRecipes();
   }, [fetchRecipes]);
+
+  const toggleFavorite = useCallback(async (recipeId: number, isFavorite: boolean) => {
+    const method = isFavorite ? "DELETE" : "POST";
+    const res = await fetch(`${API_BASE}/recipes/${recipeId}/favorite`, {
+      method,
+      headers: authHeaders(),
+    });
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    setRecipes((prev) => {
+      const updated = prev.map((r) => r.id === recipeId ? { ...r, isFavorite: !isFavorite } : r);
+      if (filter === "favorites" && isFavorite) {
+        return updated.filter((r) => r.id !== recipeId);
+      }
+      return updated;
+    });
+  }, [filter]);
 
   return {
     recipes,
@@ -115,6 +151,7 @@ export function useRecipes() {
     deleteRecipeSilent,
     deleteAllRecipes,
     restoreDemo,
+    toggleFavorite,
   };
 }
 

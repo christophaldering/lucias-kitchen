@@ -45,6 +45,11 @@ export function getCurrentSeason(): Season {
   return "winter";
 }
 
+export interface RecipeOwner {
+  displayName: string;
+  avatarUrl: string | null;
+}
+
 export interface Recipe {
   id: number;
   title: string;
@@ -64,6 +69,10 @@ export interface Recipe {
   imageUrl?: string | null;
   createdAt?: string | null;
   seasons?: Season[] | null;
+  createdBy?: number | null;
+  isOwner?: boolean;
+  isFavorite?: boolean;
+  owner?: RecipeOwner | null;
 }
 
 export const ALL_CATEGORIES = [

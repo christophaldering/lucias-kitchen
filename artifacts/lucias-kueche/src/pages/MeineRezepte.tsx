@@ -3,7 +3,8 @@ import { Recipe } from "@/types/recipe";
 import type { Season } from "@/types/recipe";
 import { SEASON_LABELS, SEASON_ICONS, getCurrentSeason } from "@/types/recipe";
 import { useRecipes } from "@/hooks/useRecipes";
-import { Clock, Search, ChefHat, Upload, Link, Camera, Loader2, LayoutGrid, Table, Settings2, Plus, ArrowUp, ArrowDown, ArrowUpDown, UtensilsCrossed } from "lucide-react";
+import { Clock, Search, ChefHat, Upload, Link, Camera, Loader2, LayoutGrid, Table, Settings2, Plus, ArrowUp, ArrowDown, ArrowUpDown, UtensilsCrossed, Star, BookOpen } from "lucide-react";
+import type { RecipeFilter } from "@/hooks/useRecipes";
 import RecipeModal from "@/components/RecipeModal";
 import CookingMode from "@/components/CookingMode";
 import PdfUploadModal from "@/components/PdfUploadModal";
@@ -15,8 +16,11 @@ import type { RecipeUpdatePayload } from "@/hooks/useRecipes";
 
 const API_BASE = "/api";
 
-async function searchRecipesApi(q: string): Promise<Recipe[]> {
-  const res = await fetch(`${API_BASE}/recipes/search?q=${encodeURIComponent(q)}`);
+async function searchRecipesApi(q: string, filter: RecipeFilter): Promise<Recipe[]> {
+  const token = localStorage.getItem("lk_auth_token");
+  const headers: HeadersInit = token ? { Authorization: `Bearer ${token}` } : {};
+  const filterParam = filter !== "all" ? `&filter=${filter}` : "";
+  const res = await fetch(`${API_BASE}/recipes/search?q=${encodeURIComponent(q)}${filterParam}`, { headers });
   if (!res.ok) throw new Error(`HTTP ${res.status}`);
   return res.json();
 }
@@ -60,18 +64,38 @@ function RatingBadge({ rating }: { rating: string | null }) {
   );
 }
 
+function OwnerBadge({ recipe }: { recipe: Recipe }) {
+  if (recipe.isOwner !== false) return null;
+  const name = recipe.owner?.displayName ?? "Unbekannt";
+  const avatarUrl = recipe.owner?.avatarUrl;
+  return (
+    <div className="flex items-center gap-1 mt-2">
+      {avatarUrl ? (
+        <img src={avatarUrl} alt={name} className="w-4 h-4 rounded-full object-cover" />
+      ) : (
+        <div className="w-4 h-4 rounded-full bg-[#4A7C59]/20 flex items-center justify-center text-[8px] font-bold text-[#4A7C59]">
+          {name.charAt(0).toUpperCase()}
+        </div>
+      )}
+      <span className="text-xs text-muted-foreground">{name}</span>
+    </div>
+  );
+}
+
 function RecipeCard({
   recipe,
   onClick,
   onCook,
   showNotes,
   showCookCount,
+  onToggleFavorite,
 }: {
   recipe: Recipe;
   onClick: () => void;
   onCook: () => void;
   showNotes: boolean;
   showCookCount: boolean;
+  onToggleFavorite?: (id: number, isFavorite: boolean) => void;
 }) {
   const [hovered, setHovered] = useState(false);
   const emoji = CATEGORY_EMOJIS[recipe.category] ?? "🍽️";
@@ -82,6 +106,11 @@ function RecipeCard({
       : recipe.difficulty === "normal"
       ? "bg-amber-100 text-amber-700"
       : "bg-red-100 text-red-700";
+
+  const handleFavorite = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    onToggleFavorite?.(recipe.id, recipe.isFavorite ?? false);
+  };
 
   return (
     <div
@@ -118,6 +147,21 @@ function RecipeCard({
             {emoji} {recipe.category}
           </span>
         </div>
+
+        {/* Favorite/Star button overlay for non-owned recipes */}
+        {recipe.isOwner === false && onToggleFavorite && (
+          <button
+            className="absolute top-2.5 right-2.5 w-8 h-8 rounded-full flex items-center justify-center shadow transition-colors"
+            style={{
+              background: recipe.isFavorite ? "rgba(193,105,58,0.9)" : "rgba(255,255,255,0.85)",
+              backdropFilter: "blur(4px)",
+            }}
+            onClick={handleFavorite}
+            title={recipe.isFavorite ? "Aus Merkliste entfernen" : "Rezept merken"}
+          >
+            <Star className={`w-4 h-4 ${recipe.isFavorite ? "text-white fill-white" : "text-amber-500"}`} />
+          </button>
+        )}
 
         {/* Time chip overlay */}
         {recipe.prepTime && (
@@ -160,6 +204,8 @@ function RecipeCard({
             "{recipe.notes}"
           </p>
         )}
+
+        <OwnerBadge recipe={recipe} />
       </div>
 
       {hovered && (
@@ -171,7 +217,7 @@ function RecipeCard({
           >
             Details ansehen →
           </span>
-          {(recipe.steps as string[]).length > 0 && (
+          {Array.isArray(recipe.steps) && recipe.steps.length > 0 && (
             <button
               onClick={(e) => { e.stopPropagation(); onCook(); }}
               className="flex items-center gap-1.5 text-white font-semibold text-sm px-4 py-2 bg-[#C1693A] hover:bg-[#a85830] rounded-xl transition-colors"
@@ -198,11 +244,13 @@ function SortIcon({ col, sortKey, sortDir }: { col: TableSortKey; sortKey: Table
 function RecipeTableRow({
   recipe,
   onClick,
+  onCook,
   checked,
   onCheck,
 }: {
   recipe: Recipe;
   onClick: () => void;
+  onCook: () => void;
   checked: boolean;
   onCheck: (e: React.MouseEvent) => void;
 }) {
@@ -216,8 +264,26 @@ function RecipeTableRow({
         <input type="checkbox" checked={checked} onChange={() => {}} className="w-4 h-4 rounded accent-[#4A7C59] cursor-pointer" />
       </td>
       <td className="px-4 py-3">
-        <div className="font-medium text-foreground">{recipe.title}</div>
+        <div className="font-medium text-foreground flex items-center gap-2">
+          {recipe.title}
+          {recipe.isOwner === false && (
+            <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-blue-50 text-blue-600 border border-blue-200 font-medium">
+              {recipe.owner?.displayName ?? "Geteilt"}
+            </span>
+          )}
+        </div>
         {recipe.source && <div className="text-xs text-muted-foreground">{recipe.source}</div>}
+      </td>
+      <td className="px-4 py-3 hidden sm:table-cell text-center">
+        {Array.isArray(recipe.steps) && recipe.steps.length > 0 && (
+          <button
+            onClick={(e) => { e.stopPropagation(); onCook(); }}
+            className="p-1.5 rounded-lg bg-[#C1693A]/10 text-[#C1693A] hover:bg-[#C1693A] hover:text-white transition-colors"
+            title="Kochen starten"
+          >
+            <UtensilsCrossed className="w-4 h-4" />
+          </button>
+        )}
       </td>
       <td className="px-4 py-3 hidden sm:table-cell">
         <span className="inline-flex items-center gap-1 text-xs font-medium px-2 py-0.5 rounded-full bg-[#4A7C59]/10 text-[#4A7C59]">
@@ -252,8 +318,15 @@ interface MeineRezepteProps {
   onNavigate?: (tab: string) => void;
 }
 
+const FILTER_LABELS: Record<RecipeFilter, string> = {
+  all: "Alle Rezepte",
+  mine: "Meine Rezepte",
+  favorites: "Gemerkte",
+};
+
 export default function MeineRezepte({ onNavigate: _onNavigate }: MeineRezepteProps) {
-  const { recipes, loading, error, addRecipes, refetch, patchRecipeSilent, deleteRecipeSilent, updateRecipe } = useRecipes();
+  const [recipeFilter, setRecipeFilter] = useState<RecipeFilter>("all");
+  const { recipes, loading, error, addRecipes, refetch, patchRecipeSilent, deleteRecipeSilent, updateRecipe, toggleFavorite } = useRecipes(recipeFilter);
 
   const defaultViewRaw = useLocalStorage<string>("lk_viewMode", "");
   const defaultView = ((): ViewMode => {
@@ -284,7 +357,8 @@ export default function MeineRezepte({ onNavigate: _onNavigate }: MeineRezeptePr
   const [activeCategory, setActiveCategory] = useState("Alle");
   const [timeFilter, setTimeFilter] = useState("Alle");
   const [seasonFilter, setSeasonFilter] = useState<Season | "Alle">("Alle");
-  const [selected, setSelected] = useState<Recipe | null>(null);
+  const [selectedId, setSelectedId] = useState<number | null>(null);
+  const selected = selectedId != null ? (recipes.find((r) => r.id === selectedId) ?? null) : null;
   const [cookingRecipe, setCookingRecipe] = useState<Recipe | null>(null);
   const [showPdfModal, setShowPdfModal] = useState(false);
   const [showUrlModal, setShowUrlModal] = useState(false);
@@ -343,7 +417,7 @@ export default function MeineRezepte({ onNavigate: _onNavigate }: MeineRezeptePr
     setSearchLoading(true);
     debounceRef.current = setTimeout(async () => {
       try {
-        const results = await searchRecipesApi(trimmed);
+        const results = await searchRecipesApi(trimmed, recipeFilter);
         setSearchResults(results);
       } catch {
         setSearchResults(null);
@@ -354,7 +428,12 @@ export default function MeineRezepte({ onNavigate: _onNavigate }: MeineRezeptePr
     return () => {
       if (debounceRef.current) clearTimeout(debounceRef.current);
     };
-  }, [search]);
+  }, [search, recipeFilter]);
+
+  useEffect(() => {
+    setSearchResults(null);
+    setSearch("");
+  }, [recipeFilter]);
 
   const allCategories = useMemo(() => {
     const cats = Array.from(new Set(recipes.map((r) => r.category))).sort();
@@ -467,7 +546,7 @@ export default function MeineRezepte({ onNavigate: _onNavigate }: MeineRezeptePr
 
   return (
     <div className="max-w-6xl mx-auto px-4 py-6">
-      <div className="mb-5 flex items-center gap-2">
+      <div className="mb-5 flex items-center gap-2 flex-wrap">
         <div className="flex gap-1 bg-white border border-border rounded-xl p-1">
           <button
             onClick={() => setViewMode("galerie")}
@@ -490,6 +569,24 @@ export default function MeineRezepte({ onNavigate: _onNavigate }: MeineRezeptePr
             <Settings2 className="w-4 h-4" />
             Verwalten
           </button>
+        </div>
+
+        {/* Recipe ownership filter toggle */}
+        <div className="flex gap-1 bg-white border border-border rounded-xl p-1 ml-auto">
+          {(["all", "mine", "favorites"] as RecipeFilter[]).map((f) => (
+            <button
+              key={f}
+              onClick={() => setRecipeFilter(f)}
+              className={`flex items-center gap-1.5 px-3 py-2 rounded-lg text-sm font-medium transition-colors min-h-[40px] ${
+                recipeFilter === f ? "bg-[#C1693A] text-white" : "text-muted-foreground hover:text-foreground"
+              }`}
+            >
+              {f === "all" && <BookOpen className="w-4 h-4" />}
+              {f === "mine" && <ChefHat className="w-4 h-4" />}
+              {f === "favorites" && <Star className="w-4 h-4" />}
+              {FILTER_LABELS[f]}
+            </button>
+          ))}
         </div>
       </div>
 
@@ -657,10 +754,11 @@ export default function MeineRezepte({ onNavigate: _onNavigate }: MeineRezeptePr
                     <RecipeCard
                       key={recipe.id}
                       recipe={recipe}
-                      onClick={() => setSelected(recipe)}
+                      onClick={() => setSelectedId(recipe.id)}
                       onCook={() => setCookingRecipe(recipe)}
                       showNotes={showNotes}
                       showCookCount={showCookCount}
+                      onToggleFavorite={toggleFavorite}
                     />
                   ))}
                 </div>
@@ -700,7 +798,8 @@ export default function MeineRezepte({ onNavigate: _onNavigate }: MeineRezeptePr
                         <RecipeTableRow
                           key={recipe.id}
                           recipe={recipe}
-                          onClick={() => setSelected(recipe)}
+                          onClick={() => setSelectedId(recipe.id)}
+                          onCook={() => setCookingRecipe(recipe)}
                           checked={tableSelected.has(recipe.id)}
                           onCheck={(e) => toggleTableSelect(recipe.id, e)}
                         />
@@ -717,7 +816,18 @@ export default function MeineRezepte({ onNavigate: _onNavigate }: MeineRezeptePr
           )}
 
           {selected && (
-            <RecipeModal recipe={selected} onClose={() => setSelected(null)} />
+            <RecipeModal
+              recipe={selected}
+              onClose={() => setSelectedId(null)}
+              onToggleFavorite={toggleFavorite}
+            />
+          )}
+
+          {cookingRecipe && (
+            <CookingMode
+              recipe={cookingRecipe}
+              onClose={() => setCookingRecipe(null)}
+            />
           )}
 
           {showUrlModal && (

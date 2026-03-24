@@ -1,11 +1,12 @@
 import { useState, useMemo } from "react";
 import { Recipe, formatIngredient } from "@/types/recipe";
 import { useRecipes } from "@/hooks/useRecipes";
-import { Clock, Search, ChefHat, Upload, Link, Loader2, LayoutGrid, Table, Settings2 } from "lucide-react";
+import { Clock, Search, ChefHat, Upload, Link, Camera, Loader2, LayoutGrid, Table, Settings2 } from "lucide-react";
 import RecipeModal from "@/components/RecipeModal";
 import PdfUploadModal from "@/components/PdfUploadModal";
 import RecipeManagement from "@/components/RecipeManagement";
 import UrlImportModal from "@/components/UrlImportModal";
+import ImageImportModal from "@/components/ImageImportModal";
 
 const CATEGORY_EMOJIS: Record<string, string> = {
   Fisch: "🐟",
@@ -182,6 +183,7 @@ export default function MeineRezepte() {
   const [selected, setSelected] = useState<Recipe | null>(null);
   const [showPdfModal, setShowPdfModal] = useState(false);
   const [showUrlModal, setShowUrlModal] = useState(false);
+  const [showImageModal, setShowImageModal] = useState(false);
 
   const [managedSelected, setManagedSelected] = useState<Set<number>>(new Set());
 
@@ -334,6 +336,13 @@ export default function MeineRezepte() {
                 <Upload className="w-4 h-4" />
                 PDF hochladen
               </button>
+              <button
+                onClick={() => setShowImageModal(true)}
+                className="flex items-center gap-2 px-4 py-2.5 bg-[#6b5ca5] text-white rounded-xl text-sm font-semibold hover:bg-[#5a4c8e] transition-colors whitespace-nowrap shadow-sm"
+              >
+                <Camera className="w-4 h-4" />
+                Foto importieren
+              </button>
             </div>
 
             <div className="flex flex-wrap gap-2">
@@ -452,6 +461,15 @@ export default function MeineRezepte() {
           {showPdfModal && (
             <PdfUploadModal
               onClose={() => setShowPdfModal(false)}
+              onAdd={async (newRecipes) => {
+                await addRecipes(newRecipes);
+              }}
+            />
+          )}
+
+          {showImageModal && (
+            <ImageImportModal
+              onClose={() => setShowImageModal(false)}
               onAdd={async (newRecipes) => {
                 await addRecipes(newRecipes);
               }}

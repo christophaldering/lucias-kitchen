@@ -164,3 +164,19 @@ export async function extractUrlRecipes(
   }
   return res.json();
 }
+
+export async function extractImageRecipes(
+  base64Image: string,
+  mimeType: string = "image/jpeg"
+): Promise<{ recipes: Partial<Recipe>[]; modelUsed: "openai" }> {
+  const res = await fetch(`${API_BASE}/extract-image`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ image: base64Image, mimeType }),
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error(err.message ?? `HTTP ${res.status}`);
+  }
+  return res.json();
+}

@@ -9,6 +9,7 @@ import CookingMode from "@/components/CookingMode";
 import RecipePhotoGallery from "@/components/RecipePhotoGallery";
 import CookingLogModal from "@/components/CookingLogModal";
 import { useCookingLog } from "@/hooks/useCookingLog";
+import { RecipeComments } from "@/components/RecipeComments";
 
 interface Props {
   recipe: Recipe;
@@ -457,6 +458,9 @@ export default function RecipeModal({ recipe, onClose, onAddToWeek, onToggleFavo
               )}
             </div>
           )}
+
+          {/* Comments */}
+          <RecipeComments recipeId={recipe.id} />
 
           {/* Actions */}
           <div className="flex flex-col gap-3 pt-2">

@@ -13,6 +13,8 @@ import authRouter from "./auth";
 import suggestWeekRouter from "./suggestWeek";
 import groupsRouter from "./groups";
 import cookingLogRouter from "./cookingLog";
+import commentsRouter from "./comments";
+import notificationsRouter from "./notifications";
 
 const router: IRouter = Router();
 
@@ -30,5 +32,7 @@ router.use(authRouter);
 router.use(suggestWeekRouter);
 router.use(groupsRouter);
 router.use(cookingLogRouter);
+router.use(commentsRouter);
+router.use(notificationsRouter);
 
 export default router;

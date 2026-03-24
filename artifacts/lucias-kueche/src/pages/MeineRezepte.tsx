@@ -3,7 +3,7 @@ import { Recipe } from "@/types/recipe";
 import type { Season } from "@/types/recipe";
 import { SEASON_LABELS, SEASON_ICONS, getCurrentSeason } from "@/types/recipe";
 import { useRecipes } from "@/hooks/useRecipes";
-import { Clock, Search, ChefHat, Upload, Link, Camera, Loader2, LayoutGrid, Table, Settings2, Plus, ArrowUp, ArrowDown, ArrowUpDown, UtensilsCrossed, Star, BookOpen } from "lucide-react";
+import { Clock, Search, ChefHat, Upload, Link, Camera, Loader2, LayoutGrid, Table, Settings2, Plus, ArrowUp, ArrowDown, ArrowUpDown, UtensilsCrossed, MessageCircle, Star, BookOpen } from "lucide-react";
 import type { RecipeFilter } from "@/hooks/useRecipes";
 import RecipeModal from "@/components/RecipeModal";
 import CookingMode from "@/components/CookingMode";
@@ -13,6 +13,7 @@ import UrlImportModal from "@/components/UrlImportModal";
 import ImageImportModal from "@/components/ImageImportModal";
 import RecipeEditModal from "@/components/RecipeEditModal";
 import type { RecipeUpdatePayload } from "@/hooks/useRecipes";
+import { useCommentStats } from "@/components/RecipeComments";
 
 const API_BASE = "/api";
 
@@ -89,6 +90,8 @@ function RecipeCard({
   showNotes,
   showCookCount,
   onToggleFavorite,
+  commentCount,
+  avgRating,
 }: {
   recipe: Recipe;
   onClick: () => void;
@@ -96,6 +99,8 @@ function RecipeCard({
   showNotes: boolean;
   showCookCount: boolean;
   onToggleFavorite?: (id: number, isFavorite: boolean) => void;
+  commentCount?: number;
+  avgRating?: number | null;
 }) {
   const [hovered, setHovered] = useState(false);
   const emoji = CATEGORY_EMOJIS[recipe.category] ?? "🍽️";
@@ -197,6 +202,21 @@ function RecipeCard({
 
         {showCookCount && recipe.cookedCount != null && recipe.cookedCount > 0 && (
           <p className="text-xs text-muted-foreground">🍳 {recipe.cookedCount}× gekocht</p>
+        )}
+
+        {(commentCount !== undefined && commentCount > 0) && (
+          <div className="flex items-center gap-2 mt-1.5">
+            <span className="flex items-center gap-1 text-xs text-muted-foreground">
+              <MessageCircle className="w-3 h-3" />
+              {commentCount}
+            </span>
+            {avgRating !== null && avgRating !== undefined && (
+              <span className="flex items-center gap-0.5 text-xs text-amber-600 font-medium">
+                <Star className="w-3 h-3 fill-amber-400 text-amber-400" />
+                {avgRating.toFixed(1)}
+              </span>
+            )}
+          </div>
         )}
 
         {showNotes && recipe.notes && (
@@ -316,6 +336,8 @@ type ViewMode = "galerie" | "tabelle" | "verwalten";
 
 interface MeineRezepteProps {
   onNavigate?: (tab: string) => void;
+  initialOpenRecipeId?: number | null;
+  onRecipeOpened?: () => void;
 }
 
 const FILTER_LABELS: Record<RecipeFilter, string> = {
@@ -324,7 +346,7 @@ const FILTER_LABELS: Record<RecipeFilter, string> = {
   favorites: "Gemerkte",
 };
 
-export default function MeineRezepte({ onNavigate: _onNavigate }: MeineRezepteProps) {
+export default function MeineRezepte({ onNavigate: _onNavigate, initialOpenRecipeId, onRecipeOpened }: MeineRezepteProps) {
   const [recipeFilter, setRecipeFilter] = useState<RecipeFilter>("all");
   const { recipes, loading, error, addRecipes, refetch, patchRecipeSilent, deleteRecipeSilent, updateRecipe, toggleFavorite } = useRecipes(recipeFilter);
 
@@ -370,6 +392,19 @@ export default function MeineRezepte({ onNavigate: _onNavigate }: MeineRezeptePr
   const [tableSelected, setTableSelected] = useState<Set<number>>(new Set());
   const [tableSortKey, setTableSortKey] = useState<TableSortKey>("title");
   const [tableSortDir, setTableSortDir] = useState<"asc" | "desc">("asc");
+
+  const recipeIds = useMemo(() => recipes.map((r) => r.id), [recipes]);
+  const { data: commentStats = {} } = useCommentStats(recipeIds);
+
+  useEffect(() => {
+    if (initialOpenRecipeId && recipes.length > 0) {
+      const recipe = recipes.find((r) => r.id === initialOpenRecipeId);
+      if (recipe) {
+        setSelectedId(recipe.id);
+        onRecipeOpened?.();
+      }
+    }
+  }, [initialOpenRecipeId, recipes]);
 
   const toggleSelect = (id: number) => setManagedSelected((prev) => {
     const next = new Set(prev);
@@ -759,6 +794,8 @@ export default function MeineRezepte({ onNavigate: _onNavigate }: MeineRezeptePr
                       showNotes={showNotes}
                       showCookCount={showCookCount}
                       onToggleFavorite={toggleFavorite}
+                      commentCount={commentStats[recipe.id]?.count}
+                      avgRating={commentStats[recipe.id]?.avgRating}
                     />
                   ))}
                 </div>

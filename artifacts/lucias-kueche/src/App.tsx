@@ -1,6 +1,6 @@
 import { useState, useRef, useEffect } from "react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { Utensils, CalendarDays, BarChart3, Settings, UserCircle, LogOut, ChevronDown, User, BookOpen, Lightbulb } from "lucide-react";
+import { Utensils, CalendarDays, BarChart3, Settings, LogOut, ChevronDown, User, BookOpen, Lightbulb } from "lucide-react";
 import MeineRezepte from "@/pages/MeineRezepte";
 import Wochenplan from "@/pages/Wochenplan";
 import Statistiken from "@/pages/Statistiken";
@@ -10,6 +10,7 @@ import Login from "@/pages/Login";
 import Onboarding from "@/pages/Onboarding";
 import WasKocheIch from "@/pages/WasKocheIch";
 import { AuthProvider, useAuth } from "@/contexts/AuthContext";
+import { NotificationBell } from "@/components/NotificationBell";
 
 const queryClient = new QueryClient();
 
@@ -160,6 +161,12 @@ function BottomNav({ activeTab, onTabChange }: { activeTab: Tab; onTabChange: (t
 function AppShell() {
   const { user, loading } = useAuth();
   const [activeTab, setActiveTab] = useState<Tab>("rezepte");
+  const [openRecipeId, setOpenRecipeId] = useState<number | null>(null);
+
+  function handleOpenRecipeFromNotification(recipeId: number) {
+    setActiveTab("rezepte");
+    setOpenRecipeId(recipeId);
+  }
 
   if (loading) {
     return (
@@ -202,14 +209,17 @@ function AppShell() {
                 Lucias Küche 🍳
               </h1>
             </button>
-            <AvatarDropdown onNavigate={(tab) => setActiveTab(tab)} />
+            <div className="flex items-center gap-1">
+              <NotificationBell onOpenRecipe={handleOpenRecipeFromNotification} />
+              <AvatarDropdown onNavigate={(tab) => setActiveTab(tab)} />
+            </div>
           </div>
         </div>
       </header>
 
       {/* Main content with bottom padding for nav */}
       <main className="min-h-screen pb-24" style={{ minHeight: "calc(100vh - 56px)" }}>
-        {activeTab === "rezepte" && <MeineRezepte onNavigate={(tab) => setActiveTab(tab as Tab)} />}
+        {activeTab === "rezepte" && <MeineRezepte onNavigate={(tab) => setActiveTab(tab as Tab)} initialOpenRecipeId={openRecipeId} onRecipeOpened={() => setOpenRecipeId(null)} />}
         {activeTab === "was-koche-ich" && <WasKocheIch />}
         {activeTab === "wochenplan" && <Wochenplan />}
         {activeTab === "statistiken" && <Statistiken />}

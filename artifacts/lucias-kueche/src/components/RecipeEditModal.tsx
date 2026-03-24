@@ -47,6 +47,7 @@ export default function RecipeEditModal({ recipe, onClose, onSave, knownCategori
   const [source, setSource] = useState(recipe.source ?? "");
   const [rating, setRating] = useState(recipe.rating ?? "");
   const [notes, setNotes] = useState(recipe.notes ?? "");
+  const [personalNotes, setPersonalNotes] = useState(recipe.personalNotes ?? "");
   const [ingredients, setIngredients] = useState<IngRow[]>(
     recipe.ingredients.map((i) => ({
       amount: i.amount,
@@ -143,6 +144,7 @@ export default function RecipeEditModal({ recipe, onClose, onSave, knownCategori
         source: source.trim() || null,
         rating: rating || null,
         notes: notes.trim() || null,
+        personalNotes: personalNotes.trim() || null,
         steps: validSteps,
         ingredients: validIngredients.map((i) => ({
           amount: i.amount,
@@ -281,6 +283,13 @@ export default function RecipeEditModal({ recipe, onClose, onSave, knownCategori
               <label className="block text-xs font-semibold text-muted-foreground mb-1 uppercase tracking-wide">Lucias Notizen</label>
               <textarea value={notes} onChange={(e) => setNotes(e.target.value)} rows={2}
                 className="w-full px-3 py-2 rounded-xl border border-border bg-white text-sm focus:outline-none focus:ring-2 focus:ring-[#C1693A]/30 resize-none" />
+            </div>
+
+            <div className="sm:col-span-2">
+              <label className="block text-xs font-semibold text-muted-foreground mb-1 uppercase tracking-wide">Persönliche Notizen</label>
+              <textarea value={personalNotes} onChange={(e) => setPersonalNotes(e.target.value)} rows={3}
+                placeholder="Eigene Anmerkungen, Tipps, Erinnerungen…"
+                className="w-full px-3 py-2 rounded-xl border border-amber-300 bg-amber-50 text-sm focus:outline-none focus:ring-2 focus:ring-amber-400/40 resize-none" />
             </div>
 
             <div className="sm:col-span-2">

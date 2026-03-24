@@ -33,6 +33,7 @@ const recipeBodySchema = z.object({
   lastCooked: z.string().optional().nullable(),
   cookedCount: z.coerce.number().int().min(0).optional().nullable(),
   notes: z.string().optional().nullable(),
+  personalNotes: z.string().optional().nullable(),
   steps: z.array(z.string()).default([]),
   ingredients: z.array(ingredientSchema).default([]),
   imageUrl: z.string().optional().nullable(),
@@ -205,6 +206,7 @@ router.post("/recipes", authMiddleware, async (req, res) => {
         lastCooked: recipeData.lastCooked ?? null,
         cookedCount: recipeData.cookedCount ?? 0,
         notes: recipeData.notes ?? null,
+        personalNotes: recipeData.personalNotes ?? null,
         steps: recipeData.steps,
         imageUrl: recipeData.imageUrl ?? null,
         seasons: recipeData.seasons ?? [],
@@ -287,6 +289,7 @@ router.put("/recipes/:id", authMiddleware, async (req, res) => {
         lastCooked: recipeData.lastCooked ?? null,
         cookedCount: recipeData.cookedCount ?? 0,
         notes: recipeData.notes ?? null,
+        personalNotes: recipeData.personalNotes ?? null,
         steps: recipeData.steps,
         imageUrl: recipeData.imageUrl ?? null,
         seasons: recipeData.seasons ?? [],
@@ -356,6 +359,7 @@ router.patch("/recipes/:id", authMiddleware, async (req, res) => {
       lastCooked: z.string().nullable().optional(),
       cookedCount: z.number().int().min(0).nullable().optional(),
       notes: z.string().nullable().optional(),
+      personalNotes: z.string().nullable().optional(),
     });
 
     const data = patchSchema.parse(req.body);

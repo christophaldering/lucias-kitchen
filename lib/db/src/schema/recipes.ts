@@ -17,6 +17,7 @@ export const recipesTable = pgTable("recipes", {
   lastCooked: text("last_cooked"),
   cookedCount: integer("cooked_count").default(0),
   notes: text("notes"),
+  personalNotes: text("personal_notes"),
   steps: jsonb("steps").notNull().default([]),
   imageUrl: text("image_url"),
   createdAt: timestamp("created_at").defaultNow(),

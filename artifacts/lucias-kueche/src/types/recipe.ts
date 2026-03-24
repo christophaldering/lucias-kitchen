@@ -64,6 +64,7 @@ export interface Recipe {
   lastCooked: string | null;
   cookedCount: number | null;
   notes: string | null;
+  personalNotes?: string | null;
   steps: string[];
   ingredients: RecipeIngredient[];
   imageUrl?: string | null;

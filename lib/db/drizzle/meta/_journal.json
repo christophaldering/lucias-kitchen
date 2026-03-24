@@ -36,6 +36,13 @@
       "when": 1774371596239,
       "tag": "0001_demonic_silver_centurion",
       "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "7",
+      "when": 1774380000000,
+      "tag": "0002_add_personal_notes",
+      "breakpoints": true
     }
   ]
 }

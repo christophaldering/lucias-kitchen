@@ -208,7 +208,11 @@ function RecipeCard({
           )}
         </div>
 
-        {showCookCount && recipe.cookedCount != null && recipe.cookedCount > 0 && (
+        {(recipe.cookedCount === 0 || recipe.cookedCount == null) ? (
+          <span className="inline-flex items-center gap-1 text-xs font-semibold px-2 py-0.5 rounded-full bg-orange-100 text-orange-700 border border-orange-200">
+            🍽️ Noch nicht ausprobiert
+          </span>
+        ) : showCookCount && (
           <p className="text-xs text-muted-foreground">🍳 {recipe.cookedCount}× gekocht</p>
         )}
 
@@ -409,6 +413,7 @@ export default function MeineRezepte({ onNavigate: _onNavigate, initialOpenRecip
   const [activeCategory, setActiveCategory] = useState("Alle");
   const [timeFilter, setTimeFilter] = useState("Alle");
   const [seasonFilter, setSeasonFilter] = useState<Season | "Alle">("Alle");
+  const [cookedFilter, setCookedFilter] = useState<"Alle" | "gekocht" | "nicht_ausprobiert">("Alle");
   const [showVariants, setShowVariants] = useState(false);
   const [selectedId, setSelectedId] = useState<number | null>(null);
   const selected = selectedId != null ? (recipes.find((r) => r.id === selectedId) ?? null) : null;
@@ -577,8 +582,12 @@ export default function MeineRezepte({ onNavigate: _onNavigate, initialOpenRecip
       seasonFilter === "Alle" ? true :
       (r.seasons ?? []).includes(seasonFilter as Season);
     const matchesVariantFilter = showVariants || !r.parentRecipeId;
-    return matchesCat && matchesTime && matchesSeason && matchesVariantFilter;
-  }), [baseList, activeCategory, timeFilter, seasonFilter, showVariants]);
+    const matchesCooked =
+      cookedFilter === "Alle" ? true :
+      cookedFilter === "gekocht" ? ((r.cookedCount ?? 0) > 0) :
+      (r.cookedCount === 0 || r.cookedCount == null);
+    return matchesCat && matchesTime && matchesSeason && matchesVariantFilter && matchesCooked;
+  }), [baseList, activeCategory, timeFilter, seasonFilter, showVariants, cookedFilter]);
 
   const knownCategories = useMemo(() => Array.from(new Set(recipes.map((r) => r.category))).sort(), [recipes]);
 
@@ -755,6 +764,23 @@ export default function MeineRezepte({ onNavigate: _onNavigate, initialOpenRecip
                   }`}
                 >
                   {s === "Alle" ? "🌿 Saison" : `${SEASON_ICONS[s as Season]} ${SEASON_LABELS[s as Season]}`}
+                </button>
+              ))}
+
+              {/* Cooked status filter */}
+              <div className="flex-shrink-0 w-px bg-border mx-1 self-stretch" />
+
+              {(["Alle", "gekocht", "nicht_ausprobiert"] as const).map((c) => (
+                <button
+                  key={c}
+                  onClick={() => setCookedFilter(c)}
+                  className={`flex-shrink-0 px-3 py-1.5 rounded-full text-xs font-medium transition-colors min-h-[36px] ${
+                    cookedFilter === c
+                      ? "bg-orange-500 text-white"
+                      : "bg-white text-muted-foreground border border-border hover:border-orange-400"
+                  }`}
+                >
+                  {c === "Alle" ? "🍽️ Alle" : c === "gekocht" ? "✅ Schon gekocht" : "🆕 Noch nicht ausprobiert"}
                 </button>
               ))}
 

@@ -398,6 +398,27 @@ export default function RecipeModal({ recipe, onClose, onAddToWeek, onToggleFavo
             </div>
           )}
 
+          {/* Personal Notes */}
+          {recipe.personalNotes && (
+            <div className="sticky-note rounded-lg p-4" style={{ background: "linear-gradient(135deg, #fef9c3, #fde68a)", borderColor: "#f59e0b" }}>
+              <p className="text-sm font-semibold text-yellow-800 mb-1 uppercase tracking-wide font-sans">
+                🗒️ Meine Notizen
+              </p>
+              <p className="text-base text-yellow-900 leading-relaxed font-script">
+                {recipe.personalNotes}
+              </p>
+            </div>
+          )}
+
+          {/* Not yet tried badge – shown near top metadata */}
+          {(recipe.cookedCount === 0 || recipe.cookedCount == null) && (
+            <div className="flex">
+              <span className="inline-flex items-center gap-1.5 text-xs font-semibold px-3 py-1.5 rounded-full bg-orange-100 text-orange-700 border border-orange-200">
+                🍽️ Noch nicht ausprobiert
+              </span>
+            </div>
+          )}
+
           {/* Ingredients */}
           <div>
             <div className="flex flex-wrap items-center justify-between gap-3 mb-3">

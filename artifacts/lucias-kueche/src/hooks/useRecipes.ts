@@ -14,6 +14,7 @@ export interface RecipeUpdatePayload {
   lastCooked?: string | null;
   cookedCount?: number | null;
   notes?: string | null;
+  personalNotes?: string | null;
   steps: string[];
   ingredients: IngredientInput[];
   imageUrl?: string | null;

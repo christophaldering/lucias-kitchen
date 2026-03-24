@@ -1,6 +1,6 @@
 import { useState } from "react";
 import type { Recipe } from "@/types/recipe";
-import { X, Clock, ChefHat, CalendarPlus, Users, Flame, BookOpen, Check, Printer, UtensilsCrossed, Minus, Plus, Star, ChevronDown } from "lucide-react";
+import { X, Clock, ChefHat, CalendarPlus, Users, Flame, BookOpen, Check, Printer, UtensilsCrossed, Minus, Plus, Star, ChevronDown, Copy } from "lucide-react";
 import { SEASON_ICONS, SEASON_LABELS } from "@/types/recipe";
 import type { Season } from "@/types/recipe";
 import { addMealPlanEntry } from "@/hooks/useMealPlans";
@@ -17,6 +17,9 @@ interface Props {
   onAddToWeek?: (id: number) => void;
   onToggleFavorite?: (id: number, isFavorite: boolean) => void;
   onRecipeUpdated?: (updatedRecipe: unknown) => void;
+  allRecipes?: Recipe[];
+  onOpenRecipe?: (recipe: Recipe) => void;
+  onCreateVariant?: (recipe: Recipe) => void;
 }
 
 const CATEGORY_EMOJIS: Record<string, string> = {
@@ -149,7 +152,7 @@ function formatDate(dateStr: string): string {
   return `${day}.${month}.${year}`;
 }
 
-export default function RecipeModal({ recipe, onClose, onAddToWeek, onToggleFavorite, onRecipeUpdated }: Props) {
+export default function RecipeModal({ recipe, onClose, onAddToWeek, onToggleFavorite, onRecipeUpdated, allRecipes, onOpenRecipe, onCreateVariant }: Props) {
   const emoji = CATEGORY_EMOJIS[recipe.category] ?? "🍽️";
   const today = toIsoDate(new Date());
 
@@ -195,6 +198,15 @@ export default function RecipeModal({ recipe, onClose, onAddToWeek, onToggleFavo
     }
   };
 
+  const variants = allRecipes
+    ? allRecipes.filter((r) => r.parentRecipeId === recipe.id && r.id !== recipe.id)
+    : [];
+
+  const parentRecipe = allRecipes && recipe.parentRecipeId
+    ? allRecipes.find((r) => r.id === recipe.parentRecipeId)
+    : null;
+
+
   const handleToggleFavorite = async () => {
     if (!onToggleFavorite) return;
     setFavLoading(true);
@@ -229,6 +241,11 @@ export default function RecipeModal({ recipe, onClose, onAddToWeek, onToggleFavo
           <div>
             <p className="text-sm font-medium text-green-200 mb-1">
               {emoji} {recipe.category}
+              {recipe.variantName && (
+                <span className="ml-2 bg-white/20 text-white text-xs px-2 py-0.5 rounded-full">
+                  🔀 {recipe.variantName}
+                </span>
+              )}
             </p>
             <h2 className="font-serif text-xl font-semibold leading-snug">
               {recipe.title}
@@ -244,6 +261,17 @@ export default function RecipeModal({ recipe, onClose, onAddToWeek, onToggleFavo
                 )}
                 <span className="text-xs text-green-200">von {recipe.owner.displayName}</span>
               </div>
+            )}
+            {parentRecipe && (
+              <p className="text-xs text-green-200 mt-1">
+                Variante von{" "}
+                <button
+                  onClick={() => { onOpenRecipe?.(parentRecipe); }}
+                  className="underline hover:text-white transition-colors"
+                >
+                  {parentRecipe.title}
+                </button>
+              </p>
             )}
           </div>
           <div className="flex items-center gap-1 flex-shrink-0">
@@ -324,6 +352,37 @@ export default function RecipeModal({ recipe, onClose, onAddToWeek, onToggleFavo
               </span>
             )}
           </div>
+
+          {/* Variants chips */}
+          {(variants.length > 0 || onCreateVariant) && (
+            <div className="bg-amber-50 border border-amber-200 rounded-xl px-4 py-3">
+              {variants.length > 0 && (
+                <div className="flex flex-wrap items-center gap-2 mb-2">
+                  <span className="text-xs font-semibold text-amber-700 uppercase tracking-wide">
+                    Auch verfügbar:
+                  </span>
+                  {variants.map((v) => (
+                    <button
+                      key={v.id}
+                      onClick={() => onOpenRecipe?.(v)}
+                      className="px-3 py-1 text-xs font-medium rounded-full bg-amber-200 text-amber-800 hover:bg-amber-300 transition-colors"
+                    >
+                      🔀 {v.variantName ?? v.title}
+                    </button>
+                  ))}
+                </div>
+              )}
+              {onCreateVariant && (
+                <button
+                  onClick={() => onCreateVariant(recipe)}
+                  className="flex items-center gap-1.5 text-xs font-medium text-amber-700 hover:text-amber-900 transition-colors"
+                >
+                  <Copy className="w-3.5 h-3.5" />
+                  Variante erstellen
+                </button>
+              )}
+            </div>
+          )}
 
           {/* Lucia's Note */}
           {recipe.notes && (

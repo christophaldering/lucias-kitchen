@@ -1,5 +1,5 @@
 import { useState, useMemo } from "react";
-import { Loader2, Trash2, Edit2, Download, Printer, Tag, X, Plus, ArrowUp, ArrowDown, ArrowUpDown } from "lucide-react";
+import { Loader2, Trash2, Edit2, Download, Printer, Tag, X, Plus, ArrowUp, ArrowDown, ArrowUpDown, Copy } from "lucide-react";
 import type { Recipe } from "@/types/recipe";
 import type { RecipeUpdatePayload } from "@/hooks/useRecipes";
 import RecipeEditModal from "@/components/RecipeEditModal";
@@ -283,12 +283,14 @@ function RecipeTable({
   onToggle,
   onToggleAll,
   onEdit,
+  onCreateVariant,
 }: {
   recipes: Recipe[];
   selected: Set<number>;
   onToggle: (id: number) => void;
   onToggleAll: () => void;
   onEdit: (r: Recipe) => void;
+  onCreateVariant?: (r: Recipe) => void;
 }) {
   const [sortKey, setSortKey] = useState<MgmtSortKey>("title");
   const [sortDir, setSortDir] = useState<"asc" | "desc">("asc");
@@ -358,7 +360,7 @@ function RecipeTable({
                 <MgmtSortIcon col={col.key} sortKey={sortKey} sortDir={sortDir} />
               </th>
             ))}
-            <th className="px-4 py-3 text-center font-semibold text-foreground w-16">Edit</th>
+            <th className="px-4 py-3 text-center font-semibold text-foreground w-24">Aktionen</th>
           </tr>
         </thead>
         <tbody>
@@ -382,6 +384,11 @@ function RecipeTable({
                     {!isOwner && (
                       <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-blue-50 text-blue-600 border border-blue-200 font-medium flex-shrink-0">
                         {r.owner?.displayName ?? "Geteilt"}
+                      </span>
+                    )}
+                    {r.variantName && (
+                      <span className="flex-shrink-0 text-xs px-1.5 py-0.5 rounded-full bg-amber-100 text-amber-700">
+                        🔀 {r.variantName}
                       </span>
                     )}
                   </div>
@@ -414,14 +421,25 @@ function RecipeTable({
                   {createdLabel}
                 </td>
                 <td className="px-4 py-3 text-center" onClick={(e) => e.stopPropagation()}>
-                  {isOwner ? (
-                    <button onClick={() => onEdit(r)}
-                      className="p-1.5 rounded-lg hover:bg-[#C1693A]/10 text-muted-foreground hover:text-[#C1693A] transition-colors">
-                      <Edit2 className="w-4 h-4" />
-                    </button>
-                  ) : (
-                    <span className="text-xs text-muted-foreground/50">–</span>
-                  )}
+                  <div className="flex items-center justify-center gap-1">
+                    {isOwner ? (
+                      <button onClick={() => onEdit(r)}
+                        className="p-1.5 rounded-lg hover:bg-[#C1693A]/10 text-muted-foreground hover:text-[#C1693A] transition-colors"
+                        title="Bearbeiten">
+                        <Edit2 className="w-4 h-4" />
+                      </button>
+                    ) : null}
+                    {onCreateVariant && (
+                      <button onClick={() => onCreateVariant(r)}
+                        className="p-1.5 rounded-lg hover:bg-amber-100 text-muted-foreground hover:text-amber-700 transition-colors"
+                        title="Variante erstellen">
+                        <Copy className="w-4 h-4" />
+                      </button>
+                    )}
+                    {!isOwner && !onCreateVariant && (
+                      <span className="text-xs text-muted-foreground/50">–</span>
+                    )}
+                  </div>
                 </td>
               </tr>
             );
@@ -448,6 +466,7 @@ export interface RecipeManagementProps {
   updateRecipe: (id: number, data: RecipeUpdatePayload) => Promise<void>;
   refetch: () => Promise<void>;
   onClearSelect: () => void;
+  addRecipes?: (newRecipes: Partial<Recipe>[]) => Promise<void>;
 }
 
 export default function RecipeManagement({
@@ -460,12 +479,16 @@ export default function RecipeManagement({
   updateRecipe,
   refetch,
   onClearSelect,
+  addRecipes,
 }: RecipeManagementProps) {
   const [editRecipe, setEditRecipe] = useState<Recipe | null>(null);
+  const [variantBaseRecipe, setVariantBaseRecipe] = useState<Recipe | null>(null);
 
   const handleSaveEdit = async (id: number, data: RecipeUpdatePayload) => {
     await updateRecipe(id, data);
   };
+
+  const knownCategories = Array.from(new Set(recipes.map((r) => r.category))).sort();
 
   return (
     <div>
@@ -475,6 +498,7 @@ export default function RecipeManagement({
         onToggle={onToggle}
         onToggleAll={onToggleAll}
         onEdit={setEditRecipe}
+        onCreateVariant={setVariantBaseRecipe}
       />
       <BulkActionsBar
         count={selected.size}
@@ -490,7 +514,26 @@ export default function RecipeManagement({
           recipe={editRecipe}
           onClose={() => setEditRecipe(null)}
           onSave={handleSaveEdit}
-          knownCategories={Array.from(new Set(recipes.map((r) => r.category))).sort()}
+          knownCategories={knownCategories}
+        />
+      )}
+      {variantBaseRecipe && addRecipes && (
+        <RecipeEditModal
+          recipe={{
+            ...variantBaseRecipe,
+            id: -1,
+            variantName: "",
+            parentRecipeId: variantBaseRecipe.id,
+          }}
+          isNewVariant={true}
+          parentRecipeId={variantBaseRecipe.id}
+          onClose={() => setVariantBaseRecipe(null)}
+          onSave={async (_id, data: RecipeUpdatePayload) => {
+            await addRecipes([data as Partial<Recipe>]);
+            await refetch();
+            setVariantBaseRecipe(null);
+          }}
+          knownCategories={knownCategories}
         />
       )}
     </div>

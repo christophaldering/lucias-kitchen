@@ -11,6 +11,8 @@ interface Props {
   onClose: () => void;
   onSave: (id: number, data: RecipeUpdatePayload) => Promise<void>;
   knownCategories?: string[];
+  isNewVariant?: boolean;
+  parentRecipeId?: number;
 }
 
 const DEFAULT_CATEGORIES = ["Fisch", "Geflügel", "Fleisch", "Vegetarisch", "Pasta"];
@@ -21,7 +23,7 @@ const ALL_SEASONS: Season[] = ["spring", "summer", "autumn", "winter"];
 
 type IngRow = { amount: string; unit: string; name: string; note: string };
 
-export default function RecipeEditModal({ recipe, onClose, onSave, knownCategories }: Props) {
+export default function RecipeEditModal({ recipe, onClose, onSave, knownCategories, isNewVariant, parentRecipeId }: Props) {
   const allCategories = useMemo(() => {
     const custom: string[] = (() => {
       try { return JSON.parse(localStorage.getItem(LK_CUSTOM_CATEGORIES_KEY) ?? "[]"); }
@@ -31,6 +33,7 @@ export default function RecipeEditModal({ recipe, onClose, onSave, knownCategori
     return Array.from(new Set([...base, ...custom])).sort();
   }, [knownCategories]);
 
+  const [variantName, setVariantName] = useState(recipe.variantName ?? "");
   const [title, setTitle] = useState(recipe.title);
   const [category, setCategory] = useState(recipe.category);
   const [customCategory, setCustomCategory] = useState(
@@ -123,6 +126,7 @@ export default function RecipeEditModal({ recipe, onClose, onSave, knownCategori
   const handleSave = async () => {
     if (!title.trim()) { setError("Bitte einen Titel eingeben."); return; }
     if (!effectiveCategory.trim()) { setError("Bitte eine Kategorie angeben."); return; }
+    if (isNewVariant && !variantName.trim()) { setError('Bitte einen Variantennamen eingeben (z.B. "vegetarisch").'); return; }
     const validIngredients = ingredients.filter((i) => i.name.trim());
     const validSteps = steps.filter((s) => s.trim());
     setSaving(true);
@@ -148,6 +152,8 @@ export default function RecipeEditModal({ recipe, onClose, onSave, knownCategori
         })),
         imageUrl: imageUrl ?? null,
         seasons,
+        parentRecipeId: parentRecipeId ?? recipe.parentRecipeId ?? null,
+        variantName: variantName.trim() || null,
       };
       await onSave(recipe.id, payload);
       onClose();
@@ -166,7 +172,9 @@ export default function RecipeEditModal({ recipe, onClose, onSave, knownCategori
     >
       <div className="bg-[#FDF6EC] rounded-2xl shadow-2xl w-full max-w-2xl max-h-[92vh] flex flex-col">
         <div className="sticky top-0 z-10 bg-[#C1693A] text-white px-6 py-4 rounded-t-2xl flex items-center justify-between flex-shrink-0">
-          <h2 className="font-serif text-lg font-semibold">✏️ Rezept bearbeiten</h2>
+          <h2 className="font-serif text-lg font-semibold">
+            {isNewVariant ? "🔀 Variante erstellen" : "✏️ Rezept bearbeiten"}
+          </h2>
           <button onClick={onClose} className="p-1.5 hover:bg-white/20 rounded-lg transition-colors">
             <X className="w-5 h-5" />
           </button>
@@ -179,7 +187,27 @@ export default function RecipeEditModal({ recipe, onClose, onSave, knownCategori
             </div>
           )}
 
+          {isNewVariant && (
+            <div className="bg-amber-50 border border-amber-200 rounded-xl px-4 py-3 text-sm text-amber-800">
+              Dieses Rezept wird als Variante gespeichert. Gib einen Variantennamen ein, z.B. „vegetarisch" oder „glutenfrei".
+            </div>
+          )}
+
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            {(isNewVariant || variantName) && (
+              <div className="sm:col-span-2">
+                <label className="block text-xs font-semibold text-muted-foreground mb-1 uppercase tracking-wide">
+                  Variantenname {isNewVariant ? "*" : ""}
+                </label>
+                <input
+                  value={variantName}
+                  onChange={(e) => setVariantName(e.target.value)}
+                  placeholder="z.B. vegetarisch, glutenfrei, Schnellversion…"
+                  className="w-full px-3 py-2 rounded-xl border border-amber-300 bg-amber-50 text-sm focus:outline-none focus:ring-2 focus:ring-amber-400/40"
+                />
+              </div>
+            )}
+
             <div className="sm:col-span-2">
               <label className="block text-xs font-semibold text-muted-foreground mb-1 uppercase tracking-wide">Titel *</label>
               <input value={title} onChange={(e) => setTitle(e.target.value)}
@@ -434,7 +462,7 @@ export default function RecipeEditModal({ recipe, onClose, onSave, knownCategori
       steps: steps.filter((s) => s.trim()),
       ingredients: ingredients
         .filter((i) => i.name.trim())
-        .map((i) => ({ amount: i.amount, unit: i.unit, name: i.name, note: i.note || null })),
+        .map((i, idx) => ({ id: idx, recipeId: recipe.id, amount: i.amount, unit: i.unit, name: i.name, note: i.note || null })),
       imageUrl: imageUrl ?? null,
     }} />
     </>

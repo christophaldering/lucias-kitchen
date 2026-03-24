@@ -18,6 +18,8 @@ export interface RecipeUpdatePayload {
   ingredients: IngredientInput[];
   imageUrl?: string | null;
   seasons?: Season[];
+  parentRecipeId?: number | null;
+  variantName?: string | null;
 }
 
 const API_BASE = "/api";

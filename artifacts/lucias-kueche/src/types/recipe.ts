@@ -73,6 +73,8 @@ export interface Recipe {
   isOwner?: boolean;
   isFavorite?: boolean;
   owner?: RecipeOwner | null;
+  parentRecipeId?: number | null;
+  variantName?: string | null;
 }
 
 export const ALL_CATEGORIES = [

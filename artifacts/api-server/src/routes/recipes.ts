@@ -37,6 +37,8 @@ const recipeBodySchema = z.object({
   ingredients: z.array(ingredientSchema).default([]),
   imageUrl: z.string().optional().nullable(),
   seasons: z.array(z.enum(VALID_SEASONS)).default([]),
+  parentRecipeId: z.number().int().positive().optional().nullable(),
+  variantName: z.string().optional().nullable(),
 });
 
 async function getRecipesWithIngredients(currentUserId?: number, filter?: string) {
@@ -207,6 +209,8 @@ router.post("/recipes", authMiddleware, async (req, res) => {
         imageUrl: recipeData.imageUrl ?? null,
         seasons: recipeData.seasons ?? [],
         createdBy: req.authUser!.id,
+        parentRecipeId: recipeData.parentRecipeId ?? null,
+        variantName: recipeData.variantName ?? null,
       }).returning();
 
       if (ingredients.length > 0) {
@@ -286,6 +290,8 @@ router.put("/recipes/:id", authMiddleware, async (req, res) => {
         steps: recipeData.steps,
         imageUrl: recipeData.imageUrl ?? null,
         seasons: recipeData.seasons ?? [],
+        parentRecipeId: recipeData.parentRecipeId ?? null,
+        variantName: recipeData.variantName ?? null,
       })
       .where(eq(recipesTable.id, id))
       .returning();

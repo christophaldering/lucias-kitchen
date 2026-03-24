@@ -198,6 +198,11 @@ function RecipeCard({
               {(recipe.seasons as Season[]).map((s) => SEASON_ICONS[s]).join("")}
             </span>
           )}
+          {recipe.variantName && (
+            <span className="text-xs font-medium px-2 py-0.5 rounded-full bg-amber-100 text-amber-700">
+              🔀 {recipe.variantName}
+            </span>
+          )}
         </div>
 
         {showCookCount && recipe.cookedCount != null && recipe.cookedCount > 0 && (
@@ -379,6 +384,7 @@ export default function MeineRezepte({ onNavigate: _onNavigate, initialOpenRecip
   const [activeCategory, setActiveCategory] = useState("Alle");
   const [timeFilter, setTimeFilter] = useState("Alle");
   const [seasonFilter, setSeasonFilter] = useState<Season | "Alle">("Alle");
+  const [showVariants, setShowVariants] = useState(false);
   const [selectedId, setSelectedId] = useState<number | null>(null);
   const selected = selectedId != null ? (recipes.find((r) => r.id === selectedId) ?? null) : null;
   const [cookingRecipe, setCookingRecipe] = useState<Recipe | null>(null);
@@ -386,6 +392,7 @@ export default function MeineRezepte({ onNavigate: _onNavigate, initialOpenRecip
   const [showUrlModal, setShowUrlModal] = useState(false);
   const [showImageModal, setShowImageModal] = useState(false);
   const [showNewRecipeModal, setShowNewRecipeModal] = useState(false);
+  const [variantBaseRecipe, setVariantBaseRecipe] = useState<Recipe | null>(null);
 
   const [fabOpen, setFabOpen] = useState(false);
   const [managedSelected, setManagedSelected] = useState<Set<number>>(new Set());
@@ -543,8 +550,9 @@ export default function MeineRezepte({ onNavigate: _onNavigate, initialOpenRecip
     const matchesSeason =
       seasonFilter === "Alle" ? true :
       (r.seasons ?? []).includes(seasonFilter as Season);
-    return matchesCat && matchesTime && matchesSeason;
-  }), [baseList, activeCategory, timeFilter, seasonFilter]);
+    const matchesVariantFilter = showVariants || !r.parentRecipeId;
+    return matchesCat && matchesTime && matchesSeason && matchesVariantFilter;
+  }), [baseList, activeCategory, timeFilter, seasonFilter, showVariants]);
 
   const knownCategories = useMemo(() => Array.from(new Set(recipes.map((r) => r.category))).sort(), [recipes]);
 
@@ -651,6 +659,7 @@ export default function MeineRezepte({ onNavigate: _onNavigate, initialOpenRecip
                 updateRecipe={updateRecipe}
                 refetch={refetch}
                 onClearSelect={() => setManagedSelected(new Set())}
+                addRecipes={addRecipes}
               />
             </div>
           )}
@@ -706,7 +715,7 @@ export default function MeineRezepte({ onNavigate: _onNavigate, initialOpenRecip
                 </button>
               ))}
 
-              {/* Divider between time and season chips */}
+              {/* Divider between time, season and variant chips */}
               <div className="flex-shrink-0 w-px bg-border mx-1 self-stretch" />
 
               {(["Alle", "spring", "summer", "autumn", "winter"] as const).map((s) => (
@@ -722,6 +731,23 @@ export default function MeineRezepte({ onNavigate: _onNavigate, initialOpenRecip
                   {s === "Alle" ? "🌿 Saison" : `${SEASON_ICONS[s as Season]} ${SEASON_LABELS[s as Season]}`}
                 </button>
               ))}
+
+              {/* Variant filter */}
+              {recipes.some((r) => r.parentRecipeId) && (
+                <>
+                  <div className="flex-shrink-0 w-px bg-border mx-1 self-stretch" />
+                  <button
+                    onClick={() => setShowVariants((v) => !v)}
+                    className={`flex-shrink-0 px-3 py-1.5 rounded-full text-xs font-medium transition-colors min-h-[36px] ${
+                      showVariants
+                        ? "bg-amber-500 text-white"
+                        : "bg-white text-muted-foreground border border-border hover:border-amber-400"
+                    }`}
+                  >
+                    🔀 Varianten anzeigen
+                  </button>
+                </>
+              )}
             </div>
           </div>
 
@@ -856,14 +882,33 @@ export default function MeineRezepte({ onNavigate: _onNavigate, initialOpenRecip
             <RecipeModal
               recipe={selected}
               onClose={() => setSelectedId(null)}
+              onAddToWeek={_onNavigate ? () => _onNavigate("wochenplan") : undefined}
               onToggleFavorite={toggleFavorite}
+              allRecipes={recipes}
+              onOpenRecipe={(r) => setSelectedId(r.id)}
+              onCreateVariant={(baseRecipe) => {
+                setVariantBaseRecipe(baseRecipe);
+                setSelectedId(null);
+              }}
             />
           )}
 
-          {cookingRecipe && (
-            <CookingMode
-              recipe={cookingRecipe}
-              onClose={() => setCookingRecipe(null)}
+          {variantBaseRecipe && (
+            <RecipeEditModal
+              recipe={{
+                ...variantBaseRecipe,
+                id: -1,
+                variantName: "",
+                parentRecipeId: variantBaseRecipe.id,
+              }}
+              isNewVariant={true}
+              parentRecipeId={variantBaseRecipe.id}
+              onClose={() => setVariantBaseRecipe(null)}
+              onSave={async (_id, data: RecipeUpdatePayload) => {
+                await addRecipes([data as Partial<Recipe>]);
+                setVariantBaseRecipe(null);
+              }}
+              knownCategories={knownCategories}
             />
           )}
 

@@ -913,6 +913,18 @@ export default function MeineRezepte({ onNavigate: _onNavigate, initialOpenRecip
                         {(
                           [
                             { col: "title" as TableSortKey, label: "Titel", cls: "" },
+                          ]
+                        ).map(({ col, label, cls }) => (
+                          <th key={col}
+                            onClick={() => handleTableSort(col)}
+                            className={`px-4 py-3 text-left font-semibold text-foreground cursor-pointer select-none hover:text-[#4A7C59] transition-colors ${cls}`}>
+                            {label}
+                            <SortIcon col={col} sortKey={tableSortKey} sortDir={tableSortDir} />
+                          </th>
+                        ))}
+                        <th className="px-4 py-3 hidden sm:table-cell"></th>
+                        {(
+                          [
                             { col: "category" as TableSortKey, label: "Kategorie", cls: "hidden sm:table-cell" },
                             { col: "difficulty" as TableSortKey, label: "Schwierigkeit", cls: "hidden md:table-cell" },
                             { col: "time" as TableSortKey, label: "Zeit", cls: "hidden md:table-cell" },

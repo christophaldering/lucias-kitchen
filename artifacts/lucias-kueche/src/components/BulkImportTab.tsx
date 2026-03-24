@@ -1,7 +1,7 @@
 import { useState, useRef, useCallback, useEffect } from "react";
 import {
   Upload, Loader2, Check, X, AlertTriangle, PenLine, ChevronDown, ChevronUp,
-  Eye, RefreshCw, Trash2, Save, FileText, Clock, RotateCcw
+  Eye, RefreshCw, Save, FileText, Clock, RotateCcw, History, Plus
 } from "lucide-react";
 
 const API_BASE = "/api";
@@ -75,6 +75,17 @@ interface BulkImportFileGroup {
 interface BulkImportResults {
   session: BulkImportStatus;
   groups: BulkImportFileGroup[];
+}
+
+interface ImportHistoryEntry {
+  id: number;
+  createdAt: string;
+  archivedAt: string | null;
+  totalFiles: number;
+  fileNames: string[];
+  totalItems: number;
+  savedItems: number;
+  rejectedItems: number;
 }
 
 const STATUS_CONFIG = {
@@ -342,14 +353,16 @@ function FileStatusTable({
 
 function ReviewDashboard({
   sessionId,
-  onClear,
+  onArchiveAndReset,
 }: {
   sessionId: number;
-  onClear: () => void;
+  onArchiveAndReset: () => Promise<void>;
 }) {
   const [data, setData] = useState<BulkImportResults | null>(null);
   const [statusData, setStatusData] = useState<BulkImportStatus | null>(null);
   const [saving, setSaving] = useState(false);
+  const [archiving, setArchiving] = useState(false);
+  const [archiveError, setArchiveError] = useState<string | null>(null);
   const [saveResult, setSaveResult] = useState<{ savedCount: number; newTotal?: number } | null>(null);
   const pollingRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
@@ -445,12 +458,26 @@ function ReviewDashboard({
     }
   };
 
-  const handleDelete = async () => {
-    await fetch(`${API_BASE}/bulk-import/${sessionId}`, {
-      method: "DELETE",
-      headers: authHeaders(),
-    });
-    onClear();
+  const handleArchiveAndUpload = async () => {
+    setArchiving(true);
+    setArchiveError(null);
+    try {
+      const res = await fetch(`${API_BASE}/bulk-import/${sessionId}`, {
+        method: "DELETE",
+        headers: authHeaders(),
+      });
+      if (!res.ok) {
+        const errJson = await res.json().catch(() => ({}));
+        const msg = (errJson as { message?: string }).message ?? `Fehler ${res.status}`;
+        setArchiveError(msg);
+        return;
+      }
+      await onArchiveAndReset();
+    } catch (err) {
+      setArchiveError(err instanceof Error ? err.message : "Archivierung fehlgeschlagen");
+    } finally {
+      setArchiving(false);
+    }
   };
 
   if (!data) {
@@ -519,10 +546,17 @@ function ReviewDashboard({
         />
       )}
 
+      {archiveError && (
+        <div className="bg-red-50 border border-red-200 rounded-xl p-3 flex items-center gap-2 text-sm text-red-700">
+          <AlertTriangle className="w-4 h-4 flex-shrink-0" />
+          {archiveError}
+        </div>
+      )}
+
       {saveResult && (
         <div className="bg-green-50 border border-green-200 rounded-xl p-4 flex items-start gap-3">
           <Check className="w-5 h-5 text-green-600 flex-shrink-0 mt-0.5" />
-          <div>
+          <div className="flex-1">
             <p className="font-semibold text-green-800">
               {saveResult.savedCount} neue Rezepte importiert
               {saveResult.newTotal !== undefined && (
@@ -531,11 +565,19 @@ function ReviewDashboard({
             </p>
             <p className="text-sm text-green-700">Die Scan-Seiten wurden als Rezeptfotos hinterlegt und sind im Rezept sichtbar.</p>
           </div>
+          <button
+            onClick={handleArchiveAndUpload}
+            disabled={archiving}
+            className="flex items-center gap-2 px-4 py-2 bg-[#4A7C59] text-white rounded-xl text-sm font-semibold hover:bg-[#3d6849] transition-colors disabled:opacity-50 flex-shrink-0 ml-2"
+          >
+            {archiving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Plus className="w-4 h-4" />}
+            {archiving ? "Archiviere…" : "Neue Rezepte hochladen"}
+          </button>
         </div>
       )}
 
       {!isProcessing && unsavedApproved.length > 0 && (
-        <div className="flex justify-end">
+        <div className="flex justify-end gap-3">
           <button
             onClick={handleSaveAll}
             disabled={saving}
@@ -543,6 +585,19 @@ function ReviewDashboard({
           >
             {saving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
             {saving ? "Speichern…" : `Alle ${unsavedApproved.length} genehmigten speichern`}
+          </button>
+        </div>
+      )}
+
+      {!isProcessing && saveResult === null && unsavedApproved.length === 0 && totalSaved > 0 && (
+        <div className="flex justify-end">
+          <button
+            onClick={handleArchiveAndUpload}
+            disabled={archiving}
+            className="flex items-center gap-2 px-5 py-2.5 bg-[#4A7C59] text-white rounded-xl text-sm font-semibold hover:bg-[#3d6849] transition-colors disabled:opacity-50"
+          >
+            {archiving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Plus className="w-4 h-4" />}
+            {archiving ? "Archiviere…" : "Neue Rezepte hochladen"}
           </button>
         </div>
       )}
@@ -576,15 +631,91 @@ function ReviewDashboard({
         </div>
       ))}
 
-      {!isProcessing && (
-        <div className="flex justify-end pt-2">
-          <button
-            onClick={handleDelete}
-            className="flex items-center gap-2 px-4 py-2 border border-red-200 text-red-600 rounded-xl text-sm hover:bg-red-50 transition-colors"
-          >
-            <Trash2 className="w-4 h-4" />
-            Session bereinigen
-          </button>
+    </div>
+  );
+}
+
+function ImportHistory() {
+  const [history, setHistory] = useState<ImportHistoryEntry[]>([]);
+  const [expanded, setExpanded] = useState(false);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    const fetchHistory = async () => {
+      try {
+        const res = await fetch(`${API_BASE}/bulk-import/history`, {
+          headers: authHeaders(),
+        });
+        if (!res.ok) return;
+        const data = await res.json() as ImportHistoryEntry[];
+        setHistory(data);
+      } catch {
+      } finally {
+        setLoading(false);
+      }
+    };
+    fetchHistory();
+  }, []);
+
+  if (loading || history.length === 0) return null;
+
+  const formatDate = (dateStr: string) => {
+    const d = new Date(dateStr);
+    return d.toLocaleDateString("de-DE", { day: "2-digit", month: "2-digit", year: "numeric" }) +
+      " " + d.toLocaleTimeString("de-DE", { hour: "2-digit", minute: "2-digit" });
+  };
+
+  return (
+    <div className="border border-border rounded-xl overflow-hidden">
+      <button
+        onClick={() => setExpanded((v) => !v)}
+        className="w-full flex items-center gap-2 px-4 py-3 bg-gray-50 hover:bg-gray-100 transition-colors text-left"
+      >
+        <History className="w-4 h-4 text-muted-foreground" />
+        <span className="text-sm font-medium text-foreground flex-1">Import-Verlauf</span>
+        <span className="text-xs text-muted-foreground">{history.length} Import{history.length !== 1 ? "e" : ""}</span>
+        {expanded ? <ChevronUp className="w-4 h-4 text-muted-foreground" /> : <ChevronDown className="w-4 h-4 text-muted-foreground" />}
+      </button>
+      {expanded && (
+        <div className="divide-y divide-border">
+          {history.map((entry) => (
+            <div key={entry.id} className="px-4 py-3 bg-white">
+              <div className="flex items-start justify-between gap-3">
+                <div className="flex-1 min-w-0">
+                  <p className="text-xs text-muted-foreground mb-1">
+                    {entry.archivedAt ? formatDate(entry.archivedAt) : formatDate(entry.createdAt)}
+                  </p>
+                  <p className="text-sm text-foreground font-medium truncate">
+                    {entry.fileNames.length === 1
+                      ? entry.fileNames[0]
+                      : `${entry.fileNames[0]}${entry.fileNames.length > 1 ? ` +${entry.fileNames.length - 1} weitere` : ""}`}
+                  </p>
+                </div>
+                <div className="flex gap-3 flex-shrink-0 text-xs">
+                  <span className="text-green-700 font-medium flex items-center gap-1">
+                    <Check className="w-3 h-3" /> {entry.savedItems} gespeichert
+                  </span>
+                  {entry.rejectedItems > 0 && (
+                    <span className="text-muted-foreground flex items-center gap-1">
+                      <X className="w-3 h-3" /> {entry.rejectedItems} abgelehnt
+                    </span>
+                  )}
+                </div>
+              </div>
+              {entry.fileNames.length > 1 && (
+                <div className="mt-1 flex flex-wrap gap-1">
+                  {entry.fileNames.slice(0, 4).map((name, i) => (
+                    <span key={i} className="text-xs bg-gray-100 text-muted-foreground px-2 py-0.5 rounded-full truncate max-w-[150px]">
+                      {name}
+                    </span>
+                  ))}
+                  {entry.fileNames.length > 4 && (
+                    <span className="text-xs text-muted-foreground px-2 py-0.5">+{entry.fileNames.length - 4} weitere</span>
+                  )}
+                </div>
+              )}
+            </div>
+          ))}
         </div>
       )}
     </div>
@@ -601,6 +732,7 @@ export default function BulkImportTab() {
     } catch { return null; }
   });
   const [error, setError] = useState<string | null>(null);
+  const [historyKey, setHistoryKey] = useState(0);
   const fileRef = useRef<HTMLInputElement>(null);
   const dropRef = useRef<HTMLDivElement>(null);
 
@@ -685,11 +817,12 @@ export default function BulkImportTab() {
     }
   };
 
-  const handleClear = () => {
+  const handleArchiveAndReset = async () => {
     localStorage.removeItem("lk_bulk_import_session");
     setSessionId(null);
     setFiles([]);
     setError(null);
+    setHistoryKey((k) => k + 1);
   };
 
   if (sessionId !== null) {
@@ -697,15 +830,8 @@ export default function BulkImportTab() {
       <div>
         <div className="flex items-center justify-between mb-4">
           <h3 className="font-semibold text-foreground">Import-Session #{sessionId}</h3>
-          <button
-            onClick={handleClear}
-            className="text-xs text-muted-foreground hover:text-foreground flex items-center gap-1"
-          >
-            <X className="w-3.5 h-3.5" />
-            Neue Session starten
-          </button>
         </div>
-        <ReviewDashboard sessionId={sessionId} onClear={handleClear} />
+        <ReviewDashboard sessionId={sessionId} onArchiveAndReset={handleArchiveAndReset} />
       </div>
     );
   }
@@ -799,6 +925,8 @@ export default function BulkImportTab() {
         <p>· Der Import läuft im Hintergrund – du kannst die Seite neu laden</p>
         <p>· Scan-Seiten werden als Rezeptfotos gespeichert</p>
       </div>
+
+      <ImportHistory key={historyKey} />
     </div>
   );
 }

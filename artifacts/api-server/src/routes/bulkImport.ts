@@ -11,7 +11,7 @@ import {
   usersTable,
   notificationsTable,
 } from "@workspace/db/schema";
-import { eq, and } from "drizzle-orm";
+import { eq, and, desc } from "drizzle-orm";
 import { anthropic } from "@workspace/integrations-anthropic-ai";
 import { ObjectStorageService, objectStorageClient } from "../lib/objectStorage";
 import {
@@ -596,6 +596,57 @@ router.get("/bulk-import/active", authMiddleware, async (req, res) => {
   }
 });
 
+router.get("/bulk-import/history", authMiddleware, async (req, res) => {
+  try {
+    const userId = req.authUser!.id;
+
+    const sessions = await db
+      .select()
+      .from(bulkImportSessionsTable)
+      .where(
+        and(
+          eq(bulkImportSessionsTable.userId, userId),
+          eq(bulkImportSessionsTable.archived, true)
+        )
+      )
+      .orderBy(desc(bulkImportSessionsTable.archivedAt));
+
+    const historyEntries = await Promise.all(
+      sessions.map(async (session) => {
+        const files = await db
+          .select()
+          .from(bulkImportFilesTable)
+          .where(eq(bulkImportFilesTable.sessionId, session.id));
+
+        const items = await db
+          .select()
+          .from(bulkImportItemsTable)
+          .where(eq(bulkImportItemsTable.sessionId, session.id));
+
+        const totalItems = items.filter((i) => i.status !== "failed").length;
+        const savedItems = items.filter((i) => i.savedRecipeId != null).length;
+        const rejectedItems = items.filter((i) => i.rejected && i.savedRecipeId == null).length;
+
+        return {
+          id: session.id,
+          createdAt: session.createdAt,
+          archivedAt: session.archivedAt,
+          totalFiles: session.totalFiles,
+          fileNames: files.map((f) => f.fileName),
+          totalItems,
+          savedItems,
+          rejectedItems,
+        };
+      })
+    );
+
+    res.json(historyEntries);
+  } catch (err) {
+    req.log.error({ err }, "Failed to get bulk import history");
+    res.status(500).json({ error: "internal_error", message: "Verlauf konnte nicht abgerufen werden" });
+  }
+});
+
 router.post(
   "/bulk-import/start",
   authMiddleware,
@@ -613,6 +664,7 @@ router.post(
       const [session] = await db
         .insert(bulkImportSessionsTable)
         .values({
+          userId,
           status: "pending",
           totalFiles: files.length,
           processedFiles: 0,
@@ -1063,6 +1115,21 @@ router.delete("/bulk-import/:sessionId", authMiddleware, async (req, res) => {
 
     const userId = req.authUser!.id;
 
+    const [session] = await db
+      .select()
+      .from(bulkImportSessionsTable)
+      .where(eq(bulkImportSessionsTable.id, sessionId));
+
+    if (!session) {
+      res.status(404).json({ error: "not_found", message: "Session nicht gefunden" });
+      return;
+    }
+
+    if (session.userId !== null && session.userId !== userId) {
+      res.status(403).json({ error: "forbidden", message: "Zugriff verweigert" });
+      return;
+    }
+
     const [user] = await db.select().from(usersTable).where(eq(usersTable.id, userId));
     if (user?.activeBulkImportSessionId === sessionId) {
       await db
@@ -1072,13 +1139,14 @@ router.delete("/bulk-import/:sessionId", authMiddleware, async (req, res) => {
     }
 
     await db
-      .delete(bulkImportSessionsTable)
+      .update(bulkImportSessionsTable)
+      .set({ archived: true, archivedAt: new Date(), updatedAt: new Date() })
       .where(eq(bulkImportSessionsTable.id, sessionId));
 
     res.json({ success: true });
   } catch (err) {
-    req.log.error({ err }, "Failed to delete bulk import session");
-    res.status(500).json({ error: "internal_error", message: "Bereinigung fehlgeschlagen" });
+    req.log.error({ err }, "Failed to archive bulk import session");
+    res.status(500).json({ error: "internal_error", message: "Archivierung fehlgeschlagen" });
   }
 });
 

@@ -106,10 +106,13 @@ export const bulkImportItemStatusEnum = pgEnum("bulk_import_item_status", ["pend
 
 export const bulkImportSessionsTable = pgTable("bulk_import_sessions", {
   id: serial("id").primaryKey(),
+  userId: integer("user_id").references(() => usersTable.id, { onDelete: "set null" }),
   status: bulkImportSessionStatusEnum("status").notNull().default("pending"),
   totalFiles: integer("total_files").notNull().default(0),
   processedFiles: integer("processed_files").notNull().default(0),
   currentFile: text("current_file"),
+  archived: boolean("archived").notNull().default(false),
+  archivedAt: timestamp("archived_at"),
   createdAt: timestamp("created_at").defaultNow().notNull(),
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
 });

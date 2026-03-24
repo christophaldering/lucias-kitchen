@@ -46,8 +46,12 @@ export default function GroupMembersModal({ group, onClose, isOwner }: Props) {
     if (!inviteInput.trim()) return;
     setBusy(true);
     try {
-      await inviteMember(group.id, inviteInput.trim());
-      toast(`Einladung an „${inviteInput.trim()}" gesendet`);
+      const result = await inviteMember(group.id, inviteInput.trim());
+      if (result.inviteType === "email_only") {
+        toast("Einladung gespeichert – sie erscheint sobald sich die Person registriert.");
+      } else {
+        toast(`Einladung an „${inviteInput.trim()}" gesendet`);
+      }
       setInviteInput("");
       await loadMembers();
     } catch (err) {

@@ -1,6 +1,7 @@
 import { Router, type IRouter, type Request, type Response, type NextFunction } from "express";
 import { db } from "@workspace/db";
 import { usersTable } from "@workspace/db/schema";
+import { groupMembersTable } from "@workspace/db/schema";
 import { eq } from "drizzle-orm";
 import bcrypt from "bcryptjs";
 import jwt from "jsonwebtoken";
@@ -45,6 +46,50 @@ function sanitizeUser(user: typeof usersTable.$inferSelect) {
   const { passwordHash: _, ...safe } = user;
   return safe;
 }
+
+router.post("/auth/register", async (req, res) => {
+  try {
+    const schema = z.object({
+      email: z.string().email(),
+      password: z.string().min(6),
+      displayName: z.string().min(1),
+    });
+    const { email, password, displayName } = schema.parse(req.body);
+    const normalizedEmail = email.toLowerCase();
+
+    const [existing] = await db.select().from(usersTable).where(eq(usersTable.email, normalizedEmail));
+    if (existing) {
+      res.status(409).json({ error: "email_taken", message: "Diese E-Mail-Adresse ist bereits registriert" });
+      return;
+    }
+
+    const passwordHash = await bcrypt.hash(password, 12);
+    const [user] = await db
+      .insert(usersTable)
+      .values({ email: normalizedEmail, passwordHash, displayName })
+      .returning();
+
+    await db
+      .update(groupMembersTable)
+      .set({ userId: user.id })
+      .where(eq(groupMembersTable.invitedEmail, normalizedEmail));
+
+    const token = jwt.sign(
+      { id: user.id, email: user.email, displayName: user.displayName },
+      JWT_SECRET,
+      { expiresIn: "30d" }
+    );
+
+    res.status(201).json({ token, user: sanitizeUser(user) });
+  } catch (err) {
+    if (err instanceof z.ZodError) {
+      res.status(400).json({ error: "validation_error", issues: err.issues });
+      return;
+    }
+    req.log.error({ err }, "Registration failed");
+    res.status(500).json({ error: "internal_error", message: "Registrierung fehlgeschlagen" });
+  }
+});
 
 router.post("/auth/login", async (req, res) => {
   try {

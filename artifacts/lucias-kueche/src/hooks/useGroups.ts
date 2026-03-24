@@ -104,7 +104,7 @@ export function useGroups() {
       const err = await res.json().catch(() => ({}));
       throw new Error(err.message ?? "Einladung fehlgeschlagen");
     }
-    return res.json() as Promise<GroupMember>;
+    return res.json() as Promise<GroupMember & { inviteType?: "user" | "email_only" }>;
   }, []);
 
   const getMembers = useCallback(async (groupId: number): Promise<GroupMember[]> => {

@@ -265,11 +265,6 @@ router.post("/groups/:id/invite", authMiddleware, async (req, res) => {
       return;
     }
 
-    if (group.status !== "approved") {
-      res.status(403).json({ error: "group_not_approved", message: "Gruppe muss erst freigegeben werden" });
-      return;
-    }
-
     const myMembership = await db
       .select()
       .from(groupMembersTable)
@@ -293,7 +288,38 @@ router.post("/groups/:id/invite", authMiddleware, async (req, res) => {
       .then((r) => r[0]);
 
     if (!invitedUser) {
-      res.status(404).json({ error: "user_not_found", message: "Nutzer nicht gefunden" });
+      const normalizedEmail = emailOrUsername.toLowerCase();
+
+      const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+      if (!emailRegex.test(normalizedEmail)) {
+        res.status(404).json({ error: "user_not_found", message: "Nutzer nicht gefunden" });
+        return;
+      }
+
+      const existingEmailInvite = await db
+        .select()
+        .from(groupMembersTable)
+        .where(and(eq(groupMembersTable.groupId, groupId), eq(groupMembersTable.invitedEmail, normalizedEmail)))
+        .then((r) => r[0]);
+
+      if (existingEmailInvite) {
+        res.status(409).json({ error: "already_member", message: "Diese E-Mail ist bereits eingeladen" });
+        return;
+      }
+
+      const [member] = await db
+        .insert(groupMembersTable)
+        .values({
+          groupId,
+          userId: null,
+          invitedEmail: normalizedEmail,
+          invitedByUserId: userId,
+          role: "member",
+          memberStatus: "invited",
+        })
+        .returning();
+
+      res.status(201).json({ ...member, displayName: null, email: normalizedEmail, inviteType: "email_only" });
       return;
     }
 
@@ -325,7 +351,7 @@ router.post("/groups/:id/invite", authMiddleware, async (req, res) => {
       })
       .returning();
 
-    res.status(201).json({ ...member, displayName: invitedUser.displayName, email: invitedUser.email });
+    res.status(201).json({ ...member, displayName: invitedUser.displayName, email: invitedUser.email, inviteType: "user" });
   } catch (err) {
     if (err instanceof z.ZodError) {
       res.status(400).json({ error: "validation_error", issues: err.issues });

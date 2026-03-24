@@ -135,13 +135,13 @@ export default function Statistiken() {
           <h3 className="font-serif font-semibold text-lg mb-4 text-foreground">
             🍽️ Lieblingsküche
           </h3>
-          <ResponsiveContainer width="100%" height={220}>
-            <PieChart>
+          <ResponsiveContainer width="100%" height={260}>
+            <PieChart margin={{ top: 20, right: 30, bottom: 20, left: 30 }}>
               <Pie
                 data={catData}
                 cx="50%"
                 cy="50%"
-                outerRadius={80}
+                outerRadius={70}
                 dataKey="value"
                 label={({ name, percent }) => `${name} ${(percent * 100).toFixed(0)}%`}
                 labelLine={false}

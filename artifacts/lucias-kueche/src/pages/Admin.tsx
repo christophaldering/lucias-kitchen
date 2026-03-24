@@ -131,6 +131,55 @@ function RecipeTable({
   );
 }
 
+function BulkCategoryInput({
+  recipes,
+  busy,
+  onSet,
+}: {
+  recipes: Recipe[];
+  busy: boolean;
+  onSet: (cat: string) => void;
+}) {
+  const [val, setVal] = useState("");
+  const [showCustom, setShowCustom] = useState(false);
+  const [customVal, setCustomVal] = useState("");
+  const existingCats = Array.from(new Set(recipes.map((r) => r.category))).sort();
+
+  const handleSelect = (e: React.ChangeEvent<HTMLSelectElement>) => {
+    const v = e.target.value;
+    if (v === "__custom__") { setShowCustom(true); setVal(""); return; }
+    if (v) { onSet(v); setVal(""); }
+  };
+
+  if (showCustom) {
+    return (
+      <div className="flex gap-1 items-center">
+        <input value={customVal} onChange={(e) => setCustomVal(e.target.value)}
+          placeholder="Neue Kategorie…"
+          className="bg-white/10 border border-white/20 text-white placeholder-white/50 text-xs px-2 py-1.5 rounded-lg focus:outline-none w-28" />
+        <button onClick={() => { if (customVal.trim()) { onSet(customVal.trim()); setShowCustom(false); setCustomVal(""); } }}
+          disabled={busy || !customVal.trim()}
+          className="text-xs px-2 py-1.5 rounded-lg bg-white/20 hover:bg-white/30 disabled:opacity-50 transition-colors">
+          OK
+        </button>
+        <button onClick={() => setShowCustom(false)} className="p-1 hover:bg-white/20 rounded transition-colors">
+          <X className="w-3 h-3" />
+        </button>
+      </div>
+    );
+  }
+
+  return (
+    <select value={val} onChange={handleSelect}
+      disabled={busy}
+      className="bg-white/10 border border-white/20 text-white text-xs px-3 py-1.5 rounded-lg focus:outline-none cursor-pointer disabled:opacity-50">
+      <option value="">Kategorie ändern…</option>
+      {existingCats.map((c) => <option key={c} value={c} className="text-black">{c}</option>)}
+      <option value="__custom__" className="text-black italic">+ Eigene Kategorie…</option>
+    </select>
+  );
+}
+
 function BulkActionsBar({
   count,
   recipes,
@@ -266,12 +315,11 @@ function BulkActionsBar({
               </button>
             </div>
 
-            <select value={categoryVal} onChange={(e) => { if (e.target.value) { doBulkPatch({ category: e.target.value }); setCategoryVal(""); } }}
-              disabled={busy}
-              className="bg-white/10 border border-white/20 text-white text-xs px-3 py-1.5 rounded-lg focus:outline-none cursor-pointer disabled:opacity-50">
-              <option value="">Kategorie ändern…</option>
-              {["Fisch","Geflügel","Fleisch","Vegetarisch","Pasta"].map((c) => <option key={c} value={c} className="text-black">{c}</option>)}
-            </select>
+            <BulkCategoryInput
+              recipes={recipes}
+              busy={busy}
+              onSet={(cat) => doBulkPatch({ category: cat })}
+            />
 
             <select value={diffVal} onChange={(e) => { if (e.target.value) { doBulkPatch({ difficulty: e.target.value }); setDiffVal(""); } }}
               disabled={busy}
@@ -306,16 +354,18 @@ function BulkActionsBar({
   );
 }
 
-function CategoryManager({ recipes, patchRecipe, refetch }: {
+function CategoryManager({ recipes, patchRecipe, refetch, updateRecipe }: {
   recipes: Recipe[];
   patchRecipe: (id: number, patch: Record<string, unknown>) => Promise<void>;
   refetch: () => Promise<void>;
+  updateRecipe: (id: number, data: Partial<Recipe>) => Promise<void>;
 }) {
   const [newCat, setNewCat] = useState("");
   const [renaming, setRenaming] = useState<string | null>(null);
   const [renameVal, setRenameVal] = useState("");
   const [mergeSrc, setMergeSrc] = useState("");
   const [mergeDst, setMergeDst] = useState("");
+  const [deleteCandidate, setDeleteCandidate] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
   const categoryCounts = recipes.reduce<Record<string, number>>((acc, r) => {
@@ -348,8 +398,88 @@ function CategoryManager({ recipes, patchRecipe, refetch }: {
     finally { setBusy(false); }
   };
 
+  const doAddCategory = () => {
+    const name = newCat.trim();
+    if (!name || categories.includes(name)) { toast("Kategorie existiert bereits oder ungültig", "err"); return; }
+    toast(`Kategorie "${name}" hinzugefügt — weisen Sie Rezepte zu, um sie zu aktivieren`);
+    setNewCat("");
+  };
+
+  const doDeleteCategory = async (cat: string) => {
+    const count = categoryCounts[cat] ?? 0;
+    if (count > 0) {
+      setDeleteCandidate(cat);
+      return;
+    }
+    toast(`Kategorie "${cat}" entfernt (war leer)`);
+    setDeleteCandidate(null);
+  };
+
   return (
     <div className="space-y-6">
+      {deleteCandidate && (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/50 p-4">
+          <div className="bg-white rounded-2xl shadow-2xl p-6 max-w-sm w-full">
+            <p className="text-4xl text-center mb-3">⚠️</p>
+            <h3 className="font-serif text-lg font-semibold text-center mb-2">Kategorie löschen?</h3>
+            <p className="text-sm text-muted-foreground text-center mb-2">
+              <strong>„{deleteCandidate}"</strong> enthält <strong>{categoryCounts[deleteCandidate]} Rezept{categoryCounts[deleteCandidate] !== 1 ? "e" : ""}</strong>.
+            </p>
+            <p className="text-sm text-muted-foreground text-center mb-6">
+              Wähle eine Ziel-Kategorie, um alle Rezepte dorthin zu verschieben, bevor du löschst.
+            </p>
+            <div className="mb-4">
+              <label className="block text-xs font-semibold text-muted-foreground mb-1">Rezepte verschieben nach:</label>
+              <select value={mergeDst} onChange={(e) => setMergeDst(e.target.value)}
+                className="w-full px-3 py-2 rounded-xl border border-border bg-white text-sm focus:outline-none">
+                <option value="">Kategorie wählen…</option>
+                {categories.filter((c) => c !== deleteCandidate).map((c) => <option key={c} value={c}>{c}</option>)}
+              </select>
+            </div>
+            <div className="flex gap-3">
+              <button onClick={() => { setDeleteCandidate(null); setMergeDst(""); }}
+                className="flex-1 py-2 border border-border rounded-xl text-sm hover:bg-secondary transition-colors">
+                Abbrechen
+              </button>
+              <button
+                onClick={async () => {
+                  if (!mergeDst) return;
+                  setBusy(true);
+                  try {
+                    const affected = recipes.filter((r) => r.category === deleteCandidate);
+                    await Promise.all(affected.map((r) => patchRecipe(r.id, { category: mergeDst })));
+                    toast(`Alle Rezepte aus „${deleteCandidate}" nach „${mergeDst}" verschoben`);
+                    setDeleteCandidate(null); setMergeDst("");
+                  } catch { toast("Fehler", "err"); }
+                  finally { setBusy(false); }
+                }}
+                disabled={busy || !mergeDst}
+                className="flex-1 py-2 bg-red-600 text-white rounded-xl text-sm font-semibold hover:bg-red-700 transition-colors disabled:opacity-50 flex items-center justify-center gap-2">
+                {busy ? <Loader2 className="w-4 h-4 animate-spin" /> : null}
+                Verschieben & Löschen
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      <div className="bg-white rounded-2xl border border-border shadow-sm p-6">
+        <h3 className="font-serif font-semibold text-lg mb-4">➕ Neue Kategorie erstellen</h3>
+        <p className="text-sm text-muted-foreground mb-3">
+          Erstelle eine neue Kategorie, um Rezepte besser zu organisieren. Danach Rezepte in der Tabelle zuweisen.
+        </p>
+        <div className="flex gap-2">
+          <input value={newCat} onChange={(e) => setNewCat(e.target.value)}
+            onKeyDown={(e) => e.key === "Enter" && doAddCategory()}
+            placeholder="z.B. Suppen, Desserts, Beilagen…"
+            className="flex-1 px-3 py-2 rounded-xl border border-border bg-white text-sm focus:outline-none focus:ring-2 focus:ring-[#4A7C59]/30" />
+          <button onClick={doAddCategory} disabled={!newCat.trim()}
+            className="flex items-center gap-1.5 px-4 py-2 bg-[#4A7C59] text-white rounded-xl text-sm font-semibold hover:bg-[#3d6849] transition-colors disabled:opacity-50">
+            <Plus className="w-4 h-4" /> Hinzufügen
+          </button>
+        </div>
+      </div>
+
       <div className="bg-white rounded-2xl border border-border shadow-sm p-6">
         <h3 className="font-serif font-semibold text-lg mb-4">🗂️ Vorhandene Kategorien</h3>
         <div className="space-y-2">
@@ -359,6 +489,7 @@ function CategoryManager({ recipes, patchRecipe, refetch }: {
               {renaming === cat ? (
                 <>
                   <input value={renameVal} onChange={(e) => setRenameVal(e.target.value)}
+                    onKeyDown={(e) => e.key === "Enter" && doRename(cat, renameVal)}
                     className="flex-1 px-2 py-1 rounded-lg border border-border bg-white text-sm focus:outline-none focus:ring-2 focus:ring-[#4A7C59]/30" />
                   <button onClick={() => doRename(cat, renameVal)} disabled={busy}
                     className="px-3 py-1 bg-[#4A7C59] text-white rounded-lg text-xs font-medium hover:bg-[#3d6849] transition-colors disabled:opacity-50">
@@ -373,13 +504,22 @@ function CategoryManager({ recipes, patchRecipe, refetch }: {
                   <span className="flex-1 font-medium text-sm">{cat}</span>
                   <span className="text-xs text-muted-foreground">{categoryCounts[cat]} Rezept{categoryCounts[cat] !== 1 ? "e" : ""}</span>
                   <button onClick={() => { setRenaming(cat); setRenameVal(cat); }}
-                    className="p-1.5 rounded-lg hover:bg-[#4A7C59]/10 text-muted-foreground hover:text-[#4A7C59] transition-colors">
+                    className="p-1.5 rounded-lg hover:bg-[#4A7C59]/10 text-muted-foreground hover:text-[#4A7C59] transition-colors"
+                    title="Umbenennen">
                     <Edit2 className="w-3.5 h-3.5" />
+                  </button>
+                  <button onClick={() => doDeleteCategory(cat)} disabled={busy}
+                    className="p-1.5 rounded-lg hover:bg-red-50 text-muted-foreground hover:text-red-500 transition-colors disabled:opacity-50"
+                    title="Kategorie löschen">
+                    <Trash2 className="w-3.5 h-3.5" />
                   </button>
                 </>
               )}
             </div>
           ))}
+          {categories.length === 0 && (
+            <p className="text-sm text-muted-foreground text-center py-4">Keine Kategorien vorhanden.</p>
+          )}
         </div>
       </div>
 
@@ -738,7 +878,7 @@ export default function Admin() {
       )}
 
       {section === "categories" && (
-        <CategoryManager recipes={recipes} patchRecipe={patchRecipe} refetch={refetch} />
+        <CategoryManager recipes={recipes} patchRecipe={patchRecipe} refetch={refetch} updateRecipe={updateRecipe} />
       )}
 
       {section === "backup" && (

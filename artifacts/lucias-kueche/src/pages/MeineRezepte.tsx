@@ -1,7 +1,7 @@
-import { useState } from "react";
-import { ALL_CATEGORIES, Recipe, formatIngredient } from "@/types/recipe";
+import { useState, useMemo } from "react";
+import { Recipe, formatIngredient } from "@/types/recipe";
 import { useRecipes } from "@/hooks/useRecipes";
-import { Clock, Search, ChefHat, Upload, Loader2 } from "lucide-react";
+import { Clock, Search, ChefHat, Upload, Loader2, LayoutGrid, Table } from "lucide-react";
 import RecipeModal from "@/components/RecipeModal";
 import PdfUploadModal from "@/components/PdfUploadModal";
 
@@ -12,6 +12,24 @@ const CATEGORY_EMOJIS: Record<string, string> = {
   Vegetarisch: "🌿",
   Pasta: "🍝",
 };
+
+function useLocalStorage<T>(key: string, defaultValue: T): T {
+  try {
+    const stored = localStorage.getItem(key);
+    return stored !== null ? (JSON.parse(stored) as T) : defaultValue;
+  } catch {
+    return defaultValue;
+  }
+}
+
+function parseTotalMinutes(totalTime: string | null): number {
+  if (!totalTime) return Infinity;
+  const match = totalTime.match(/(\d+)/g);
+  if (!match) return Infinity;
+  const nums = match.map(Number);
+  if (nums.length === 1) return nums[0];
+  return nums[0] * 60 + (nums[1] ?? 0);
+}
 
 function RatingBadge({ rating }: { rating: string | null }) {
   if (!rating) return null;
@@ -26,7 +44,17 @@ function RatingBadge({ rating }: { rating: string | null }) {
   );
 }
 
-function RecipeCard({ recipe, onClick }: { recipe: Recipe; onClick: () => void }) {
+function RecipeCard({
+  recipe,
+  onClick,
+  showNotes,
+  showCookCount,
+}: {
+  recipe: Recipe;
+  onClick: () => void;
+  showNotes: boolean;
+  showCookCount: boolean;
+}) {
   const [hovered, setHovered] = useState(false);
   const emoji = CATEGORY_EMOJIS[recipe.category] ?? "🍽️";
 
@@ -74,8 +102,12 @@ function RecipeCard({ recipe, onClick }: { recipe: Recipe; onClick: () => void }
 
         <RatingBadge rating={recipe.rating} />
 
-        {recipe.notes && (
-          <p className="mt-3 text-xs text-muted-foreground font-script text-base line-clamp-2 italic">
+        {showCookCount && recipe.cookedCount != null && recipe.cookedCount > 0 && (
+          <p className="mt-2 text-xs text-muted-foreground">🍳 {recipe.cookedCount}× gekocht</p>
+        )}
+
+        {showNotes && recipe.notes && (
+          <p className="mt-2 text-xs text-muted-foreground font-script text-base line-clamp-2 italic">
             "{recipe.notes}"
           </p>
         )}
@@ -92,41 +124,98 @@ function RecipeCard({ recipe, onClick }: { recipe: Recipe; onClick: () => void }
   );
 }
 
+function RecipeTableRow({ recipe, onClick }: { recipe: Recipe; onClick: () => void }) {
+  const emoji = CATEGORY_EMOJIS[recipe.category] ?? "🍽️";
+  return (
+    <tr className="border-b border-border/50 hover:bg-[#4A7C59]/5 transition-colors cursor-pointer" onClick={onClick}>
+      <td className="px-4 py-3">
+        <div className="font-medium text-foreground">{recipe.title}</div>
+        {recipe.source && <div className="text-xs text-muted-foreground">{recipe.source}</div>}
+      </td>
+      <td className="px-4 py-3 hidden sm:table-cell">
+        <span className="inline-flex items-center gap-1 text-xs font-medium px-2 py-0.5 rounded-full bg-[#4A7C59]/10 text-[#4A7C59]">
+          {emoji} {recipe.category}
+        </span>
+      </td>
+      <td className="px-4 py-3 hidden md:table-cell">
+        <span className={`text-xs font-medium px-2 py-0.5 rounded-full ${
+          recipe.difficulty === "simpel" ? "bg-green-100 text-green-700" :
+          recipe.difficulty === "normal" ? "bg-amber-100 text-amber-700" : "bg-red-100 text-red-700"
+        }`}>{recipe.difficulty}</span>
+      </td>
+      <td className="px-4 py-3 hidden md:table-cell text-xs text-muted-foreground">
+        {recipe.totalTime?.replace("ca. ", "") ?? "–"}
+      </td>
+      <td className="px-4 py-3 hidden lg:table-cell text-xs text-muted-foreground">
+        {recipe.rating === "sehr lecker" ? "⭐ sehr lecker" : recipe.rating === "lecker" ? "👍 lecker" : "–"}
+      </td>
+      <td className="px-4 py-3 hidden xl:table-cell text-xs text-muted-foreground">
+        {recipe.cookedCount ? `🍳 ${recipe.cookedCount}×` : "–"}
+      </td>
+    </tr>
+  );
+}
+
 export default function MeineRezepte() {
   const { recipes, loading, error, addRecipes } = useRecipes();
+
+  const defaultView = useLocalStorage<"kacheln" | "tabelle">("lk_defaultView", "kacheln");
+  const savedSortOrder = useLocalStorage<string>("lk_sortOrder", "alphabetisch");
+  const showNotes = useLocalStorage<boolean>("lk_showNotes", true);
+  const showCookCount = useLocalStorage<boolean>("lk_showCookCount", true);
+
   const [search, setSearch] = useState("");
   const [activeCategory, setActiveCategory] = useState("Alle");
   const [timeFilter, setTimeFilter] = useState("Alle");
+  const [viewMode, setViewMode] = useState<"kacheln" | "tabelle">(defaultView);
   const [selected, setSelected] = useState<Recipe | null>(null);
   const [showPdfModal, setShowPdfModal] = useState(false);
 
-  function parseTotalMinutes(totalTime: string | null): number {
-    if (!totalTime) return Infinity;
-    const match = totalTime.match(/(\d+)/g);
-    if (!match) return Infinity;
-    const nums = match.map(Number);
-    if (nums.length === 1) return nums[0];
-    return nums[0] * 60 + (nums[1] ?? 0);
-  }
+  const allCategories = useMemo(() => {
+    const cats = Array.from(new Set(recipes.map((r) => r.category))).sort();
+    return ["Alle", ...cats];
+  }, [recipes]);
 
-  const filtered = recipes.filter((r) => {
+  const sorted = useMemo(() => {
+    const base = [...recipes];
+    switch (savedSortOrder) {
+      case "alphabetisch":
+        return base.sort((a, b) => a.title.localeCompare(b.title, "de"));
+      case "kategorie":
+        return base.sort((a, b) => a.category.localeCompare(b.category, "de") || a.title.localeCompare(b.title, "de"));
+      case "bewertung":
+        return base.sort((a, b) => {
+          const score = (r: Recipe) => r.rating === "sehr lecker" ? 2 : r.rating === "lecker" ? 1 : 0;
+          return score(b) - score(a);
+        });
+      case "zuletzt_gekocht":
+        return base.sort((a, b) => {
+          if (!a.lastCooked && !b.lastCooked) return 0;
+          if (!a.lastCooked) return 1;
+          if (!b.lastCooked) return -1;
+          return b.lastCooked.localeCompare(a.lastCooked);
+        });
+      case "haeufig_gekocht":
+        return base.sort((a, b) => (b.cookedCount ?? 0) - (a.cookedCount ?? 0));
+      default:
+        return base;
+    }
+  }, [recipes, savedSortOrder]);
+
+  const filtered = useMemo(() => sorted.filter((r) => {
     const matchesSearch =
       r.title.toLowerCase().includes(search.toLowerCase()) ||
       (r.notes ?? "").toLowerCase().includes(search.toLowerCase());
     const matchesCat = activeCategory === "Alle" || r.category === activeCategory;
     const mins = parseTotalMinutes(r.totalTime);
     const matchesTime =
-      timeFilter === "Alle"
-        ? true
-        : timeFilter === "Unter 30 Min"
-        ? mins < 30
-        : mins < 60;
+      timeFilter === "Alle" ? true :
+      timeFilter === "Unter 30 Min" ? mins < 30 : mins < 60;
     return matchesSearch && matchesCat && matchesTime;
-  });
+  }), [sorted, search, activeCategory, timeFilter]);
 
   return (
     <div className="max-w-6xl mx-auto px-4 py-8">
-      {/* Header row with search + PDF upload */}
       <div className="mb-8 space-y-4">
         <div className="flex items-center gap-3">
           <div className="relative flex-1 max-w-md">
@@ -140,6 +229,21 @@ export default function MeineRezepte() {
             />
           </div>
 
+          <div className="flex gap-1 bg-white border border-border rounded-xl p-1">
+            <button
+              onClick={() => setViewMode("kacheln")}
+              className={`p-1.5 rounded-lg transition-colors ${viewMode === "kacheln" ? "bg-[#4A7C59] text-white" : "text-muted-foreground hover:text-foreground"}`}
+              title="Kachelansicht">
+              <LayoutGrid className="w-4 h-4" />
+            </button>
+            <button
+              onClick={() => setViewMode("tabelle")}
+              className={`p-1.5 rounded-lg transition-colors ${viewMode === "tabelle" ? "bg-[#4A7C59] text-white" : "text-muted-foreground hover:text-foreground"}`}
+              title="Tabellenansicht">
+              <Table className="w-4 h-4" />
+            </button>
+          </div>
+
           <button
             onClick={() => setShowPdfModal(true)}
             className="flex items-center gap-2 px-4 py-2.5 bg-[#C1693A] text-white rounded-xl text-sm font-semibold hover:bg-[#a8572f] transition-colors whitespace-nowrap shadow-sm"
@@ -149,9 +253,8 @@ export default function MeineRezepte() {
           </button>
         </div>
 
-        {/* Category tabs */}
         <div className="flex flex-wrap gap-2">
-          {ALL_CATEGORIES.map((cat) => (
+          {allCategories.map((cat) => (
             <button
               key={cat}
               onClick={() => setActiveCategory(cat)}
@@ -166,7 +269,6 @@ export default function MeineRezepte() {
           ))}
         </div>
 
-        {/* Time filter */}
         <div className="flex gap-2">
           {["Alle", "Unter 30 Min", "Unter 1 Std"].map((t) => (
             <button
@@ -185,7 +287,6 @@ export default function MeineRezepte() {
         </div>
       </div>
 
-      {/* Loading / Error state */}
       {loading && (
         <div className="flex flex-col items-center py-20 gap-3 text-muted-foreground">
           <Loader2 className="w-8 h-8 animate-spin text-[#4A7C59]" />
@@ -204,6 +305,11 @@ export default function MeineRezepte() {
         <>
           <p className="text-sm text-muted-foreground mb-6">
             {filtered.length} von {recipes.length} Rezepten
+            {savedSortOrder !== "alphabetisch" && (
+              <span className="ml-2 text-xs text-muted-foreground/70">
+                (sortiert: {savedSortOrder === "kategorie" ? "nach Kategorie" : savedSortOrder === "bewertung" ? "nach Bewertung" : savedSortOrder === "zuletzt_gekocht" ? "zuletzt gekocht" : "am häufigsten gekocht"})
+              </span>
+            )}
           </p>
 
           {filtered.length === 0 ? (
@@ -211,15 +317,37 @@ export default function MeineRezepte() {
               <p className="text-4xl mb-4">🔍</p>
               <p className="font-serif text-lg">Kein Rezept gefunden.</p>
             </div>
-          ) : (
+          ) : viewMode === "kacheln" ? (
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-5">
               {filtered.map((recipe) => (
                 <RecipeCard
                   key={recipe.id}
                   recipe={recipe}
                   onClick={() => setSelected(recipe)}
+                  showNotes={showNotes}
+                  showCookCount={showCookCount}
                 />
               ))}
+            </div>
+          ) : (
+            <div className="overflow-x-auto rounded-2xl border border-border bg-white shadow-sm">
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="border-b border-border bg-[#4A7C59]/5">
+                    <th className="px-4 py-3 text-left font-semibold text-foreground">Titel</th>
+                    <th className="px-4 py-3 text-left font-semibold text-foreground hidden sm:table-cell">Kategorie</th>
+                    <th className="px-4 py-3 text-left font-semibold text-foreground hidden md:table-cell">Schwierigkeit</th>
+                    <th className="px-4 py-3 text-left font-semibold text-foreground hidden md:table-cell">Zeit</th>
+                    <th className="px-4 py-3 text-left font-semibold text-foreground hidden lg:table-cell">Bewertung</th>
+                    <th className="px-4 py-3 text-left font-semibold text-foreground hidden xl:table-cell">Gekocht</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {filtered.map((recipe) => (
+                    <RecipeTableRow key={recipe.id} recipe={recipe} onClick={() => setSelected(recipe)} />
+                  ))}
+                </tbody>
+              </table>
             </div>
           )}
         </>

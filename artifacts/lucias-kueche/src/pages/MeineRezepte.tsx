@@ -3,9 +3,10 @@ import { Recipe } from "@/types/recipe";
 import type { Season } from "@/types/recipe";
 import { SEASON_LABELS, SEASON_ICONS, getCurrentSeason } from "@/types/recipe";
 import { useRecipes } from "@/hooks/useRecipes";
-import { Clock, Search, ChefHat, Upload, Link, Camera, Loader2, LayoutGrid, Table, Settings2, Plus, ArrowUp, ArrowDown, ArrowUpDown, UtensilsCrossed, MessageCircle, Star, BookOpen } from "lucide-react";
+import { Clock, Search, ChefHat, Upload, Link, Camera, Loader2, LayoutGrid, Table, Settings2, Plus, ArrowUp, ArrowDown, ArrowUpDown, UtensilsCrossed, MessageCircle, Star, BookOpen, Share2 } from "lucide-react";
 import type { RecipeFilter } from "@/hooks/useRecipes";
 import RecipeModal from "@/components/RecipeModal";
+import RecipeSuggestModal from "@/components/RecipeSuggestModal";
 import CookingMode from "@/components/CookingMode";
 import PdfUploadModal from "@/components/PdfUploadModal";
 import RecipeManagement from "@/components/RecipeManagement";
@@ -87,6 +88,7 @@ function RecipeCard({
   recipe,
   onClick,
   onCook,
+  onSuggest,
   showNotes,
   showCookCount,
   onToggleFavorite,
@@ -96,6 +98,7 @@ function RecipeCard({
   recipe: Recipe;
   onClick: () => void;
   onCook: () => void;
+  onSuggest?: () => void;
   showNotes: boolean;
   showCookCount: boolean;
   onToggleFavorite?: (id: number, isFavorite: boolean) => void;
@@ -251,6 +254,15 @@ function RecipeCard({
               Kochen starten
             </button>
           )}
+          {onSuggest && (
+            <button
+              onClick={(e) => { e.stopPropagation(); onSuggest(); }}
+              className="flex items-center gap-1.5 text-white font-semibold text-sm px-4 py-2 bg-white/20 hover:bg-white/30 rounded-xl transition-colors border border-white/40"
+            >
+              <Share2 className="w-4 h-4" />
+              Vorschlagen
+            </button>
+          )}
         </div>
       )}
     </div>
@@ -270,12 +282,14 @@ function RecipeTableRow({
   recipe,
   onClick,
   onCook,
+  onSuggest,
   checked,
   onCheck,
 }: {
   recipe: Recipe;
   onClick: () => void;
   onCook: () => void;
+  onSuggest?: () => void;
   checked: boolean;
   onCheck: (e: React.MouseEvent) => void;
 }) {
@@ -300,15 +314,26 @@ function RecipeTableRow({
         {recipe.source && <div className="text-xs text-muted-foreground">{recipe.source}</div>}
       </td>
       <td className="px-4 py-3 hidden sm:table-cell text-center">
-        {Array.isArray(recipe.steps) && recipe.steps.length > 0 && (
-          <button
-            onClick={(e) => { e.stopPropagation(); onCook(); }}
-            className="p-1.5 rounded-lg bg-[#C1693A]/10 text-[#C1693A] hover:bg-[#C1693A] hover:text-white transition-colors"
-            title="Kochen starten"
-          >
-            <UtensilsCrossed className="w-4 h-4" />
-          </button>
-        )}
+        <div className="flex items-center gap-1 justify-center">
+          {Array.isArray(recipe.steps) && recipe.steps.length > 0 && (
+            <button
+              onClick={(e) => { e.stopPropagation(); onCook(); }}
+              className="p-1.5 rounded-lg bg-[#C1693A]/10 text-[#C1693A] hover:bg-[#C1693A] hover:text-white transition-colors"
+              title="Kochen starten"
+            >
+              <UtensilsCrossed className="w-4 h-4" />
+            </button>
+          )}
+          {onSuggest && (
+            <button
+              onClick={(e) => { e.stopPropagation(); onSuggest(); }}
+              className="p-1.5 rounded-lg bg-[#4A7C59]/10 text-[#4A7C59] hover:bg-[#4A7C59] hover:text-white transition-colors"
+              title="Rezept vorschlagen"
+            >
+              <Share2 className="w-4 h-4" />
+            </button>
+          )}
+        </div>
       </td>
       <td className="px-4 py-3 hidden sm:table-cell">
         <span className="inline-flex items-center gap-1 text-xs font-medium px-2 py-0.5 rounded-full bg-[#4A7C59]/10 text-[#4A7C59]">
@@ -393,6 +418,7 @@ export default function MeineRezepte({ onNavigate: _onNavigate, initialOpenRecip
   const [showImageModal, setShowImageModal] = useState(false);
   const [showNewRecipeModal, setShowNewRecipeModal] = useState(false);
   const [variantBaseRecipe, setVariantBaseRecipe] = useState<Recipe | null>(null);
+  const [suggestRecipe, setSuggestRecipe] = useState<Recipe | null>(null);
 
   const [fabOpen, setFabOpen] = useState(false);
   const [managedSelected, setManagedSelected] = useState<Set<number>>(new Set());
@@ -817,6 +843,7 @@ export default function MeineRezepte({ onNavigate: _onNavigate, initialOpenRecip
                       recipe={recipe}
                       onClick={() => setSelectedId(recipe.id)}
                       onCook={() => setCookingRecipe(recipe)}
+                      onSuggest={() => setSuggestRecipe(recipe)}
                       showNotes={showNotes}
                       showCookCount={showCookCount}
                       onToggleFavorite={toggleFavorite}
@@ -863,6 +890,7 @@ export default function MeineRezepte({ onNavigate: _onNavigate, initialOpenRecip
                           recipe={recipe}
                           onClick={() => setSelectedId(recipe.id)}
                           onCook={() => setCookingRecipe(recipe)}
+                          onSuggest={() => setSuggestRecipe(recipe)}
                           checked={tableSelected.has(recipe.id)}
                           onCheck={(e) => toggleTableSelect(recipe.id, e)}
                         />
@@ -876,6 +904,15 @@ export default function MeineRezepte({ onNavigate: _onNavigate, initialOpenRecip
 
           {cookingRecipe && (
             <CookingMode recipe={cookingRecipe} onClose={() => setCookingRecipe(null)} />
+          )}
+
+          {suggestRecipe && (
+            <RecipeSuggestModal
+              recipeId={suggestRecipe.id}
+              recipeTitle={suggestRecipe.title}
+              onClose={() => setSuggestRecipe(null)}
+              onSent={() => setSuggestRecipe(null)}
+            />
           )}
 
           {selected && (

@@ -1,13 +1,8 @@
 import { useState, useRef } from "react";
 import { useAuth } from "@/contexts/AuthContext";
 import { useRecipes } from "@/hooks/useRecipes";
-import { useGroups, type Group } from "@/hooks/useGroups";
-import { useIncomingSuggestions } from "@/hooks/useRecipeSuggestions";
-import GroupCreateModal from "@/components/GroupCreateModal";
-import GroupMembersModal from "@/components/GroupMembersModal";
 import {
   Camera, Save, Eye, EyeOff, Loader2, CheckCircle2,
-  Users, Plus, Clock, CheckCircle, XCircle, ChevronRight, Share2, BookmarkPlus, X
 } from "lucide-react";
 
 function toast(msg: string, type: "ok" | "err" = "ok") {
@@ -116,8 +111,6 @@ function AvatarSection({ user, onUpload }: { user: ReturnType<typeof useAuth>["u
 export default function Profil() {
   const { user, updateProfile, uploadAvatar, changePassword } = useAuth();
   const { recipes } = useRecipes();
-  const { groups, loading: groupsLoading, fetchGroups, joinGroup } = useGroups();
-  const { suggestions: incomingSuggestions, loading: suggestionsLoading, saveSuggestion, ignoreSuggestion } = useIncomingSuggestions();
 
   const [displayName, setDisplayName] = useState(user?.displayName ?? "");
   const [bio, setBio] = useState(user?.bio ?? "");
@@ -132,9 +125,6 @@ export default function Profil() {
   const [showOldPw, setShowOldPw] = useState(false);
   const [showNewPw, setShowNewPw] = useState(false);
   const [savingPassword, setSavingPassword] = useState(false);
-
-  const [showCreateGroup, setShowCreateGroup] = useState(false);
-  const [selectedGroup, setSelectedGroup] = useState<Group | null>(null);
 
   const passwordStrength = computePasswordStrength(newPassword);
   const badges = computeBadges(recipes);
@@ -191,36 +181,8 @@ export default function Profil() {
     );
   };
 
-  const handleJoin = async (group: Group) => {
-    try {
-      await joinGroup(group.id);
-      toast("Gruppe beigetreten ✓");
-    } catch {
-      toast("Beitritt fehlgeschlagen", "err");
-    }
-  };
-
-  const activeGroups = groups.filter((g) => g.status === "approved" && g.myMemberStatus === "joined");
-  const pendingGroups = groups.filter((g) => g.status === "pending");
-  const invitedGroups = groups.filter((g) => g.status === "approved" && g.myMemberStatus === "invited");
-  const rejectedGroups = groups.filter((g) => g.status === "rejected");
-
   return (
     <div className="max-w-3xl mx-auto px-4 py-6 pb-28 space-y-6">
-      {showCreateGroup && (
-        <GroupCreateModal
-          onClose={() => setShowCreateGroup(false)}
-          onCreated={fetchGroups}
-        />
-      )}
-
-      {selectedGroup && (
-        <GroupMembersModal
-          group={selectedGroup}
-          isOwner={selectedGroup.myRole === "owner"}
-          onClose={() => setSelectedGroup(null)}
-        />
-      )}
 
       {/* Avatar */}
       <div className="bg-white rounded-2xl border border-border shadow-sm">
@@ -455,231 +417,6 @@ export default function Profil() {
         </div>
       </div>
 
-      {/* Incoming Recipe Suggestions */}
-      {(suggestionsLoading || incomingSuggestions.filter((s) => s.status === "pending").length > 0) && (
-        <div className="bg-white rounded-2xl border border-border shadow-sm p-6">
-          <h2 className="font-serif text-lg font-semibold mb-4 flex items-center gap-2">
-            <Share2 className="w-5 h-5 text-[#4A7C59]" /> Rezept-Vorschläge
-          </h2>
-          {suggestionsLoading ? (
-            <div className="flex justify-center py-4">
-              <Loader2 className="w-5 h-5 animate-spin text-[#4A7C59]" />
-            </div>
-          ) : (
-            <div className="space-y-3">
-              {incomingSuggestions
-                .filter((s) => s.status === "pending")
-                .map((s) => (
-                  <div key={s.id} className="flex gap-3 p-3 rounded-xl bg-[#4A7C59]/5 border border-[#4A7C59]/20">
-                    {s.recipeImageUrl ? (
-                      <img
-                        src={s.recipeImageUrl}
-                        alt={s.recipeTitle}
-                        className="w-16 h-16 rounded-lg object-cover flex-shrink-0"
-                      />
-                    ) : (
-                      <div className="w-16 h-16 rounded-lg bg-[#4A7C59]/10 flex items-center justify-center flex-shrink-0 text-2xl">
-                        🍽️
-                      </div>
-                    )}
-                    <div className="flex-1 min-w-0">
-                      <div className="flex items-center gap-1.5 mb-0.5">
-                        {s.senderAvatarUrl ? (
-                          <img src={s.senderAvatarUrl} alt={s.senderName ?? ""} className="w-4 h-4 rounded-full object-cover" />
-                        ) : (
-                          <div className="w-4 h-4 rounded-full bg-[#4A7C59]/30 flex items-center justify-center text-[9px] font-bold text-[#4A7C59]">
-                            {(s.senderName ?? "?").charAt(0).toUpperCase()}
-                          </div>
-                        )}
-                        <span className="text-xs text-muted-foreground">{s.senderName ?? "Jemand"} schlägt vor:</span>
-                      </div>
-                      <p className="font-semibold text-sm truncate">{s.recipeTitle}</p>
-                      <p className="text-xs text-muted-foreground">{s.recipeCategory}</p>
-                      {s.message && (
-                        <p className="text-xs italic text-[#C1693A] mt-1 line-clamp-2">„{s.message}"</p>
-                      )}
-                      <div className="flex gap-2 mt-2">
-                        <button
-                          onClick={async () => {
-                            try {
-                              await saveSuggestion(s.id);
-                              toast("Rezept gespeichert ✓");
-                            } catch {
-                              toast("Fehler beim Speichern", "err");
-                            }
-                          }}
-                          className="flex items-center gap-1.5 px-3 py-1.5 bg-[#4A7C59] text-white text-xs rounded-lg font-medium hover:bg-[#3d6849] transition-colors"
-                        >
-                          <BookmarkPlus className="w-3.5 h-3.5" />
-                          Speichern
-                        </button>
-                        <button
-                          onClick={async () => {
-                            try {
-                              await ignoreSuggestion(s.id);
-                            } catch {
-                              toast("Fehler", "err");
-                            }
-                          }}
-                          className="flex items-center gap-1.5 px-3 py-1.5 border border-border text-muted-foreground text-xs rounded-lg font-medium hover:bg-secondary transition-colors"
-                        >
-                          <X className="w-3.5 h-3.5" />
-                          Ignorieren
-                        </button>
-                      </div>
-                    </div>
-                  </div>
-                ))}
-            </div>
-          )}
-        </div>
-      )}
-
-      {/* Groups */}
-      <div className="bg-white rounded-2xl border border-border shadow-sm p-6">
-        <div className="flex items-center justify-between mb-5">
-          <h2 className="font-serif text-lg font-semibold flex items-center gap-2">
-            <Users className="w-5 h-5 text-[#4A7C59]" /> Meine Gruppen
-          </h2>
-          <button
-            onClick={() => setShowCreateGroup(true)}
-            className="flex items-center gap-1.5 px-3 py-2 bg-[#4A7C59] text-white rounded-xl text-sm font-semibold hover:bg-[#3d6849] transition-colors"
-          >
-            <Plus className="w-4 h-4" /> Neue Gruppe
-          </button>
-        </div>
-
-        {groupsLoading ? (
-          <div className="flex justify-center py-6">
-            <Loader2 className="w-5 h-5 animate-spin text-[#4A7C59]" />
-          </div>
-        ) : (
-          <div className="space-y-4">
-            {invitedGroups.length > 0 && (
-              <div>
-                <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide mb-2">Einladungen</p>
-                <div className="space-y-2">
-                  {invitedGroups.map((g) => (
-                    <div key={g.id} className="flex items-center gap-3 p-3 rounded-xl bg-blue-50 border border-blue-200">
-                      {g.imageUrl ? (
-                        <img src={g.imageUrl} alt="" className="w-10 h-10 rounded-lg object-cover flex-shrink-0" />
-                      ) : (
-                        <div className="w-10 h-10 rounded-lg bg-blue-200 flex items-center justify-center flex-shrink-0">
-                          <Users className="w-5 h-5 text-blue-600" />
-                        </div>
-                      )}
-                      <div className="flex-1 min-w-0">
-                        <p className="font-medium text-sm">{g.name}</p>
-                        <p className="text-xs text-blue-600">Du wurdest eingeladen</p>
-                      </div>
-                      <button
-                        onClick={() => handleJoin(g)}
-                        className="px-3 py-1.5 bg-blue-600 text-white text-xs rounded-lg font-medium hover:bg-blue-700 transition-colors"
-                      >
-                        Beitreten
-                      </button>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            )}
-
-            {activeGroups.length > 0 && (
-              <div>
-                <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide mb-2 flex items-center gap-1">
-                  <CheckCircle className="w-3 h-3 text-[#4A7C59]" /> Aktive Gruppen
-                </p>
-                <div className="space-y-2">
-                  {activeGroups.map((g) => (
-                    <button
-                      key={g.id}
-                      onClick={() => setSelectedGroup(g)}
-                      className="w-full flex items-center gap-3 p-3 rounded-xl bg-gray-50 border border-border/50 hover:border-[#4A7C59]/30 hover:bg-[#4A7C59]/5 transition-colors text-left"
-                    >
-                      {g.imageUrl ? (
-                        <img src={g.imageUrl} alt="" className="w-10 h-10 rounded-lg object-cover flex-shrink-0" />
-                      ) : (
-                        <div className="w-10 h-10 rounded-lg bg-[#4A7C59]/10 flex items-center justify-center flex-shrink-0">
-                          <Users className="w-5 h-5 text-[#4A7C59]" />
-                        </div>
-                      )}
-                      <div className="flex-1 min-w-0">
-                        <p className="font-medium text-sm">{g.name}</p>
-                        <p className="text-xs text-muted-foreground">
-                          {g.myRole === "owner" ? "Eigentümer" : "Mitglied"}
-                        </p>
-                      </div>
-                      <ChevronRight className="w-4 h-4 text-muted-foreground flex-shrink-0" />
-                    </button>
-                  ))}
-                </div>
-              </div>
-            )}
-
-            {pendingGroups.length > 0 && (
-              <div>
-                <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide mb-2 flex items-center gap-1">
-                  <Clock className="w-3 h-3 text-amber-500" /> Wartet auf Freigabe
-                </p>
-                <div className="space-y-2">
-                  {pendingGroups.map((g) => (
-                    <div key={g.id} className="flex items-center gap-3 p-3 rounded-xl bg-amber-50 border border-amber-200">
-                      {g.imageUrl ? (
-                        <img src={g.imageUrl} alt="" className="w-10 h-10 rounded-lg object-cover flex-shrink-0" />
-                      ) : (
-                        <div className="w-10 h-10 rounded-lg bg-amber-200 flex items-center justify-center flex-shrink-0">
-                          <Users className="w-5 h-5 text-amber-600" />
-                        </div>
-                      )}
-                      <div className="flex-1 min-w-0">
-                        <p className="font-medium text-sm">{g.name}</p>
-                        <p className="text-xs text-amber-600 flex items-center gap-1">
-                          <Clock className="w-3 h-3" /> Wartet auf Admin-Freigabe
-                        </p>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            )}
-
-            {rejectedGroups.length > 0 && (
-              <div>
-                <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide mb-2 flex items-center gap-1">
-                  <XCircle className="w-3 h-3 text-red-400" /> Abgelehnt
-                </p>
-                <div className="space-y-2">
-                  {rejectedGroups.map((g) => (
-                    <div key={g.id} className="flex items-center gap-3 p-3 rounded-xl bg-red-50 border border-red-200">
-                      {g.imageUrl ? (
-                        <img src={g.imageUrl} alt="" className="w-10 h-10 rounded-lg object-cover flex-shrink-0" />
-                      ) : (
-                        <div className="w-10 h-10 rounded-lg bg-red-200 flex items-center justify-center flex-shrink-0">
-                          <Users className="w-5 h-5 text-red-400" />
-                        </div>
-                      )}
-                      <div className="flex-1 min-w-0">
-                        <p className="font-medium text-sm">{g.name}</p>
-                        <p className="text-xs text-red-600">
-                          Abgelehnt{g.rejectionReason ? `: ${g.rejectionReason}` : ""}
-                        </p>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            )}
-
-            {groups.length === 0 && (
-              <div className="text-center py-8 text-muted-foreground">
-                <Users className="w-10 h-10 mx-auto mb-3 opacity-30" />
-                <p className="text-sm">Du bist noch in keiner Gruppe.</p>
-                <p className="text-xs mt-1">Erstelle eine Familie oder Community!</p>
-              </div>
-            )}
-          </div>
-        )}
-      </div>
     </div>
   );
 }

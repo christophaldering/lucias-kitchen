@@ -87,6 +87,8 @@ export function useIncomingSuggestions() {
 
   useEffect(() => {
     fetchSuggestions();
+    const interval = setInterval(fetchSuggestions, 60_000);
+    return () => clearInterval(interval);
   }, [fetchSuggestions]);
 
   const saveSuggestion = useCallback(async (id: number) => {
@@ -108,6 +110,47 @@ export function useIncomingSuggestions() {
   }, [fetchSuggestions]);
 
   return { suggestions, loading, error, fetchSuggestions, saveSuggestion, ignoreSuggestion };
+}
+
+export interface OutgoingSuggestion {
+  id: number;
+  recipientId: number;
+  recipeId: number;
+  message: string | null;
+  status: "pending" | "saved" | "ignored";
+  createdAt: string;
+  recipientName: string | null;
+  recipientAvatarUrl: string | null;
+  recipeTitle: string;
+  recipeImageUrl: string | null;
+  recipeCategory: string;
+}
+
+export function useOutgoingSuggestions() {
+  const [suggestions, setSuggestions] = useState<OutgoingSuggestion[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+
+  const fetchSuggestions = useCallback(async () => {
+    setLoading(true);
+    setError(null);
+    try {
+      const res = await fetch(`${API_BASE}/recipe-suggestions/outgoing`, { headers: authHeaders() });
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const data = await res.json();
+      setSuggestions(data);
+    } catch {
+      setError("Gesendete Vorschläge konnten nicht geladen werden.");
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    fetchSuggestions();
+  }, [fetchSuggestions]);
+
+  return { suggestions, loading, error, fetchSuggestions };
 }
 
 export async function sendRecipeSuggestion(recipientId: number, recipeId: number, message?: string): Promise<void> {

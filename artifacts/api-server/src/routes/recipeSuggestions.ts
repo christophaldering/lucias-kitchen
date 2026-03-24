@@ -203,6 +203,37 @@ router.put("/recipe-suggestions/:id/ignore", authMiddleware, async (req, res) =>
   }
 });
 
+router.get("/recipe-suggestions/outgoing", authMiddleware, async (req, res) => {
+  try {
+    const userId = req.authUser!.id;
+
+    const suggestions = await db
+      .select({
+        id: recipeSuggestionsTable.id,
+        recipientId: recipeSuggestionsTable.recipientId,
+        recipeId: recipeSuggestionsTable.recipeId,
+        message: recipeSuggestionsTable.message,
+        status: recipeSuggestionsTable.status,
+        createdAt: recipeSuggestionsTable.createdAt,
+        recipientName: usersTable.displayName,
+        recipientAvatarUrl: usersTable.avatarUrl,
+        recipeTitle: recipesTable.title,
+        recipeImageUrl: recipesTable.imageUrl,
+        recipeCategory: recipesTable.category,
+      })
+      .from(recipeSuggestionsTable)
+      .innerJoin(usersTable, eq(recipeSuggestionsTable.recipientId, usersTable.id))
+      .innerJoin(recipesTable, eq(recipeSuggestionsTable.recipeId, recipesTable.id))
+      .where(eq(recipeSuggestionsTable.senderId, userId))
+      .orderBy(recipeSuggestionsTable.createdAt);
+
+    res.json(suggestions);
+  } catch (err) {
+    req.log.error({ err }, "Failed to fetch outgoing recipe suggestions");
+    res.status(500).json({ error: "internal_error" });
+  }
+});
+
 router.get("/recipe-suggestions/group-members", authMiddleware, async (req, res) => {
   try {
     const userId = req.authUser!.id;

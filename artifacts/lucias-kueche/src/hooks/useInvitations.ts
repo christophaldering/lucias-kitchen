@@ -53,7 +53,7 @@ export interface MealInvitation {
   members: InvitationMember[];
   finalRecipe: { id: number; title: string; imageUrl: string | null } | null;
   isHost: boolean;
-  myMembership: { id: number; mealInvitationId: number; userId: number; rsvp: RsvpStatus } | null;
+  myMembership: InvitationMember | null;
 }
 
 export interface AppNotification {

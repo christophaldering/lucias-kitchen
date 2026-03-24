@@ -1,6 +1,6 @@
 import { useState, useRef, useEffect } from "react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { Utensils, CalendarDays, BarChart3, Settings, LogOut, ChevronDown, User, BookOpen, Lightbulb, Mail } from "lucide-react";
+import { Utensils, CalendarDays, BarChart3, Settings, LogOut, ChevronDown, User, BookOpen, Lightbulb, House } from "lucide-react";
 import MeineRezepte from "@/pages/MeineRezepte";
 import Wochenplan from "@/pages/Wochenplan";
 import Statistiken from "@/pages/Statistiken";
@@ -9,14 +9,15 @@ import Profil from "@/pages/Profil";
 import Login from "@/pages/Login";
 import Onboarding from "@/pages/Onboarding";
 import WasKocheIch from "@/pages/WasKocheIch";
-import Einladungen from "@/pages/Einladungen";
+import MeineKueche from "@/pages/MeineKueche";
 import { AuthProvider, useAuth } from "@/contexts/AuthContext";
 import { NotificationBell } from "@/components/NotificationBell";
 import { useNotifications } from "@/hooks/useInvitations";
+import { useIncomingSuggestions } from "@/hooks/useRecipeSuggestions";
 
 const queryClient = new QueryClient();
 
-type Tab = "rezepte" | "wochenplan" | "statistiken" | "admin" | "profil" | "was-koche-ich" | "einladungen";
+type Tab = "rezepte" | "wochenplan" | "statistiken" | "admin" | "profil" | "was-koche-ich" | "meine-kueche";
 
 function getGreeting(name: string): string {
   const hour = new Date().getHours();
@@ -113,7 +114,7 @@ function BottomNav({ activeTab, onTabChange, unreadCount }: { activeTab: Tab; on
     { id: "rezepte", label: "Rezepte", icon: <BookOpen className="w-5 h-5" /> },
     { id: "was-koche-ich", label: "Kochidee", icon: <Lightbulb className="w-5 h-5" /> },
     { id: "wochenplan", label: "Wochenplan", icon: <CalendarDays className="w-5 h-5" /> },
-    { id: "einladungen", label: "Einladungen", icon: <Mail className="w-5 h-5" />, badge: unreadCount },
+    { id: "meine-kueche", label: "Meine Küche", icon: <House className="w-5 h-5" />, badge: unreadCount },
     { id: "statistiken", label: "Statistiken", icon: <BarChart3 className="w-5 h-5" /> },
   ];
 
@@ -168,7 +169,10 @@ function AppShell() {
   const { user, loading } = useAuth();
   const [activeTab, setActiveTab] = useState<Tab>("rezepte");
   const [openRecipeId, setOpenRecipeId] = useState<number | null>(null);
-  const { unreadCount } = useNotifications();
+  const { unreadCount: invitationUnreadCount } = useNotifications();
+  const { suggestions: incomingSuggestions } = useIncomingSuggestions();
+  const pendingSuggestionsCount = incomingSuggestions.filter((s) => s.status === "pending").length;
+  const unreadCount = invitationUnreadCount + pendingSuggestionsCount;
 
   function handleOpenRecipeFromNotification(recipeId: number) {
     setActiveTab("rezepte");
@@ -230,7 +234,7 @@ function AppShell() {
         {activeTab === "statistiken" && <Statistiken />}
         {activeTab === "admin" && <Admin />}
         {activeTab === "profil" && <Profil />}
-        {activeTab === "einladungen" && <Einladungen />}
+        {activeTab === "meine-kueche" && <MeineKueche onOpenRecipe={(recipeId) => { setActiveTab("rezepte"); setOpenRecipeId(recipeId); }} />}
       </main>
 
       <BottomNav activeTab={activeTab} onTabChange={setActiveTab} unreadCount={unreadCount} />

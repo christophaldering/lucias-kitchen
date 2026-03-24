@@ -37,7 +37,80 @@ export function useRecipes() {
     await fetchRecipes();
   }, [fetchRecipes]);
 
-  return { recipes, loading, error, refetch: fetchRecipes, addRecipes };
+  const updateRecipe = useCallback(async (id: number, data: Partial<Recipe>) => {
+    const existing = recipes.find((r) => r.id === id);
+    if (!existing) throw new Error("Recipe not found");
+    const body = {
+      title: existing.title,
+      servings: existing.servings,
+      prepTime: existing.prepTime,
+      totalTime: existing.totalTime,
+      difficulty: existing.difficulty,
+      category: existing.category,
+      rating: existing.rating,
+      kcalPerPortion: existing.kcalPerPortion,
+      source: existing.source,
+      lastCooked: existing.lastCooked,
+      cookedCount: existing.cookedCount,
+      notes: existing.notes,
+      steps: existing.steps,
+      ingredients: existing.ingredients.map((ing) => ({
+        amount: ing.amount,
+        unit: ing.unit,
+        name: ing.name,
+        note: ing.note,
+      })),
+      ...data,
+    };
+    const res = await fetch(`${API_BASE}/recipes/${id}`, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    });
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    await fetchRecipes();
+  }, [recipes, fetchRecipes]);
+
+  const patchRecipe = useCallback(async (id: number, patch: Record<string, unknown>) => {
+    const res = await fetch(`${API_BASE}/recipes/${id}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(patch),
+    });
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    await fetchRecipes();
+  }, [fetchRecipes]);
+
+  const deleteRecipe = useCallback(async (id: number) => {
+    const res = await fetch(`${API_BASE}/recipes/${id}`, { method: "DELETE" });
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    await fetchRecipes();
+  }, [fetchRecipes]);
+
+  const deleteAllRecipes = useCallback(async () => {
+    const res = await fetch(`${API_BASE}/recipes`, { method: "DELETE" });
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    await fetchRecipes();
+  }, [fetchRecipes]);
+
+  const restoreDemo = useCallback(async () => {
+    const res = await fetch(`${API_BASE}/recipes/seed`, { method: "POST" });
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    await fetchRecipes();
+  }, [fetchRecipes]);
+
+  return {
+    recipes,
+    loading,
+    error,
+    refetch: fetchRecipes,
+    addRecipes,
+    updateRecipe,
+    patchRecipe,
+    deleteRecipe,
+    deleteAllRecipes,
+    restoreDemo,
+  };
 }
 
 export async function extractPdfRecipes(

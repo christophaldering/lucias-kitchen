@@ -3,6 +3,7 @@ import { db } from "@workspace/db";
 import { recipesTable, recipeIngredientsTable } from "@workspace/db/schema";
 import { eq } from "drizzle-orm";
 import { z } from "zod/v4";
+import { seedRecipes } from "../db/seedRecipes";
 
 const router: IRouter = Router();
 
@@ -170,6 +171,52 @@ router.put("/recipes/:id", async (req, res) => {
   }
 });
 
+router.patch("/recipes/:id", async (req, res) => {
+  try {
+    const id = Number(req.params.id);
+    if (isNaN(id)) {
+      res.status(400).json({ error: "bad_request", message: "Invalid recipe id" });
+      return;
+    }
+
+    const patchSchema = z.object({
+      category: z.string().min(1).optional(),
+      difficulty: z.enum(["simpel", "normal", "schwer"]).optional(),
+      rating: z.string().nullable().optional(),
+      lastCooked: z.string().nullable().optional(),
+      cookedCount: z.number().int().min(0).nullable().optional(),
+      notes: z.string().nullable().optional(),
+    });
+
+    const data = patchSchema.parse(req.body);
+
+    const [updated] = await db
+      .update(recipesTable)
+      .set(data)
+      .where(eq(recipesTable.id, id))
+      .returning();
+
+    if (!updated) {
+      res.status(404).json({ error: "not_found", message: "Recipe not found" });
+      return;
+    }
+
+    const ingredients = await db
+      .select()
+      .from(recipeIngredientsTable)
+      .where(eq(recipeIngredientsTable.recipeId, id));
+
+    res.json({ ...updated, ingredients });
+  } catch (err) {
+    if (err instanceof z.ZodError) {
+      res.status(400).json({ error: "validation_error", issues: err.issues });
+      return;
+    }
+    req.log.error({ err }, "Failed to patch recipe");
+    res.status(500).json({ error: "internal_error", message: "Failed to patch recipe" });
+  }
+});
+
 router.delete("/recipes/:id", async (req, res) => {
   try {
     const id = Number(req.params.id);
@@ -192,6 +239,28 @@ router.delete("/recipes/:id", async (req, res) => {
   } catch (err) {
     req.log.error({ err }, "Failed to delete recipe");
     res.status(500).json({ error: "internal_error", message: "Failed to delete recipe" });
+  }
+});
+
+router.post("/recipes/seed", async (req, res) => {
+  try {
+    await seedRecipes(true);
+    const recipes = await getRecipesWithIngredients();
+    res.json({ success: true, count: recipes.length });
+  } catch (err) {
+    req.log.error({ err }, "Failed to seed recipes");
+    res.status(500).json({ error: "internal_error", message: "Failed to seed recipes" });
+  }
+});
+
+router.delete("/recipes", async (req, res) => {
+  try {
+    await db.delete(recipeIngredientsTable);
+    await db.delete(recipesTable);
+    res.json({ success: true });
+  } catch (err) {
+    req.log.error({ err }, "Failed to delete all recipes");
+    res.status(500).json({ error: "internal_error", message: "Failed to delete all recipes" });
   }
 });
 

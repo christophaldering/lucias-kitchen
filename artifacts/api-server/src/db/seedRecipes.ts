@@ -198,10 +198,12 @@ const RECIPES_DATA = [
   },
 ];
 
-export async function seedRecipes() {
-  const existing = await db.select({ id: recipesTable.id }).from(recipesTable).limit(1);
-  if (existing.length > 0) {
-    return;
+export async function seedRecipes(force = false) {
+  if (!force) {
+    const existing = await db.select({ id: recipesTable.id }).from(recipesTable).limit(1);
+    if (existing.length > 0) {
+      return;
+    }
   }
 
   for (const recipe of RECIPES_DATA) {

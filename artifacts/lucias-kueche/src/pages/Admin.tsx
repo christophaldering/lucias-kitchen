@@ -1,0 +1,765 @@
+import { useState, useRef } from "react";
+import {
+  Loader2, Trash2, Edit2, Download, Printer, ChefHat, Tag, RefreshCw,
+  Upload, Check, AlertTriangle, Settings, List, FolderOpen, Database, Sliders,
+  X, Plus, ChevronsUpDown
+} from "lucide-react";
+import { useRecipes } from "@/hooks/useRecipes";
+import type { Recipe } from "@/types/recipe";
+import RecipeEditModal from "@/components/RecipeEditModal";
+import { formatIngredient } from "@/types/recipe";
+
+const CATEGORY_EMOJIS: Record<string, string> = {
+  Fisch: "🐟", Geflügel: "🍗", Fleisch: "🥩", Vegetarisch: "🌿", Pasta: "🍝",
+};
+
+const SECTION_TABS = [
+  { id: "table", label: "Rezepte verwalten", icon: List },
+  { id: "categories", label: "Kategorien", icon: Tag },
+  { id: "backup", label: "Backup & Import", icon: Database },
+  { id: "settings", label: "App-Einstellungen", icon: Sliders },
+] as const;
+type SectionTab = typeof SECTION_TABS[number]["id"];
+
+function useLocalStorage<T>(key: string, defaultValue: T): [T, (v: T) => void] {
+  const [val, setVal] = useState<T>(() => {
+    try {
+      const stored = localStorage.getItem(key);
+      return stored !== null ? JSON.parse(stored) : defaultValue;
+    } catch { return defaultValue; }
+  });
+  const set = (v: T) => { setVal(v); localStorage.setItem(key, JSON.stringify(v)); };
+  return [val, set];
+}
+
+function toast(msg: string, type: "ok" | "err" = "ok") {
+  const el = document.createElement("div");
+  el.textContent = msg;
+  el.className = `fixed bottom-24 left-1/2 -translate-x-1/2 z-[200] px-5 py-3 rounded-2xl text-sm font-semibold shadow-lg transition-all ${
+    type === "ok" ? "bg-[#4A7C59] text-white" : "bg-red-600 text-white"
+  }`;
+  document.body.appendChild(el);
+  setTimeout(() => el.remove(), 3000);
+}
+
+function RecipeTable({
+  recipes,
+  selected,
+  onToggle,
+  onToggleAll,
+  onEdit,
+}: {
+  recipes: Recipe[];
+  selected: Set<number>;
+  onToggle: (id: number) => void;
+  onToggleAll: () => void;
+  onEdit: (r: Recipe) => void;
+}) {
+  const allSelected = recipes.length > 0 && selected.size === recipes.length;
+
+  return (
+    <div className="overflow-x-auto rounded-2xl border border-border bg-white shadow-sm">
+      <table className="w-full text-sm">
+        <thead>
+          <tr className="border-b border-border bg-[#4A7C59]/5">
+            <th className="px-4 py-3 text-left w-10">
+              <input type="checkbox" checked={allSelected} onChange={onToggleAll}
+                className="w-4 h-4 rounded accent-[#4A7C59] cursor-pointer" />
+            </th>
+            <th className="px-4 py-3 text-left font-semibold text-foreground">Titel</th>
+            <th className="px-4 py-3 text-left font-semibold text-foreground hidden md:table-cell">Kategorie</th>
+            <th className="px-4 py-3 text-left font-semibold text-foreground hidden lg:table-cell">Schwierigkeit</th>
+            <th className="px-4 py-3 text-left font-semibold text-foreground hidden lg:table-cell">Zeit</th>
+            <th className="px-4 py-3 text-left font-semibold text-foreground hidden xl:table-cell">Bewertung</th>
+            <th className="px-4 py-3 text-left font-semibold text-foreground hidden xl:table-cell">Gekocht</th>
+            <th className="px-4 py-3 text-center font-semibold text-foreground w-16">Edit</th>
+          </tr>
+        </thead>
+        <tbody>
+          {recipes.map((r, i) => {
+            const isSel = selected.has(r.id);
+            return (
+              <tr key={r.id}
+                className={`border-b border-border/50 transition-colors ${isSel ? "bg-[#4A7C59]/5" : i % 2 === 0 ? "bg-white" : "bg-gray-50/50"} hover:bg-[#4A7C59]/8`}>
+                <td className="px-4 py-3">
+                  <input type="checkbox" checked={isSel} onChange={() => onToggle(r.id)}
+                    className="w-4 h-4 rounded accent-[#4A7C59] cursor-pointer" />
+                </td>
+                <td className="px-4 py-3">
+                  <span className="font-medium text-foreground line-clamp-1">{r.title}</span>
+                  <span className="block text-xs text-muted-foreground md:hidden">{CATEGORY_EMOJIS[r.category] ?? "🍽️"} {r.category}</span>
+                </td>
+                <td className="px-4 py-3 hidden md:table-cell">
+                  <span className="inline-flex items-center gap-1 text-xs font-medium px-2 py-0.5 rounded-full bg-[#4A7C59]/10 text-[#4A7C59]">
+                    {CATEGORY_EMOJIS[r.category] ?? "🍽️"} {r.category}
+                  </span>
+                </td>
+                <td className="px-4 py-3 hidden lg:table-cell">
+                  <span className={`text-xs font-medium px-2 py-0.5 rounded-full ${
+                    r.difficulty === "simpel" ? "bg-green-100 text-green-700" :
+                    r.difficulty === "normal" ? "bg-amber-100 text-amber-700" : "bg-red-100 text-red-700"
+                  }`}>{r.difficulty}</span>
+                </td>
+                <td className="px-4 py-3 hidden lg:table-cell text-xs text-muted-foreground">
+                  {r.totalTime?.replace("ca. ", "") ?? "–"}
+                </td>
+                <td className="px-4 py-3 hidden xl:table-cell text-xs text-muted-foreground">
+                  {r.rating === "sehr lecker" ? "⭐ sehr lecker" : r.rating === "lecker" ? "👍 lecker" : "–"}
+                </td>
+                <td className="px-4 py-3 hidden xl:table-cell text-xs text-muted-foreground">
+                  {r.cookedCount ? `🍳 ${r.cookedCount}×` : "–"}
+                  {r.lastCooked ? <span className="block">{r.lastCooked}</span> : null}
+                </td>
+                <td className="px-4 py-3 text-center">
+                  <button onClick={() => onEdit(r)}
+                    className="p-1.5 rounded-lg hover:bg-[#C1693A]/10 text-muted-foreground hover:text-[#C1693A] transition-colors">
+                    <Edit2 className="w-4 h-4" />
+                  </button>
+                </td>
+              </tr>
+            );
+          })}
+        </tbody>
+      </table>
+      {recipes.length === 0 && (
+        <div className="py-12 text-center text-muted-foreground">
+          <p className="text-3xl mb-2">📭</p>
+          <p>Keine Rezepte vorhanden.</p>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function BulkActionsBar({
+  count,
+  recipes,
+  selected,
+  onClearSelect,
+  patchRecipe,
+  deleteRecipe,
+  refetch,
+}: {
+  count: number;
+  recipes: Recipe[];
+  selected: Set<number>;
+  onClearSelect: () => void;
+  patchRecipe: (id: number, patch: Record<string, unknown>) => Promise<void>;
+  deleteRecipe: (id: number) => Promise<void>;
+  refetch: () => Promise<void>;
+}) {
+  const [busy, setBusy] = useState(false);
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
+  const [categoryVal, setCategoryVal] = useState("");
+  const [diffVal, setDiffVal] = useState("");
+
+  if (count === 0) return null;
+
+  const selectedRecipes = recipes.filter((r) => selected.has(r.id));
+
+  const doBulkPatch = async (patch: Record<string, unknown>) => {
+    setBusy(true);
+    try {
+      await Promise.all([...selected].map((id) => patchRecipe(id, patch)));
+      toast(`${count} Rezept${count !== 1 ? "e" : ""} aktualisiert`);
+      onClearSelect();
+    } catch { toast("Fehler beim Aktualisieren", "err"); }
+    finally { setBusy(false); }
+  };
+
+  const doDelete = async () => {
+    setBusy(true);
+    try {
+      for (const id of selected) await deleteRecipe(id);
+      toast(`${count} Rezept${count !== 1 ? "e" : ""} gelöscht`);
+      onClearSelect();
+      setShowDeleteConfirm(false);
+    } catch { toast("Fehler beim Löschen", "err"); }
+    finally { setBusy(false); }
+  };
+
+  const doMarkCooked = async () => {
+    const today = new Date().toLocaleDateString("de-DE", { day: "2-digit", month: "2-digit", year: "2-digit" }).replace(/\//g, ".");
+    setBusy(true);
+    try {
+      await Promise.all(selectedRecipes.map((r) =>
+        patchRecipe(r.id, { lastCooked: today, cookedCount: (r.cookedCount ?? 0) + 1 })
+      ));
+      toast(`${count} Rezept${count !== 1 ? "e" : ""} als heute gekocht markiert`);
+      onClearSelect();
+    } catch { toast("Fehler", "err"); }
+    finally { setBusy(false); }
+  };
+
+  const doPrint = () => {
+    const html = selectedRecipes.map((r) => `
+      <div style="page-break-inside:avoid;margin-bottom:40px;font-family:Georgia,serif">
+        <h2 style="font-size:18px;margin:0 0 4px">${r.title}</h2>
+        <p style="font-size:12px;color:#666;margin:0 0 12px">${r.category} • ${r.difficulty}${r.totalTime ? " • " + r.totalTime : ""}${r.servings ? " • " + r.servings + " Portionen" : ""}</p>
+        <h3 style="font-size:14px;margin:0 0 6px">Zutaten</h3>
+        <ul style="margin:0 0 12px;padding-left:18px;font-size:13px">${r.ingredients.map((i) => `<li>${formatIngredient(i)}</li>`).join("")}</ul>
+        <h3 style="font-size:14px;margin:0 0 6px">Zubereitung</h3>
+        <ol style="margin:0;padding-left:18px;font-size:13px">${r.steps.map((s) => `<li style="margin-bottom:4px">${s}</li>`).join("")}</ol>
+        ${r.notes ? `<p style="font-size:12px;color:#7a5c00;background:#fffbe8;padding:8px;margin-top:12px;border-radius:6px">📝 ${r.notes}</p>` : ""}
+      </div>`).join("<hr style='margin:20px 0'>");
+    const win = window.open("", "_blank");
+    if (!win) return;
+    win.document.write(`<!DOCTYPE html><html><head><title>Rezepte</title><style>@media print{body{margin:20px}}</style></head><body>${html}</body></html>`);
+    win.document.close();
+    win.print();
+  };
+
+  const doDownload = () => {
+    const text = selectedRecipes.map((r) => [
+      `=== ${r.title} ===`,
+      `Kategorie: ${r.category} | Schwierigkeitsgrad: ${r.difficulty}`,
+      r.totalTime ? `Zeit: ${r.totalTime}` : "",
+      r.servings ? `Portionen: ${r.servings}` : "",
+      r.source ? `Quelle: ${r.source}` : "",
+      "",
+      "ZUTATEN:",
+      ...r.ingredients.map((i) => `  - ${formatIngredient(i)}`),
+      "",
+      "ZUBEREITUNG:",
+      ...r.steps.map((s, i) => `  ${i + 1}. ${s}`),
+      r.notes ? `\nNOTIZEN:\n  ${r.notes}` : "",
+    ].filter((l) => l !== undefined).join("\n")).join("\n\n" + "─".repeat(50) + "\n\n");
+    const blob = new Blob([text], { type: "text/plain;charset=utf-8" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url; a.download = "rezepte.txt"; a.click();
+    URL.revokeObjectURL(url);
+  };
+
+  return (
+    <>
+      {showDeleteConfirm && (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/50 p-4">
+          <div className="bg-white rounded-2xl shadow-2xl p-6 max-w-sm w-full">
+            <p className="text-4xl text-center mb-3">🗑️</p>
+            <h3 className="font-serif text-lg font-semibold text-center mb-2">Rezepte löschen?</h3>
+            <p className="text-sm text-muted-foreground text-center mb-6">
+              {count} Rezept{count !== 1 ? "e" : ""} werden unwiderruflich gelöscht.
+            </p>
+            <div className="flex gap-3">
+              <button onClick={() => setShowDeleteConfirm(false)}
+                className="flex-1 py-2 border border-border rounded-xl text-sm hover:bg-secondary transition-colors">
+                Abbrechen
+              </button>
+              <button onClick={doDelete} disabled={busy}
+                className="flex-1 py-2 bg-red-600 text-white rounded-xl text-sm font-semibold hover:bg-red-700 transition-colors disabled:opacity-60 flex items-center justify-center gap-2">
+                {busy ? <Loader2 className="w-4 h-4 animate-spin" /> : null}
+                Löschen
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      <div className="fixed bottom-0 left-0 right-0 z-50 bg-[#2d5240] text-white shadow-2xl border-t-2 border-[#4A7C59]/50">
+        <div className="max-w-6xl mx-auto px-4 py-3">
+          <div className="flex items-center gap-3 flex-wrap">
+            <div className="flex items-center gap-2 mr-2">
+              <span className="font-semibold text-sm">{count} ausgewählt</span>
+              <button onClick={onClearSelect} className="p-0.5 hover:bg-white/20 rounded-md transition-colors">
+                <X className="w-3.5 h-3.5" />
+              </button>
+            </div>
+
+            <select value={categoryVal} onChange={(e) => { if (e.target.value) { doBulkPatch({ category: e.target.value }); setCategoryVal(""); } }}
+              disabled={busy}
+              className="bg-white/10 border border-white/20 text-white text-xs px-3 py-1.5 rounded-lg focus:outline-none cursor-pointer disabled:opacity-50">
+              <option value="">Kategorie ändern…</option>
+              {["Fisch","Geflügel","Fleisch","Vegetarisch","Pasta"].map((c) => <option key={c} value={c} className="text-black">{c}</option>)}
+            </select>
+
+            <select value={diffVal} onChange={(e) => { if (e.target.value) { doBulkPatch({ difficulty: e.target.value }); setDiffVal(""); } }}
+              disabled={busy}
+              className="bg-white/10 border border-white/20 text-white text-xs px-3 py-1.5 rounded-lg focus:outline-none cursor-pointer disabled:opacity-50">
+              <option value="">Schwierigkeit ändern…</option>
+              {["simpel","normal","schwer"].map((d) => <option key={d} value={d} className="text-black">{d}</option>)}
+            </select>
+
+            <button onClick={doMarkCooked} disabled={busy}
+              className="flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-lg bg-white/10 hover:bg-white/20 transition-colors disabled:opacity-50 whitespace-nowrap">
+              🍳 Heute gekocht
+            </button>
+
+            <button onClick={doPrint} disabled={busy}
+              className="flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-lg bg-white/10 hover:bg-white/20 transition-colors disabled:opacity-50">
+              <Printer className="w-3.5 h-3.5" /> Drucken
+            </button>
+
+            <button onClick={doDownload} disabled={busy}
+              className="flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-lg bg-white/10 hover:bg-white/20 transition-colors disabled:opacity-50">
+              <Download className="w-3.5 h-3.5" /> Download
+            </button>
+
+            <button onClick={() => setShowDeleteConfirm(true)} disabled={busy}
+              className="flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-lg bg-red-500/80 hover:bg-red-500 transition-colors disabled:opacity-50 ml-auto">
+              <Trash2 className="w-3.5 h-3.5" /> Löschen
+            </button>
+          </div>
+        </div>
+      </div>
+    </>
+  );
+}
+
+function CategoryManager({ recipes, patchRecipe, refetch }: {
+  recipes: Recipe[];
+  patchRecipe: (id: number, patch: Record<string, unknown>) => Promise<void>;
+  refetch: () => Promise<void>;
+}) {
+  const [newCat, setNewCat] = useState("");
+  const [renaming, setRenaming] = useState<string | null>(null);
+  const [renameVal, setRenameVal] = useState("");
+  const [mergeSrc, setMergeSrc] = useState("");
+  const [mergeDst, setMergeDst] = useState("");
+  const [busy, setBusy] = useState(false);
+
+  const categoryCounts = recipes.reduce<Record<string, number>>((acc, r) => {
+    acc[r.category] = (acc[r.category] || 0) + 1;
+    return acc;
+  }, {});
+  const categories = Object.keys(categoryCounts).sort();
+
+  const doRename = async (from: string, to: string) => {
+    if (!to.trim() || to === from) return;
+    const affected = recipes.filter((r) => r.category === from);
+    setBusy(true);
+    try {
+      await Promise.all(affected.map((r) => patchRecipe(r.id, { category: to.trim() })));
+      toast(`Kategorie "${from}" → "${to.trim()}" umbenannt`);
+      setRenaming(null);
+    } catch { toast("Fehler beim Umbenennen", "err"); }
+    finally { setBusy(false); }
+  };
+
+  const doMerge = async () => {
+    if (!mergeSrc || !mergeDst || mergeSrc === mergeDst) return;
+    const affected = recipes.filter((r) => r.category === mergeSrc);
+    setBusy(true);
+    try {
+      await Promise.all(affected.map((r) => patchRecipe(r.id, { category: mergeDst })));
+      toast(`"${mergeSrc}" wurde in "${mergeDst}" zusammengeführt`);
+      setMergeSrc(""); setMergeDst("");
+    } catch { toast("Fehler beim Zusammenführen", "err"); }
+    finally { setBusy(false); }
+  };
+
+  return (
+    <div className="space-y-6">
+      <div className="bg-white rounded-2xl border border-border shadow-sm p-6">
+        <h3 className="font-serif font-semibold text-lg mb-4">🗂️ Vorhandene Kategorien</h3>
+        <div className="space-y-2">
+          {categories.map((cat) => (
+            <div key={cat} className="flex items-center gap-3 p-3 rounded-xl bg-gray-50 border border-border/50">
+              <span className="text-lg">{CATEGORY_EMOJIS[cat] ?? "🍽️"}</span>
+              {renaming === cat ? (
+                <>
+                  <input value={renameVal} onChange={(e) => setRenameVal(e.target.value)}
+                    className="flex-1 px-2 py-1 rounded-lg border border-border bg-white text-sm focus:outline-none focus:ring-2 focus:ring-[#4A7C59]/30" />
+                  <button onClick={() => doRename(cat, renameVal)} disabled={busy}
+                    className="px-3 py-1 bg-[#4A7C59] text-white rounded-lg text-xs font-medium hover:bg-[#3d6849] transition-colors disabled:opacity-50">
+                    OK
+                  </button>
+                  <button onClick={() => setRenaming(null)} className="p-1 text-muted-foreground hover:text-foreground">
+                    <X className="w-4 h-4" />
+                  </button>
+                </>
+              ) : (
+                <>
+                  <span className="flex-1 font-medium text-sm">{cat}</span>
+                  <span className="text-xs text-muted-foreground">{categoryCounts[cat]} Rezept{categoryCounts[cat] !== 1 ? "e" : ""}</span>
+                  <button onClick={() => { setRenaming(cat); setRenameVal(cat); }}
+                    className="p-1.5 rounded-lg hover:bg-[#4A7C59]/10 text-muted-foreground hover:text-[#4A7C59] transition-colors">
+                    <Edit2 className="w-3.5 h-3.5" />
+                  </button>
+                </>
+              )}
+            </div>
+          ))}
+        </div>
+      </div>
+
+      <div className="bg-white rounded-2xl border border-border shadow-sm p-6">
+        <h3 className="font-serif font-semibold text-lg mb-4">🔀 Kategorien zusammenführen</h3>
+        <p className="text-sm text-muted-foreground mb-4">Alle Rezepte einer Quelle werden in die Ziel-Kategorie verschoben.</p>
+        <div className="flex gap-3 flex-wrap items-end">
+          <div className="flex-1 min-w-32">
+            <label className="block text-xs font-semibold text-muted-foreground mb-1">Quelle</label>
+            <select value={mergeSrc} onChange={(e) => setMergeSrc(e.target.value)}
+              className="w-full px-3 py-2 rounded-xl border border-border bg-white text-sm focus:outline-none">
+              <option value="">Kategorie wählen…</option>
+              {categories.map((c) => <option key={c} value={c}>{c}</option>)}
+            </select>
+          </div>
+          <ChevronsUpDown className="w-4 h-4 text-muted-foreground rotate-90 mb-3 flex-shrink-0" />
+          <div className="flex-1 min-w-32">
+            <label className="block text-xs font-semibold text-muted-foreground mb-1">Ziel</label>
+            <select value={mergeDst} onChange={(e) => setMergeDst(e.target.value)}
+              className="w-full px-3 py-2 rounded-xl border border-border bg-white text-sm focus:outline-none">
+              <option value="">Kategorie wählen…</option>
+              {categories.filter((c) => c !== mergeSrc).map((c) => <option key={c} value={c}>{c}</option>)}
+            </select>
+          </div>
+          <button onClick={doMerge} disabled={busy || !mergeSrc || !mergeDst}
+            className="px-4 py-2 bg-[#4A7C59] text-white rounded-xl text-sm font-semibold hover:bg-[#3d6849] transition-colors disabled:opacity-50">
+            {busy ? <Loader2 className="w-4 h-4 animate-spin" /> : "Zusammenführen"}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function BackupSection({
+  recipes,
+  addRecipes,
+  deleteAllRecipes,
+  restoreDemo,
+  refetch,
+}: {
+  recipes: Recipe[];
+  addRecipes: (r: Partial<Recipe>[]) => Promise<void>;
+  deleteAllRecipes: () => Promise<void>;
+  restoreDemo: () => Promise<void>;
+  refetch: () => Promise<void>;
+}) {
+  const fileRef = useRef<HTMLInputElement>(null);
+  const [importPreview, setImportPreview] = useState<Partial<Recipe>[] | null>(null);
+  const [deleteConfirmText, setDeleteConfirmText] = useState("");
+  const [showDeleteAll, setShowDeleteAll] = useState(false);
+  const [busy, setBusy] = useState(false);
+
+  const doExport = () => {
+    const data = JSON.stringify(recipes, null, 2);
+    const blob = new Blob([data], { type: "application/json" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url; a.download = "lucias-rezepte.json"; a.click();
+    URL.revokeObjectURL(url);
+    toast("Export erfolgreich");
+  };
+
+  const handleImportFile = (file: File) => {
+    const reader = new FileReader();
+    reader.onload = () => {
+      try {
+        const parsed = JSON.parse(reader.result as string);
+        const items = Array.isArray(parsed) ? parsed : [parsed];
+        setImportPreview(items);
+      } catch { toast("Ungültige JSON-Datei", "err"); }
+    };
+    reader.readAsText(file);
+  };
+
+  const doImport = async () => {
+    if (!importPreview) return;
+    setBusy(true);
+    try {
+      await addRecipes(importPreview);
+      toast(`${importPreview.length} Rezept${importPreview.length !== 1 ? "e" : ""} importiert`);
+      setImportPreview(null);
+    } catch { toast("Importfehler", "err"); }
+    finally { setBusy(false); }
+  };
+
+  const doRestoreDemo = async () => {
+    setBusy(true);
+    try {
+      await restoreDemo();
+      toast("13 Demo-Rezepte wiederhergestellt");
+    } catch { toast("Fehler", "err"); }
+    finally { setBusy(false); }
+  };
+
+  const doDeleteAll = async () => {
+    if (deleteConfirmText !== "LÖSCHEN") return;
+    setBusy(true);
+    try {
+      await deleteAllRecipes();
+      toast("Alle Rezepte gelöscht");
+      setShowDeleteAll(false);
+      setDeleteConfirmText("");
+    } catch { toast("Fehler", "err"); }
+    finally { setBusy(false); }
+  };
+
+  return (
+    <div className="space-y-6">
+      {importPreview && (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/50 p-4">
+          <div className="bg-white rounded-2xl shadow-2xl p-6 max-w-md w-full max-h-[80vh] flex flex-col">
+            <h3 className="font-serif text-lg font-semibold mb-2">Import-Vorschau</h3>
+            <p className="text-sm text-muted-foreground mb-4">{importPreview.length} Rezept{importPreview.length !== 1 ? "e" : ""} gefunden:</p>
+            <ul className="overflow-y-auto flex-1 space-y-1 mb-4">
+              {importPreview.map((r, i) => (
+                <li key={i} className="text-sm px-3 py-1.5 bg-gray-50 rounded-lg">{r.title ?? "Unbekannt"}</li>
+              ))}
+            </ul>
+            <div className="flex gap-3">
+              <button onClick={() => setImportPreview(null)}
+                className="flex-1 py-2 border border-border rounded-xl text-sm hover:bg-secondary transition-colors">
+                Abbrechen
+              </button>
+              <button onClick={doImport} disabled={busy}
+                className="flex-1 py-2 bg-[#4A7C59] text-white rounded-xl text-sm font-semibold hover:bg-[#3d6849] transition-colors disabled:opacity-60 flex items-center justify-center gap-2">
+                {busy ? <Loader2 className="w-4 h-4 animate-spin" /> : <Check className="w-4 h-4" />}
+                Importieren
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {showDeleteAll && (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/50 p-4">
+          <div className="bg-white rounded-2xl shadow-2xl p-6 max-w-sm w-full">
+            <div className="text-center mb-4">
+              <AlertTriangle className="w-12 h-12 text-red-500 mx-auto mb-2" />
+              <h3 className="font-serif text-lg font-semibold">Alle Rezepte löschen?</h3>
+              <p className="text-sm text-muted-foreground mt-1">Diese Aktion kann nicht rückgängig gemacht werden!</p>
+            </div>
+            <p className="text-sm mb-2 font-medium">Tippe <strong>LÖSCHEN</strong> zur Bestätigung:</p>
+            <input value={deleteConfirmText} onChange={(e) => setDeleteConfirmText(e.target.value)}
+              placeholder="LÖSCHEN" className="w-full px-3 py-2 rounded-xl border border-border bg-white text-sm focus:outline-none focus:ring-2 focus:ring-red-300 mb-4" />
+            <div className="flex gap-3">
+              <button onClick={() => { setShowDeleteAll(false); setDeleteConfirmText(""); }}
+                className="flex-1 py-2 border border-border rounded-xl text-sm hover:bg-secondary transition-colors">
+                Abbrechen
+              </button>
+              <button onClick={doDeleteAll} disabled={deleteConfirmText !== "LÖSCHEN" || busy}
+                className="flex-1 py-2 bg-red-600 text-white rounded-xl text-sm font-semibold hover:bg-red-700 transition-colors disabled:opacity-50 flex items-center justify-center gap-2">
+                {busy ? <Loader2 className="w-4 h-4 animate-spin" /> : null}
+                Alles löschen
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+        <div className="bg-white rounded-2xl border border-border shadow-sm p-6">
+          <h3 className="font-serif font-semibold text-lg mb-2">💾 Export</h3>
+          <p className="text-sm text-muted-foreground mb-4">
+            {recipes.length} Rezepte als JSON-Datei herunterladen (vollständige Sicherung inkl. Zutaten und Schritte).
+          </p>
+          <button onClick={doExport}
+            className="flex items-center gap-2 px-4 py-2.5 bg-[#4A7C59] text-white rounded-xl text-sm font-semibold hover:bg-[#3d6849] transition-colors">
+            <Download className="w-4 h-4" /> Alle exportieren (.json)
+          </button>
+        </div>
+
+        <div className="bg-white rounded-2xl border border-border shadow-sm p-6">
+          <h3 className="font-serif font-semibold text-lg mb-2">📥 Import</h3>
+          <p className="text-sm text-muted-foreground mb-4">
+            Rezepte aus einer JSON-Datei importieren. Vorschau vor dem Hinzufügen.
+          </p>
+          <input ref={fileRef} type="file" accept=".json" className="hidden"
+            onChange={(e) => e.target.files?.[0] && handleImportFile(e.target.files[0])} />
+          <button onClick={() => fileRef.current?.click()}
+            className="flex items-center gap-2 px-4 py-2.5 bg-[#C1693A] text-white rounded-xl text-sm font-semibold hover:bg-[#a8572f] transition-colors">
+            <Upload className="w-4 h-4" /> JSON-Datei auswählen
+          </button>
+        </div>
+
+        <div className="bg-white rounded-2xl border border-border shadow-sm p-6">
+          <h3 className="font-serif font-semibold text-lg mb-2">🔄 Demo-Rezepte wiederherstellen</h3>
+          <p className="text-sm text-muted-foreground mb-4">
+            Die 13 Original-Rezepte erneut hinzufügen (bestehende Rezepte bleiben erhalten).
+          </p>
+          <button onClick={doRestoreDemo} disabled={busy}
+            className="flex items-center gap-2 px-4 py-2.5 bg-amber-600 text-white rounded-xl text-sm font-semibold hover:bg-amber-700 transition-colors disabled:opacity-60">
+            {busy ? <Loader2 className="w-4 h-4 animate-spin" /> : <RefreshCw className="w-4 h-4" />}
+            Demo-Rezepte hinzufügen
+          </button>
+        </div>
+
+        <div className="bg-white rounded-2xl border border-red-200 shadow-sm p-6">
+          <h3 className="font-serif font-semibold text-lg mb-2 text-red-700">⚠️ Alle Rezepte löschen</h3>
+          <p className="text-sm text-muted-foreground mb-4">
+            Löscht <strong>alle {recipes.length} Rezepte</strong> unwiderruflich aus der Datenbank.
+          </p>
+          <button onClick={() => setShowDeleteAll(true)}
+            className="flex items-center gap-2 px-4 py-2.5 bg-red-600 text-white rounded-xl text-sm font-semibold hover:bg-red-700 transition-colors">
+            <Trash2 className="w-4 h-4" /> Alle Rezepte löschen
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function AppSettings() {
+  const [defaultView, setDefaultView] = useLocalStorage<"kacheln" | "tabelle">("lk_defaultView", "kacheln");
+  const [sortOrder, setSortOrder] = useLocalStorage<string>("lk_sortOrder", "alphabetisch");
+  const [showNotes, setShowNotes] = useLocalStorage<boolean>("lk_showNotes", true);
+  const [showCookCount, setShowCookCount] = useLocalStorage<boolean>("lk_showCookCount", true);
+
+  const Toggle = ({ value, onChange, label }: { value: boolean; onChange: (v: boolean) => void; label: string }) => (
+    <div className="flex items-center justify-between py-3 border-b border-border/50 last:border-0">
+      <span className="text-sm font-medium text-foreground">{label}</span>
+      <button onClick={() => onChange(!value)}
+        className={`relative w-10 h-6 rounded-full transition-colors ${value ? "bg-[#4A7C59]" : "bg-gray-300"}`}>
+        <span className={`absolute top-1 w-4 h-4 bg-white rounded-full transition-transform shadow-sm ${value ? "translate-x-5" : "translate-x-1"}`} />
+      </button>
+    </div>
+  );
+
+  return (
+    <div className="space-y-6">
+      <div className="bg-white rounded-2xl border border-border shadow-sm p-6">
+        <h3 className="font-serif font-semibold text-lg mb-4">🖥️ Anzeigeeinstellungen</h3>
+        <div className="space-y-4">
+          <div>
+            <label className="block text-xs font-semibold text-muted-foreground mb-2 uppercase tracking-wide">Standardansicht (Rezepte-Tab)</label>
+            <div className="flex gap-2">
+              {(["kacheln", "tabelle"] as const).map((v) => (
+                <button key={v} onClick={() => setDefaultView(v)}
+                  className={`px-4 py-2 rounded-xl text-sm font-medium transition-colors ${defaultView === v ? "bg-[#4A7C59] text-white" : "bg-white border border-border hover:border-[#4A7C59]/40"}`}>
+                  {v === "kacheln" ? "🃏 Kacheln" : "📋 Tabelle"}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          <div>
+            <label className="block text-xs font-semibold text-muted-foreground mb-2 uppercase tracking-wide">Sortierreihenfolge</label>
+            <select value={sortOrder} onChange={(e) => setSortOrder(e.target.value)}
+              className="px-3 py-2 rounded-xl border border-border bg-white text-sm focus:outline-none focus:ring-2 focus:ring-[#4A7C59]/30">
+              <option value="alphabetisch">Alphabetisch (A–Z)</option>
+              <option value="kategorie">Nach Kategorie</option>
+              <option value="bewertung">Nach Bewertung</option>
+              <option value="zuletzt_gekocht">Zuletzt gekocht</option>
+              <option value="haeufig_gekocht">Am häufigsten gekocht</option>
+            </select>
+          </div>
+        </div>
+      </div>
+
+      <div className="bg-white rounded-2xl border border-border shadow-sm p-6">
+        <h3 className="font-serif font-semibold text-lg mb-1">🔀 Kartendarstellung</h3>
+        <p className="text-sm text-muted-foreground mb-4">Gilt für die Kachelansicht in „Meine Rezepte".</p>
+        <div>
+          <Toggle value={showNotes} onChange={setShowNotes} label="Notizvorschau auf Karten anzeigen" />
+          <Toggle value={showCookCount} onChange={setShowCookCount} label="Kochzähler auf Karten anzeigen" />
+        </div>
+      </div>
+
+      <div className="sticky-note rounded-xl p-4 text-sm text-amber-900">
+        <strong>📝 Hinweis:</strong> Die Einstellungen werden lokal in diesem Browser gespeichert und sind sofort aktiv.
+      </div>
+    </div>
+  );
+}
+
+export default function Admin() {
+  const { recipes, loading, error, refetch, patchRecipe, deleteRecipe, updateRecipe, addRecipes, deleteAllRecipes, restoreDemo } = useRecipes();
+  const [section, setSection] = useState<SectionTab>("table");
+  const [selected, setSelected] = useState<Set<number>>(new Set());
+  const [editRecipe, setEditRecipe] = useState<Recipe | null>(null);
+
+  const toggleSelect = (id: number) => setSelected((prev) => {
+    const next = new Set(prev);
+    if (next.has(id)) next.delete(id); else next.add(id);
+    return next;
+  });
+
+  const toggleAll = () => {
+    if (selected.size === recipes.length) setSelected(new Set());
+    else setSelected(new Set(recipes.map((r) => r.id)));
+  };
+
+  const handleSaveEdit = async (id: number, data: Partial<Recipe>) => {
+    await updateRecipe(id, data);
+  };
+
+  if (loading) {
+    return (
+      <div className="flex flex-col items-center py-20 gap-3 text-muted-foreground">
+        <Loader2 className="w-8 h-8 animate-spin text-[#4A7C59]" />
+        <p className="font-serif text-lg">Wird geladen…</p>
+      </div>
+    );
+  }
+
+  if (error) {
+    return (
+      <div className="text-center py-16">
+        <p className="text-4xl mb-4">⚠️</p>
+        <p className="font-serif text-lg text-foreground">{error}</p>
+      </div>
+    );
+  }
+
+  return (
+    <div className="max-w-6xl mx-auto px-4 py-8 pb-28">
+      <div className="mb-6 flex items-center gap-3">
+        <Settings className="w-6 h-6 text-[#4A7C59]" />
+        <h2 className="font-serif text-2xl font-semibold text-foreground">Admin-Bereich</h2>
+        <span className="ml-auto text-sm text-muted-foreground">{recipes.length} Rezepte</span>
+      </div>
+
+      <div className="flex gap-1 mb-6 flex-wrap">
+        {SECTION_TABS.map((tab) => (
+          <button key={tab.id} onClick={() => setSection(tab.id)}
+            className={`flex items-center gap-1.5 px-4 py-2 rounded-xl text-sm font-medium transition-colors ${
+              section === tab.id
+                ? "bg-[#4A7C59] text-white shadow-sm"
+                : "bg-white border border-border text-foreground hover:border-[#4A7C59]/40"
+            }`}>
+            <tab.icon className="w-3.5 h-3.5" />
+            {tab.label}
+          </button>
+        ))}
+      </div>
+
+      {section === "table" && (
+        <div>
+          <RecipeTable
+            recipes={recipes}
+            selected={selected}
+            onToggle={toggleSelect}
+            onToggleAll={toggleAll}
+            onEdit={setEditRecipe}
+          />
+          <BulkActionsBar
+            count={selected.size}
+            recipes={recipes}
+            selected={selected}
+            onClearSelect={() => setSelected(new Set())}
+            patchRecipe={patchRecipe}
+            deleteRecipe={deleteRecipe}
+            refetch={refetch}
+          />
+        </div>
+      )}
+
+      {section === "categories" && (
+        <CategoryManager recipes={recipes} patchRecipe={patchRecipe} refetch={refetch} />
+      )}
+
+      {section === "backup" && (
+        <BackupSection
+          recipes={recipes}
+          addRecipes={addRecipes}
+          deleteAllRecipes={deleteAllRecipes}
+          restoreDemo={restoreDemo}
+          refetch={refetch}
+        />
+      )}
+
+      {section === "settings" && <AppSettings />}
+
+      {editRecipe && (
+        <RecipeEditModal
+          recipe={editRecipe}
+          onClose={() => setEditRecipe(null)}
+          onSave={handleSaveEdit}
+        />
+      )}
+    </div>
+  );
+}

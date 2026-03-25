@@ -1,4 +1,4 @@
-import { pgTable, text, serial, integer, jsonb, date, unique, timestamp, pgEnum, boolean } from "drizzle-orm/pg-core";
+import { pgTable, text, serial, integer, jsonb, date, unique, timestamp, pgEnum, boolean, index } from "drizzle-orm/pg-core";
 import { usersTable } from "./users";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod/v4";
@@ -34,7 +34,9 @@ export const recipeIngredientsTable = pgTable("recipe_ingredients", {
   unit: text("unit").notNull().default(""),
   name: text("name").notNull(),
   note: text("note"),
-});
+}, (t) => [
+  index("recipe_ingredients_recipe_id_idx").on(t.recipeId),
+]);
 
 export const mealPlansTable = pgTable("meal_plans", {
   id: serial("id").primaryKey(),

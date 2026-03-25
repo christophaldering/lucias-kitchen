@@ -8,8 +8,26 @@ import { singleImageUploadMiddleware, UPLOADS_DIR } from "../lib/imageUpload";
 import { authMiddleware } from "./auth";
 import path from "path";
 import fs from "fs";
+import { createHash } from "crypto";
+
+const recipeListCache = new Map<string, { etag: string; body: string }>();
+
+function recipeListCacheKey(userId?: number, filter?: string) {
+  return `${userId ?? "anon"}:${filter ?? "all"}`;
+}
+
+function invalidateRecipeListCache() {
+  recipeListCache.clear();
+}
 
 const router: IRouter = Router();
+
+router.use((req, _res, next) => {
+  if (req.method !== "GET" && req.method !== "HEAD") {
+    invalidateRecipeListCache();
+  }
+  next();
+});
 
 const ingredientSchema = z.object({
   amount: z.string().default(""),
@@ -43,41 +61,126 @@ const recipeBodySchema = z.object({
 });
 
 async function getRecipesWithIngredients(currentUserId?: number, filter?: string) {
-  const [recipes, ingredients, favRows, ownerRows] = await Promise.all([
-    db.select().from(recipesTable).orderBy(recipesTable.id),
-    db.select().from(recipeIngredientsTable).orderBy(recipeIngredientsTable.id),
-    currentUserId
-      ? db.select({ recipeId: recipeFavoritesTable.recipeId })
-          .from(recipeFavoritesTable)
-          .where(eq(recipeFavoritesTable.userId, currentUserId))
-      : Promise.resolve([]),
-    db.select({ id: usersTable.id, displayName: usersTable.displayName, avatarUrl: usersTable.avatarUrl })
-      .from(usersTable),
-  ]);
+  const favExpr = currentUserId != null
+    ? sql`EXISTS(SELECT 1 FROM recipe_favorites rf WHERE rf.recipe_id = r.id AND rf.user_id = ${currentUserId})`
+    : sql`false`;
 
-  const favorites: Set<number> = new Set(favRows.map((f) => f.recipeId));
+  const isOwnerExpr = currentUserId != null
+    ? sql`(r.created_by IS NULL OR r.created_by = ${currentUserId})`
+    : sql`(r.created_by IS NULL)`;
 
-  const owners: Map<number, { displayName: string; avatarUrl: string | null }> = new Map();
-  for (const o of ownerRows) {
-    owners.set(o.id, { displayName: o.displayName, avatarUrl: o.avatarUrl });
-  }
+  const rows = await db.execute(sql`
+    SELECT
+      r.id,
+      r.title,
+      r.servings,
+      r.prep_time       AS "prepTime",
+      r.total_time      AS "totalTime",
+      r.difficulty,
+      r.category,
+      r.rating,
+      r.kcal_per_portion AS "kcalPerPortion",
+      r.source,
+      r.last_cooked     AS "lastCooked",
+      r.cooked_count    AS "cookedCount",
+      r.notes,
+      r.personal_notes  AS "personalNotes",
+      r.steps,
+      r.image_url       AS "imageUrl",
+      r.created_at      AS "createdAt",
+      r.seasons,
+      r.created_by      AS "createdBy",
+      r.parent_recipe_id AS "parentRecipeId",
+      r.variant_name    AS "variantName",
+      COALESCE(
+        json_agg(
+          json_build_object(
+            'id',       ri.id,
+            'recipeId', ri.recipe_id,
+            'amount',   ri.amount,
+            'unit',     ri.unit,
+            'name',     ri.name,
+            'note',     ri.note
+          ) ORDER BY ri.id
+        ) FILTER (WHERE ri.id IS NOT NULL),
+        '[]'
+      ) AS ingredients,
+      ${favExpr}      AS "isFavorite",
+      ${isOwnerExpr}  AS "isOwner",
+      u.display_name  AS "ownerDisplayName",
+      u.avatar_url    AS "ownerAvatarUrl"
+    FROM recipes r
+    LEFT JOIN recipe_ingredients ri ON ri.recipe_id = r.id
+    LEFT JOIN users u ON u.id = r.created_by
+    GROUP BY r.id, u.display_name, u.avatar_url
+    ORDER BY r.id
+  `);
 
-  let result = recipes.map((r) => {
-    const isOwner = r.createdBy == null || (currentUserId != null && r.createdBy === currentUserId);
-    const owner = r.createdBy != null ? owners.get(r.createdBy) ?? null : null;
-    return {
-      ...r,
-      ingredients: ingredients.filter((i) => i.recipeId === r.id),
-      isOwner,
-      isFavorite: favorites.has(r.id),
-      owner,
-    };
-  });
+  type Row = {
+    id: number;
+    title: string;
+    servings: number | null;
+    prepTime: string | null;
+    totalTime: string | null;
+    difficulty: string;
+    category: string;
+    rating: string | null;
+    kcalPerPortion: number | null;
+    source: string | null;
+    lastCooked: string | null;
+    cookedCount: number | null;
+    notes: string | null;
+    personalNotes: string | null;
+    steps: unknown;
+    imageUrl: string | null;
+    createdAt: Date | string | null;
+    seasons: string[] | null;
+    createdBy: number | null;
+    parentRecipeId: number | null;
+    variantName: string | null;
+    ingredients: Array<{ id: number; recipeId: number; amount: string; unit: string; name: string; note: string | null }>;
+    isFavorite: boolean;
+    isOwner: boolean;
+    ownerDisplayName: string | null;
+    ownerAvatarUrl: string | null;
+  };
+
+  const rawRows = (rows as unknown as { rows: Row[] }).rows ?? (rows as unknown as Row[]);
+
+  let result = rawRows.map((r) => ({
+    id: r.id,
+    title: r.title,
+    servings: r.servings,
+    prepTime: r.prepTime,
+    totalTime: r.totalTime,
+    difficulty: r.difficulty,
+    category: r.category,
+    rating: r.rating,
+    kcalPerPortion: r.kcalPerPortion,
+    source: r.source,
+    lastCooked: r.lastCooked,
+    cookedCount: r.cookedCount,
+    notes: r.notes,
+    personalNotes: r.personalNotes,
+    steps: r.steps,
+    imageUrl: r.imageUrl,
+    createdAt: r.createdAt,
+    seasons: r.seasons ?? [],
+    createdBy: r.createdBy,
+    parentRecipeId: r.parentRecipeId,
+    variantName: r.variantName,
+    ingredients: r.ingredients,
+    isFavorite: r.isFavorite,
+    isOwner: r.isOwner,
+    owner: (r.ownerDisplayName != null || r.ownerAvatarUrl != null)
+      ? { displayName: r.ownerDisplayName!, avatarUrl: r.ownerAvatarUrl }
+      : null,
+  }));
 
   if (filter === "mine" && currentUserId != null) {
     result = result.filter((r) => r.createdBy === currentUserId || r.createdBy == null);
   } else if (filter === "favorites" && currentUserId != null) {
-    result = result.filter((r) => favorites.has(r.id));
+    result = result.filter((r) => r.isFavorite);
   }
 
   return result;
@@ -185,8 +288,31 @@ router.get("/recipes", async (req, res) => {
   try {
     const currentUserId = req.authUser?.id;
     const filter = req.query.filter as string | undefined;
+    const cacheKey = recipeListCacheKey(currentUserId, filter);
+    const cached = recipeListCache.get(cacheKey);
+
+    if (cached) {
+      res.set("ETag", cached.etag);
+      res.set("Cache-Control", "private, no-cache");
+      if (req.headers["if-none-match"] === cached.etag) {
+        res.status(304).end();
+        return;
+      }
+      res.type("json").send(cached.body);
+      return;
+    }
+
     const recipes = await getRecipesWithIngredients(currentUserId, filter);
-    res.json(recipes);
+    const body = JSON.stringify(recipes);
+    const etag = `"${createHash("sha1").update(body).digest("hex").slice(0, 24)}"`;
+    recipeListCache.set(cacheKey, { etag, body });
+    res.set("ETag", etag);
+    res.set("Cache-Control", "private, no-cache");
+    if (req.headers["if-none-match"] === etag) {
+      res.status(304).end();
+      return;
+    }
+    res.type("json").send(body);
   } catch (err) {
     req.log.error({ err }, "Failed to fetch recipes");
     res.status(500).json({ error: "internal_error", message: "Failed to fetch recipes" });

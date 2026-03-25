@@ -165,6 +165,18 @@ export function useInvitations() {
     return await res.json();
   }, [fetchInvitations]);
 
+  const remindGuests = useCallback(async (invitationId: number) => {
+    const res = await authFetch(`${API_BASE}/meal-invitations/${invitationId}/remind`, {
+      method: "POST",
+      headers: authHeaders(),
+    });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      throw new Error(err.message ?? "Fehler beim Senden der Erinnerung");
+    }
+    return await res.json() as { success: boolean; reminded: number };
+  }, []);
+
   return {
     invitations,
     loading,
@@ -174,6 +186,7 @@ export function useInvitations() {
     cancelInvitation,
     submitWish,
     updateRsvp,
+    remindGuests,
   };
 }
 

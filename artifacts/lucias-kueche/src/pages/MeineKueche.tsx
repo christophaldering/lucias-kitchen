@@ -582,7 +582,7 @@ function SuggestionCard({
 }
 
 function KocheinladungenSection({ user }: { user: ReturnType<typeof useAuth>["user"] }) {
-  const { invitations, loading, submitWish, updateRsvp, updateInvitation, cancelInvitation, refetch } = useInvitations();
+  const { invitations, loading, submitWish, updateRsvp, updateInvitation, cancelInvitation, remindGuests, refetch } = useInvitations();
   const { notifications, unreadCount, markRead, markAllRead } = useNotifications();
   const { recipes } = useRecipes();
 
@@ -811,6 +811,9 @@ function KocheinladungenSection({ user }: { user: ReturnType<typeof useAuth>["us
           onCancel={async () => {
             await cancelInvitation(managingInvitation.id);
             toast("Einladung abgesagt");
+          }}
+          onRemind={async () => {
+            return await remindGuests(managingInvitation.id);
           }}
         />
       )}

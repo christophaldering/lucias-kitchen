@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { X, Utensils, CheckCircle, Users, ThumbsUp, ThumbsDown, Clock } from "lucide-react";
+import { X, Utensils, CheckCircle, ThumbsUp, ThumbsDown, Clock, Bell } from "lucide-react";
 import type { MealInvitation } from "@/hooks/useInvitations";
 import type { Recipe } from "@/types/recipe";
 
@@ -9,13 +9,16 @@ interface Props {
   onClose: () => void;
   onDecide: (finalRecipeId: number) => Promise<void>;
   onCancel: () => Promise<void>;
+  onRemind: () => Promise<{ success: boolean; reminded: number }>;
 }
 
-export default function InvitationHostDialog({ invitation, recipes, onClose, onDecide, onCancel }: Props) {
+export default function InvitationHostDialog({ invitation, recipes, onClose, onDecide, onCancel, onRemind }: Props) {
   const [showRecipePicker, setShowRecipePicker] = useState(false);
   const [selectedRecipeId, setSelectedRecipeId] = useState<number | null>(invitation.finalRecipeId);
   const [deciding, setDeciding] = useState(false);
   const [cancelling, setCancelling] = useState(false);
+  const [reminding, setReminding] = useState(false);
+  const [toast, setToast] = useState<string | null>(null);
   const [error, setError] = useState("");
 
   const modeLabel: Record<string, string> = {
@@ -68,8 +71,28 @@ export default function InvitationHostDialog({ invitation, recipes, onClose, onD
     }
   }
 
+  async function handleRemind() {
+    setReminding(true);
+    setError("");
+    try {
+      const result = await onRemind();
+      setToast(`Erinnerung an ${result.reminded} Gast${result.reminded !== 1 ? "e" : ""} gesendet.`);
+      setTimeout(() => setToast(null), 4000);
+    } catch (e: unknown) {
+      setError(e instanceof Error ? e.message : "Fehler beim Erinnern");
+    } finally {
+      setReminding(false);
+    }
+  }
+
   return (
     <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/50 p-4">
+      {toast && (
+        <div className="fixed top-4 left-1/2 -translate-x-1/2 z-[60] bg-[#4A7C59] text-white text-sm font-medium px-4 py-2.5 rounded-xl shadow-lg flex items-center gap-2">
+          <Bell className="w-4 h-4 flex-shrink-0" />
+          {toast}
+        </div>
+      )}
       <div className="bg-white rounded-2xl w-full max-w-md shadow-2xl overflow-hidden max-h-[90vh] flex flex-col">
         {/* Header */}
         <div className="px-5 py-4 border-b border-gray-100 flex items-center justify-between bg-[#4A7C59]/5 flex-shrink-0">
@@ -250,7 +273,20 @@ export default function InvitationHostDialog({ invitation, recipes, onClose, onD
 
         {/* Footer */}
         {invitation.status === "open" && (
-          <div className="px-5 pb-5 flex-shrink-0">
+          <div className="px-5 pb-5 flex-shrink-0 space-y-2">
+            {rsvpCounts.pending > 0 && (
+              <>
+                {error && <p className="text-sm text-red-500">{error}</p>}
+                <button
+                  onClick={handleRemind}
+                  disabled={reminding}
+                  className="w-full flex items-center justify-center gap-2 py-2.5 rounded-xl border border-amber-300 text-amber-700 text-sm hover:bg-amber-50 transition-colors disabled:opacity-50"
+                >
+                  <Bell className="w-4 h-4" />
+                  {reminding ? "Wird gesendet…" : `Alle ${rsvpCounts.pending} offenen Gäste erinnern`}
+                </button>
+              </>
+            )}
             <button
               onClick={handleCancel}
               disabled={cancelling}

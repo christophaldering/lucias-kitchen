@@ -479,6 +479,67 @@ router.patch("/meal-invitations/:id/rsvp", authMiddleware, async (req, res) => {
   }
 });
 
+router.post("/meal-invitations/:id/remind", authMiddleware, async (req, res) => {
+  try {
+    const id = Number(req.params.id);
+    if (isNaN(id)) {
+      res.status(400).json({ error: "bad_request", message: "Invalid invitation id" });
+      return;
+    }
+
+    const userId = req.authUser!.id;
+
+    const [invitation] = await db
+      .select()
+      .from(mealInvitationsTable)
+      .where(eq(mealInvitationsTable.id, id));
+
+    if (!invitation) {
+      res.status(404).json({ error: "not_found", message: "Invitation not found" });
+      return;
+    }
+
+    if (invitation.hostUserId !== userId) {
+      res.status(403).json({ error: "forbidden", message: "Only the host can send reminders" });
+      return;
+    }
+
+    if (invitation.status !== "open") {
+      res.status(400).json({ error: "bad_request", message: "Reminders can only be sent for open invitations" });
+      return;
+    }
+
+    const pendingMembers = await db
+      .select()
+      .from(mealInvitationMembersTable)
+      .where(
+        and(
+          eq(mealInvitationMembersTable.mealInvitationId, id),
+          eq(mealInvitationMembersTable.rsvp, "pending")
+        )
+      );
+
+    if (pendingMembers.length === 0) {
+      res.status(400).json({ error: "bad_request", message: "No pending guests to remind" });
+      return;
+    }
+
+    for (const member of pendingMembers) {
+      await createNotification(
+        member.userId,
+        "reminder",
+        `Du wurdest an die Einladung zum Kochabend am ${invitation.date} erinnert – bitte antworte noch.`,
+        id
+      );
+    }
+
+    res.json({ success: true, reminded: pendingMembers.length });
+  } catch (err) {
+    req.log.error({ err }, "Failed to send reminders");
+    res.status(500).json({ error: "internal_error", message: "Failed to send reminders" });
+  }
+});
+
 router.get("/notifications", authMiddleware, async (req, res) => {
   try {
     const userId = req.authUser!.id;

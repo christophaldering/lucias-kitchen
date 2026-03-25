@@ -384,7 +384,7 @@ const FILTER_LABELS: Record<RecipeFilter, string> = {
 
 export default function MeineRezepte({ onNavigate: _onNavigate, initialOpenRecipeId, onRecipeOpened, initialSortOrder, onSortOrderApplied }: MeineRezepteProps) {
   const [recipeFilter, setRecipeFilter] = useState<RecipeFilter>("all");
-  const { recipes, loading, error, addRecipes, refetch, patchRecipeSilent, deleteRecipeSilent, updateRecipe, toggleFavorite } = useRecipes(recipeFilter);
+  const { recipes, loading, error, addRecipes, refetch, patchRecipeSilent, deleteRecipeSilent, deleteRecipe, updateRecipe, toggleFavorite } = useRecipes(recipeFilter);
 
   const defaultViewRaw = useLocalStorage<string>("lk_viewMode", "");
   const defaultView = ((): ViewMode => {
@@ -972,6 +972,7 @@ export default function MeineRezepte({ onNavigate: _onNavigate, initialOpenRecip
               onClose={() => setSelectedId(null)}
               onAddToWeek={_onNavigate ? () => _onNavigate("wochenplan") : undefined}
               onToggleFavorite={toggleFavorite}
+              onDeleteRecipe={deleteRecipe}
               allRecipes={recipes}
               onOpenRecipe={(r) => setSelectedId(r.id)}
               onCreateVariant={(baseRecipe) => {

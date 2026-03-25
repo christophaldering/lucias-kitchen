@@ -1,6 +1,6 @@
 import { useState } from "react";
 import type { Recipe } from "@/types/recipe";
-import { X, Clock, ChefHat, CalendarPlus, Users, Flame, BookOpen, Check, Printer, UtensilsCrossed, Minus, Plus, Star, ChevronDown, Copy, Share2 } from "lucide-react";
+import { X, Clock, ChefHat, CalendarPlus, Users, Flame, BookOpen, Check, Printer, UtensilsCrossed, Minus, Plus, Star, ChevronDown, Copy, Share2, Trash2 } from "lucide-react";
 import { SEASON_ICONS, SEASON_LABELS } from "@/types/recipe";
 import type { Season } from "@/types/recipe";
 import { addMealPlanEntry } from "@/hooks/useMealPlans";
@@ -18,6 +18,7 @@ interface Props {
   onAddToWeek?: (id: number) => void;
   onToggleFavorite?: (id: number, isFavorite: boolean) => void;
   onRecipeUpdated?: (updatedRecipe: unknown) => void;
+  onDeleteRecipe?: (id: number) => Promise<void>;
   allRecipes?: Recipe[];
   onOpenRecipe?: (recipe: Recipe) => void;
   onCreateVariant?: (recipe: Recipe) => void;
@@ -153,7 +154,7 @@ function formatDate(dateStr: string): string {
   return `${day}.${month}.${year}`;
 }
 
-export default function RecipeModal({ recipe, onClose, onAddToWeek, onToggleFavorite, onRecipeUpdated, allRecipes, onOpenRecipe, onCreateVariant }: Props) {
+export default function RecipeModal({ recipe, onClose, onAddToWeek, onToggleFavorite, onRecipeUpdated, onDeleteRecipe, allRecipes, onOpenRecipe, onCreateVariant }: Props) {
   const emoji = CATEGORY_EMOJIS[recipe.category] ?? "🍽️";
   const today = toIsoDate(new Date());
 
@@ -167,6 +168,8 @@ export default function RecipeModal({ recipe, onClose, onAddToWeek, onToggleFavo
   const [showAllLogEntries, setShowAllLogEntries] = useState(false);
   const [localCookedCount, setLocalCookedCount] = useState(recipe.cookedCount ?? 0);
   const [showSuggestModal, setShowSuggestModal] = useState(false);
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
+  const [deleting, setDeleting] = useState(false);
 
   const { entries: logEntries, refetch: refetchLog } = useCookingLog(recipe.id, showAllLogEntries ? undefined : 3);
 
@@ -225,6 +228,19 @@ export default function RecipeModal({ recipe, onClose, onAddToWeek, onToggleFavo
     setLocalCookedCount((prev) => prev + 1);
     refetchLog();
     if (onRecipeUpdated) onRecipeUpdated(updatedRecipe);
+  };
+
+  const handleDelete = async () => {
+    if (!onDeleteRecipe) return;
+    setDeleting(true);
+    try {
+      await onDeleteRecipe(recipe.id);
+      onClose();
+    } catch {
+      showToast("Fehler beim Löschen", "error");
+      setDeleting(false);
+      setShowDeleteConfirm(false);
+    }
   };
 
   if (cookingMode) {
@@ -636,6 +652,39 @@ export default function RecipeModal({ recipe, onClose, onAddToWeek, onToggleFavo
                 <Share2 className="w-4 h-4" />
                 Vorschlagen
               </button>
+
+              {isOwner && onDeleteRecipe && !showDeleteConfirm && (
+                <button
+                  onClick={() => setShowDeleteConfirm(true)}
+                  className="flex items-center gap-2 px-4 py-2.5 border border-red-200 text-red-600 rounded-xl text-sm font-semibold hover:bg-red-50 transition-colors"
+                >
+                  <Trash2 className="w-4 h-4" />
+                  Löschen
+                </button>
+              )}
+
+              {isOwner && onDeleteRecipe && showDeleteConfirm && (
+                <>
+                  <span className="text-sm text-red-600 font-medium self-center">
+                    Rezept wirklich löschen?
+                  </span>
+                  <button
+                    onClick={handleDelete}
+                    disabled={deleting}
+                    className="flex items-center gap-2 px-4 py-2.5 bg-red-600 text-white rounded-xl text-sm font-semibold hover:bg-red-700 transition-colors disabled:opacity-60"
+                  >
+                    <Trash2 className="w-4 h-4" />
+                    {deleting ? "Löschen…" : "Ja, löschen"}
+                  </button>
+                  <button
+                    onClick={() => setShowDeleteConfirm(false)}
+                    disabled={deleting}
+                    className="px-4 py-2.5 border border-border rounded-xl text-sm font-medium hover:bg-secondary transition-colors disabled:opacity-60"
+                  >
+                    Abbrechen
+                  </button>
+                </>
+              )}
 
               <button
                 onClick={onClose}

@@ -20,6 +20,7 @@ interface AuthContextValue {
   user: AuthUser | null;
   token: string | null;
   loading: boolean;
+  authReady: boolean;
   login: (email: string, password: string) => Promise<void>;
   logout: () => void;
   updateProfile: (data: Partial<AuthUser>) => Promise<void>;
@@ -53,6 +54,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [user, setUser] = useState<AuthUser | null>(null);
   const [token, setToken] = useState<string | null>(getStoredToken);
   const [loading, setLoading] = useState(true);
+  const [authReady, setAuthReady] = useState(false);
 
   const fetchMe = useCallback(async (t: string) => {
     const res = await fetch(`${API_BASE}/auth/me`, {
@@ -66,6 +68,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     const storedToken = getStoredToken();
     if (!storedToken) {
       setLoading(false);
+      setAuthReady(true);
       return;
     }
     fetchMe(storedToken)
@@ -77,7 +80,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         setStoredToken(null);
         setToken(null);
       })
-      .finally(() => setLoading(false));
+      .finally(() => {
+        setLoading(false);
+        setAuthReady(true);
+      });
   }, [fetchMe]);
 
   const login = useCallback(async (email: string, password: string) => {
@@ -170,7 +176,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }, [updateProfile]);
 
   return (
-    <AuthContext.Provider value={{ user, token, loading, login, logout, updateProfile, uploadAvatar, changePassword, completeOnboarding }}>
+    <AuthContext.Provider value={{ user, token, loading, authReady, login, logout, updateProfile, uploadAvatar, changePassword, completeOnboarding }}>
       {children}
     </AuthContext.Provider>
   );

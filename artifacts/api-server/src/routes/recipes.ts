@@ -43,26 +43,23 @@ const recipeBodySchema = z.object({
 });
 
 async function getRecipesWithIngredients(currentUserId?: number, filter?: string) {
-  let recipes = await db.select().from(recipesTable).orderBy(recipesTable.id);
-  const ingredients = await db.select().from(recipeIngredientsTable).orderBy(recipeIngredientsTable.id);
+  const [recipes, ingredients, favRows, ownerRows] = await Promise.all([
+    db.select().from(recipesTable).orderBy(recipesTable.id),
+    db.select().from(recipeIngredientsTable).orderBy(recipeIngredientsTable.id),
+    currentUserId
+      ? db.select({ recipeId: recipeFavoritesTable.recipeId })
+          .from(recipeFavoritesTable)
+          .where(eq(recipeFavoritesTable.userId, currentUserId))
+      : Promise.resolve([]),
+    db.select({ id: usersTable.id, displayName: usersTable.displayName, avatarUrl: usersTable.avatarUrl })
+      .from(usersTable),
+  ]);
 
-  let favorites: Set<number> = new Set();
-  if (currentUserId) {
-    const favRows = await db.select({ recipeId: recipeFavoritesTable.recipeId })
-      .from(recipeFavoritesTable)
-      .where(eq(recipeFavoritesTable.userId, currentUserId));
-    favorites = new Set(favRows.map((f) => f.recipeId));
-  }
+  const favorites: Set<number> = new Set(favRows.map((f) => f.recipeId));
 
-  const ownerIds = [...new Set(recipes.map((r) => r.createdBy).filter((id): id is number => id != null))];
   const owners: Map<number, { displayName: string; avatarUrl: string | null }> = new Map();
-  if (ownerIds.length > 0) {
-    const ownerRows = await db.select({ id: usersTable.id, displayName: usersTable.displayName, avatarUrl: usersTable.avatarUrl })
-      .from(usersTable)
-      .where(inArray(usersTable.id, ownerIds));
-    for (const o of ownerRows) {
-      owners.set(o.id, { displayName: o.displayName, avatarUrl: o.avatarUrl });
-    }
+  for (const o of ownerRows) {
+    owners.set(o.id, { displayName: o.displayName, avatarUrl: o.avatarUrl });
   }
 
   let result = recipes.map((r) => {

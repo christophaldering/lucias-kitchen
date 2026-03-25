@@ -1,6 +1,7 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import type { Recipe, IngredientInput, Season, RecipePhoto } from "@/types/recipe";
 import { authFetch, authHeaders } from "@/lib/authFetch";
+import { useAuth } from "@/contexts/AuthContext";
 
 class UnauthorizedError extends Error {
   constructor() {
@@ -36,14 +37,17 @@ const API_BASE = "/api";
 export type RecipeFilter = "all" | "mine" | "favorites";
 
 export function useRecipes(filter: RecipeFilter = "all") {
+  const { authReady } = useAuth();
   const [recipes, setRecipes] = useState<Recipe[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const filterRef = useRef(filter);
+  filterRef.current = filter;
 
   const fetchRecipes = useCallback(async (f?: RecipeFilter) => {
     setLoading(true);
     setError(null);
-    const activeFilter = f ?? filter;
+    const activeFilter = f ?? filterRef.current;
     const url = activeFilter === "all" ? `${API_BASE}/recipes` : `${API_BASE}/recipes?filter=${activeFilter}`;
     const attempt = async (): Promise<Response> => {
       const res = await authFetch(url, { headers: authHeaders() });
@@ -64,16 +68,19 @@ export function useRecipes(filter: RecipeFilter = "all") {
       setRecipes(data);
     } catch (e) {
       if (!(e instanceof UnauthorizedError)) {
+        const errMsg = e instanceof Error ? e.message : String(e);
+        console.error("[useRecipes] fetchRecipes failed:", errMsg, e);
         setError("Rezepte konnten nicht geladen werden.");
       }
     } finally {
       setLoading(false);
     }
-  }, [filter]);
+  }, []);
 
   useEffect(() => {
-    fetchRecipes();
-  }, [fetchRecipes]);
+    if (!authReady) return;
+    fetchRecipes(filter);
+  }, [authReady, filter, fetchRecipes]);
 
   const addRecipes = useCallback(async (newRecipes: Partial<Recipe>[]) => {
     const res = await authFetch(`${API_BASE}/recipes`, {

@@ -1,4 +1,4 @@
-import app from "./app";
+import app, { devProxy } from "./app";
 import { logger } from "./lib/logger";
 import { seedRecipes } from "./db/seedRecipes";
 import { seedUser } from "./db/seedUser";
@@ -18,7 +18,7 @@ if (Number.isNaN(port) || port <= 0) {
   throw new Error(`Invalid PORT value: "${rawPort}"`);
 }
 
-app.listen(port, async (err) => {
+const server = app.listen(port, async (err) => {
   if (err) {
     logger.error({ err }, "Error listening on port");
     process.exit(1);
@@ -44,3 +44,7 @@ app.listen(port, async (err) => {
     logger.error({ err: recoverErr }, "Failed to recover processing sessions");
   }
 });
+
+if (devProxy) {
+  server.on("upgrade", devProxy.upgrade);
+}

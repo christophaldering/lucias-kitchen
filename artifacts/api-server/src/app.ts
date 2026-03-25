@@ -7,9 +7,12 @@ import router from "./routes";
 import { logger } from "./lib/logger";
 import jwt from "jsonwebtoken";
 import type { AuthUser } from "./routes/auth";
+import { createProxyMiddleware } from "http-proxy-middleware";
 
 const JWT_SECRET = process.env["JWT_SECRET"] ?? "lucias-kueche-secret-key-2026";
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
+
+let devProxy: ReturnType<typeof createProxyMiddleware> | undefined;
 
 const app: Express = express();
 
@@ -55,11 +58,21 @@ if (process.env["NODE_ENV"] === "production") {
   const frontendDistPath = path.resolve(__dirname, "public");
   app.use(express.static(frontendDistPath));
   app.use((req: Request, res: Response, next: NextFunction) => {
-    if (req.path.startsWith("/api")) {
-      return next();
-    }
-    res.sendFile(path.join(frontendDistPath, "index.html"));
+    if (req.path.startsWith("/api")) return next();
+    res.sendFile(path.join(frontendDistPath, "index.html"), (err) => {
+      if (err) next(err);
+    });
   });
+} else {
+  const vitePort = process.env["VITE_PORT"] ?? "18160";
+  devProxy = createProxyMiddleware({
+    target: `http://localhost:${vitePort}`,
+    changeOrigin: true,
+    ws: true,
+    pathFilter: (pathname: string) => !pathname.startsWith("/api"),
+  });
+  app.use(devProxy);
 }
 
+export { devProxy };
 export default app;

@@ -9,6 +9,7 @@ import CookingMode from "@/components/CookingMode";
 import RecipePhotoGallery from "@/components/RecipePhotoGallery";
 import CookingLogModal from "@/components/CookingLogModal";
 import RecipeSuggestModal from "@/components/RecipeSuggestModal";
+import InlineCalendar from "@/components/InlineCalendar";
 import { useCookingLog } from "@/hooks/useCookingLog";
 import { RecipeComments } from "@/components/RecipeComments";
 import { authFetch, authHeaders } from "@/lib/authFetch";
@@ -441,30 +442,29 @@ export default function RecipeModal({ recipe, onClose, onAddToWeek, onToggleFavo
           <div className="flex flex-col gap-3 pt-2">
             {/* Calendar date picker */}
             {showDatePicker ? (
-              <div className="flex flex-wrap items-center gap-2 p-3 bg-[#4A7C59]/5 rounded-xl border border-[#4A7C59]/20">
-                <label htmlFor="calendar-date-picker" className="text-sm font-medium text-foreground">Datum wählen:</label>
-                <input
-                  id="calendar-date-picker"
-                  type="date"
+              <div className="p-3 bg-[#4A7C59]/5 rounded-xl border border-[#4A7C59]/20">
+                <p className="text-sm font-medium text-foreground mb-3">Datum wählen:</p>
+                <InlineCalendar
                   value={selectedDate}
-                  min={today}
-                  onChange={(e) => setSelectedDate(e.target.value)}
-                  className="text-sm border border-border rounded-lg px-2 py-1.5 focus:outline-none focus:ring-2 focus:ring-[#4A7C59]/30 bg-white"
+                  onChange={setSelectedDate}
+                  minDate={today}
                 />
-                <button
-                  onClick={handleAddToCalendar}
-                  disabled={saving}
-                  className="flex items-center gap-1.5 px-3 py-1.5 bg-[#4A7C59] text-white rounded-lg text-sm font-medium hover:bg-[#3d6849] transition-colors disabled:opacity-60"
-                >
-                  <Check className="w-3.5 h-3.5" />
-                  {saving ? "Speichern…" : "Speichern"}
-                </button>
-                <button
-                  onClick={() => setShowDatePicker(false)}
-                  className="px-3 py-1.5 border border-border rounded-lg text-sm text-muted-foreground hover:bg-secondary transition-colors"
-                >
-                  Abbrechen
-                </button>
+                <div className="flex gap-2 mt-3">
+                  <button
+                    onClick={handleAddToCalendar}
+                    disabled={saving}
+                    className="flex items-center gap-1.5 px-3 py-1.5 bg-[#4A7C59] text-white rounded-lg text-sm font-medium hover:bg-[#3d6849] transition-colors disabled:opacity-60"
+                  >
+                    <Check className="w-3.5 h-3.5" />
+                    {saving ? "Speichern…" : "Speichern"}
+                  </button>
+                  <button
+                    onClick={() => setShowDatePicker(false)}
+                    className="px-3 py-1.5 border border-border rounded-lg text-sm text-muted-foreground hover:bg-secondary transition-colors"
+                  >
+                    Abbrechen
+                  </button>
+                </div>
               </div>
             ) : null}
 

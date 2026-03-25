@@ -1,6 +1,6 @@
 import { useState } from "react";
 import type { Recipe } from "@/types/recipe";
-import { X, Clock, ChefHat, CalendarPlus, Users, Flame, BookOpen, Check, Printer, UtensilsCrossed, Minus, Plus, Star, ChevronDown, Copy, Share2, Trash2, Loader2, ExternalLink } from "lucide-react";
+import { X, Clock, ChefHat, CalendarPlus, Users, Flame, BookOpen, Check, Printer, UtensilsCrossed, Minus, Plus, Star, ChevronDown, Copy, Share2, Trash2, Loader2, FileText } from "lucide-react";
 import { SEASON_ICONS, SEASON_LABELS } from "@/types/recipe";
 import type { Season } from "@/types/recipe";
 import { addMealPlanEntry } from "@/hooks/useMealPlans";
@@ -9,6 +9,7 @@ import CookingMode from "@/components/CookingMode";
 import RecipePhotoGallery from "@/components/RecipePhotoGallery";
 import CookingLogModal from "@/components/CookingLogModal";
 import RecipeSuggestModal from "@/components/RecipeSuggestModal";
+import OriginalDocumentModal from "@/components/OriginalDocumentModal";
 import InlineCalendar from "@/components/InlineCalendar";
 import { useCookingLog } from "@/hooks/useCookingLog";
 import { RecipeComments } from "@/components/RecipeComments";
@@ -189,6 +190,7 @@ export default function RecipeModal({ recipe, onClose, onAddToWeek, onToggleFavo
   const [showSuggestModal, setShowSuggestModal] = useState(false);
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [deleting, setDeleting] = useState(false);
+  const [showOriginalModal, setShowOriginalModal] = useState(false);
 
   // Stock reduction modal
   const [stockReductionLoading, setStockReductionLoading] = useState(false);
@@ -532,15 +534,13 @@ export default function RecipeModal({ recipe, onClose, onAddToWeek, onToggleFavo
               </button>
 
               {recipe.sourceDocumentUrl && (
-                <a
-                  href={recipe.sourceDocumentUrl}
-                  target="_blank"
-                  rel="noopener noreferrer"
+                <button
+                  onClick={() => setShowOriginalModal(true)}
                   className="flex items-center gap-2 px-4 py-2.5 bg-secondary text-foreground border border-border rounded-xl text-sm font-semibold hover:bg-secondary/80 transition-colors"
                 >
-                  <ExternalLink className="w-4 h-4" />
+                  <FileText className="w-4 h-4" />
                   Original ansehen
-                </a>
+                </button>
               )}
 
               {isOwner && onDeleteRecipe && !showDeleteConfirm && (
@@ -840,6 +840,13 @@ export default function RecipeModal({ recipe, onClose, onAddToWeek, onToggleFavo
           setShowSuggestModal(false);
           showToast("Vorschlag gesendet");
         }}
+      />
+    )}
+
+    {showOriginalModal && recipe.sourceDocumentUrl && (
+      <OriginalDocumentModal
+        url={recipe.sourceDocumentUrl}
+        onClose={() => setShowOriginalModal(false)}
       />
     )}
     </>

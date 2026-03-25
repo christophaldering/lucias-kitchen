@@ -66,7 +66,7 @@ export function useIncomingSuggestions() {
     setLoading(true);
     setError(null);
     try {
-      const res = await authFetch(`${API_BASE}/recipe-suggestions/incoming`, { headers: authHeaders() });
+      const res = await authFetch(`${API_BASE}/recipe-suggestions/incoming`, { headers: authHeaders(), skipUnauthorizedHandler: true });
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const data = await res.json();
       setSuggestions(data);

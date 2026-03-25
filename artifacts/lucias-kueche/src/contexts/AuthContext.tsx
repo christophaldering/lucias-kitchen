@@ -103,7 +103,23 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   useEffect(() => {
-    registerUnauthorizedHandler(logout);
+    const guardedLogout = async () => {
+      const t = getStoredToken();
+      if (!t) {
+        logout();
+        return;
+      }
+      try {
+        const res = await fetch(`${API_BASE}/auth/me`, {
+          headers: { Authorization: `Bearer ${t}` },
+        });
+        if (res.status === 401) {
+          logout();
+        }
+      } catch {
+      }
+    };
+    registerUnauthorizedHandler(() => { guardedLogout(); });
   }, [logout]);
 
   const updateProfile = useCallback(async (data: Partial<AuthUser>) => {

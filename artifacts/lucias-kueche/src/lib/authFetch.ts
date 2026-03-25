@@ -18,9 +18,14 @@ export function authHeaders(extra?: Record<string, string>): Record<string, stri
   return extra ? { ...base, ...extra } : base;
 }
 
-export async function authFetch(input: RequestInfo | URL, init?: RequestInit): Promise<Response> {
-  const res = await fetch(input, init);
-  if (res.status === 401 && _onUnauthorized) {
+export interface AuthFetchOptions extends RequestInit {
+  skipUnauthorizedHandler?: boolean;
+}
+
+export async function authFetch(input: RequestInfo | URL, init?: AuthFetchOptions): Promise<Response> {
+  const { skipUnauthorizedHandler, ...fetchInit } = init ?? {};
+  const res = await fetch(input, fetchInit);
+  if (res.status === 401 && !skipUnauthorizedHandler && _onUnauthorized) {
     _onUnauthorized();
   }
   return res;

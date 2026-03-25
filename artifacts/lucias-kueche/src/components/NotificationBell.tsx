@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect } from "react";
-import { Bell, Check, MessageCircle } from "lucide-react";
+import { Bell, Check, MessageCircle, FileText, UtensilsCrossed, CheckCircle, XCircle } from "lucide-react";
 import {
   useNotifications,
   useMarkNotificationRead,
@@ -18,26 +18,63 @@ function formatRelativeTime(iso: string): string {
   return `vor ${Math.floor(diff / 86400)} Tag(en)`;
 }
 
+function getNotificationText(notification: AppNotification): string {
+  const { type, payload } = notification;
+  if (type === "comment" && payload.commenterName && payload.recipeTitle) {
+    return `${payload.commenterName} hat dein Rezept „${payload.recipeTitle}" kommentiert`;
+  }
+  if (payload.message) {
+    return payload.message;
+  }
+  return "Neue Benachrichtigung";
+}
+
+function getNotificationIcon(type: string) {
+  switch (type) {
+    case "comment":
+      return <MessageCircle className="w-4 h-4 text-[#4A7C59]" />;
+    case "bulk_import_done":
+      return <FileText className="w-4 h-4 text-[#4A7C59]" />;
+    case "invitation":
+      return <UtensilsCrossed className="w-4 h-4 text-[#4A7C59]" />;
+    case "decision":
+      return <CheckCircle className="w-4 h-4 text-[#4A7C59]" />;
+    case "cancellation":
+      return <XCircle className="w-4 h-4 text-[#4A7C59]" />;
+    default:
+      return <Bell className="w-4 h-4 text-[#4A7C59]" />;
+  }
+}
+
 function NotificationItem({
   notification,
   onRead,
   onOpenRecipe,
+  onNavigate,
+  onClose,
 }: {
   notification: AppNotification;
   onRead: (id: number) => void;
   onOpenRecipe: (recipeId: number) => void;
+  onNavigate: (tab: string) => void;
+  onClose: () => void;
 }) {
   const isUnread = !notification.readAt;
-  const payload = notification.payload;
+  const { type, payload } = notification;
 
-  let text = "Neue Benachrichtigung";
-  if (notification.type === "comment" && payload.commenterName && payload.recipeTitle) {
-    text = `${payload.commenterName} hat dein Rezept „${payload.recipeTitle}" kommentiert`;
-  }
+  const text = getNotificationText(notification);
+  const icon = getNotificationIcon(type);
 
   function handleClick() {
     if (isUnread) onRead(notification.id);
-    if (payload.recipeId) onOpenRecipe(payload.recipeId);
+    onClose();
+    if (type === "comment" && payload.recipeId) {
+      onOpenRecipe(payload.recipeId);
+    } else if (type === "bulk_import_done") {
+      onNavigate("rezepte");
+    } else if (type === "invitation" || type === "decision" || type === "cancellation") {
+      onNavigate("meine-kueche");
+    }
   }
 
   return (
@@ -49,7 +86,7 @@ function NotificationItem({
     >
       <div className="flex-shrink-0 mt-0.5">
         <div className="w-8 h-8 rounded-full bg-[#4A7C59]/15 flex items-center justify-center">
-          <MessageCircle className="w-4 h-4 text-[#4A7C59]" />
+          {icon}
         </div>
       </div>
       <div className="flex-1 min-w-0">
@@ -65,9 +102,10 @@ function NotificationItem({
 
 interface NotificationBellProps {
   onOpenRecipe?: (recipeId: number) => void;
+  onNavigate?: (tab: string) => void;
 }
 
-export function NotificationBell({ onOpenRecipe }: NotificationBellProps) {
+export function NotificationBell({ onOpenRecipe, onNavigate }: NotificationBellProps) {
   const [open, setOpen] = useState(false);
   const panelRef = useRef<HTMLDivElement>(null);
   const { data: notifications = [] } = useNotifications();
@@ -89,6 +127,11 @@ export function NotificationBell({ onOpenRecipe }: NotificationBellProps) {
   function handleOpenRecipe(recipeId: number) {
     setOpen(false);
     onOpenRecipe?.(recipeId);
+  }
+
+  function handleNavigate(tab: string) {
+    setOpen(false);
+    onNavigate?.(tab);
   }
 
   return (
@@ -142,6 +185,8 @@ export function NotificationBell({ onOpenRecipe }: NotificationBellProps) {
                   notification={n}
                   onRead={(id) => markRead.mutate(id)}
                   onOpenRecipe={handleOpenRecipe}
+                  onNavigate={handleNavigate}
+                  onClose={() => setOpen(false)}
                 />
               ))
             )}

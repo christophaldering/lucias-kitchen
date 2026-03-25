@@ -222,7 +222,7 @@ function AppShell() {
               </h1>
             </button>
             <div className="flex items-center gap-1">
-              <NotificationBell onOpenRecipe={handleOpenRecipeFromNotification} />
+              <NotificationBell onOpenRecipe={handleOpenRecipeFromNotification} onNavigate={(tab) => setActiveTab(tab as Tab)} />
               <AvatarDropdown onNavigate={(tab) => setActiveTab(tab)} />
             </div>
           </div>

@@ -13,6 +13,7 @@ export interface AppNotification {
     recipeTitle?: string;
     commenterName?: string;
     commenterId?: number;
+    message?: string;
   };
   readAt: string | null;
   createdAt: string;

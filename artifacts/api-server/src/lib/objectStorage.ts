@@ -189,6 +189,22 @@ export class ObjectStorageService {
     return normalizedPath;
   }
 
+  async deleteObject(objectPath: string): Promise<void> {
+    if (!objectPath.startsWith("/objects/")) return;
+    const entityId = objectPath.slice("/objects/".length);
+    let entityDir = this.getPrivateObjectDir();
+    if (!entityDir.endsWith("/")) entityDir = `${entityDir}/`;
+    const fullPath = `${entityDir}${entityId}`;
+    const { bucketName, objectName } = parseObjectPath(fullPath);
+    const bucket = objectStorageClient.bucket(bucketName);
+    const file = bucket.file(objectName);
+    try {
+      const [exists] = await file.exists();
+      if (exists) await file.delete();
+    } catch {
+    }
+  }
+
   async uploadBuffer(buffer: Buffer, contentType: string, subPath: string = "bulk-import"): Promise<string> {
     const privateObjectDir = this.getPrivateObjectDir();
     const objectId = randomUUID();

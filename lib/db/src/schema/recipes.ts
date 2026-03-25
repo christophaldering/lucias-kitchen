@@ -25,6 +25,7 @@ export const recipesTable = pgTable("recipes", {
   createdBy: integer("created_by").references(() => usersTable.id, { onDelete: "set null" }),
   parentRecipeId: integer("parent_recipe_id"),
   variantName: text("variant_name"),
+  sourceDocumentUrl: text("source_document_url"),
 });
 
 export const recipeIngredientsTable = pgTable("recipe_ingredients", {

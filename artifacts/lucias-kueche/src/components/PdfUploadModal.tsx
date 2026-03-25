@@ -28,6 +28,7 @@ export default function PdfUploadModal({ onClose, onAdd }: Props) {
   const [extracted, setExtracted] = useState<Partial<Recipe>[]>([]);
   const [selected, setSelected] = useState<Set<number>>(new Set());
   const [modelUsed, setModelUsed] = useState<"openai" | "claude" | null>(null);
+  const [sourceDocumentUrl, setSourceDocumentUrl] = useState<string | null>(null);
   const [errorMsg, setErrorMsg] = useState("");
   const fileRef = useRef<HTMLInputElement>(null);
 
@@ -43,9 +44,10 @@ export default function PdfUploadModal({ onClose, onAdd }: Props) {
     reader.onload = async () => {
       try {
         const base64 = (reader.result as string).split(",")[1];
-        const { recipes, modelUsed: model } = await extractPdfRecipes(base64);
+        const { recipes, modelUsed: model, sourceDocumentUrl: srcUrl } = await extractPdfRecipes(base64);
         setExtracted(recipes);
         setModelUsed(model);
+        setSourceDocumentUrl(srcUrl);
         setSelected(new Set(recipes.map((_, i) => i)));
         setStep("review");
       } catch (err) {
@@ -76,7 +78,11 @@ export default function PdfUploadModal({ onClose, onAdd }: Props) {
     if (toAdd.length === 0) return;
     setStep("saving");
     try {
-      await onAdd(toAdd);
+      const recipesWithSource = toAdd.map((r) => ({
+        ...r,
+        sourceDocumentUrl: sourceDocumentUrl ?? undefined,
+      }));
+      await onAdd(recipesWithSource);
       setStep("done");
     } catch {
       setErrorMsg("Rezepte konnten nicht gespeichert werden.");

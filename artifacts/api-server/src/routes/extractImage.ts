@@ -1,10 +1,12 @@
 import { Router, type IRouter } from "express";
 import { openai } from "@workspace/integrations-openai-ai-server";
 import { RECIPE_EXTRACTION_SYSTEM_PROMPT } from "../lib/recipeExtractionPrompt";
+import { ObjectStorageService } from "../lib/objectStorage";
 
 const router: IRouter = Router();
+const storageService = new ObjectStorageService();
 
-const ALLOWED_TYPES = ["image/jpeg", "image/png", "image/webp", "image/gif"];
+const ALLOWED_TYPES = ["image/jpeg", "image/png", "image/webp", "image/gif", "image/heic", "image/heif"];
 
 type ImageEntry = { base64: string; mimeType: string };
 
@@ -31,7 +33,46 @@ router.post("/extract-image", async (req, res) => {
       return;
     }
 
-    const imageContent = imageEntries.map((img) => ({
+    // Save the first image as WebP to object storage as source document
+    let sourceDocumentUrl: string | null = null;
+    try {
+      const firstImage = imageEntries[0];
+      const sharp = (await import("sharp")).default;
+      const inputBuffer = Buffer.from(firstImage.base64, "base64");
+      const webpBuffer = await sharp(inputBuffer).webp({ quality: 82 }).toBuffer();
+      const storagePath = await storageService.uploadBuffer(webpBuffer, "image/webp", "source-documents");
+      sourceDocumentUrl = `/api/storage${storagePath}`;
+    } catch {
+      // Non-fatal
+    }
+
+    const visionAllowed = ["image/jpeg", "image/png", "image/webp", "image/gif"];
+    const heicTypes = ["image/heic", "image/heif"];
+    const visionEntries: ImageEntry[] = [];
+    for (const img of imageEntries) {
+      if (heicTypes.includes(img.mimeType)) {
+        try {
+          const sharp = (await import("sharp")).default;
+          const inputBuf = Buffer.from(img.base64, "base64");
+          const jpegBuf = await sharp(inputBuf).jpeg({ quality: 90 }).toBuffer();
+          visionEntries.push({ base64: jpegBuf.toString("base64"), mimeType: "image/jpeg" });
+        } catch (convErr) {
+          req.log.warn({ err: convErr }, "HEIC conversion failed, skipping image");
+        }
+      } else {
+        visionEntries.push({
+          ...img,
+          mimeType: visionAllowed.includes(img.mimeType) ? img.mimeType : "image/jpeg",
+        });
+      }
+    }
+
+    if (visionEntries.length === 0) {
+      res.status(400).json({ error: "bad_request", message: "Keine der Bilddateien konnte verarbeitet werden. Bitte verwende JPEG, PNG oder WebP." });
+      return;
+    }
+
+    const imageContent = visionEntries.map((img) => ({
       type: "image_url" as const,
       image_url: {
         url: `data:${img.mimeType};base64,${img.base64}`,
@@ -41,8 +82,8 @@ router.post("/extract-image", async (req, res) => {
 
     const textContent = {
       type: "text" as const,
-      text: imageEntries.length > 1
-        ? `Bitte extrahiere alle Rezepte aus diesen ${imageEntries.length} Bildern, die zusammen ein einzelnes Rezept zeigen.`
+      text: visionEntries.length > 1
+        ? `Bitte extrahiere alle Rezepte aus diesen ${visionEntries.length} Bildern, die zusammen ein einzelnes Rezept zeigen.`
         : "Bitte extrahiere alle Rezepte aus diesem Bild.",
     };
 
@@ -74,7 +115,7 @@ router.post("/extract-image", async (req, res) => {
       return;
     }
 
-    res.json({ recipes: parsed.recipes ?? [], modelUsed: "openai" });
+    res.json({ recipes: parsed.recipes ?? [], modelUsed: "openai", sourceDocumentUrl });
   } catch (err) {
     req.log.error({ err }, "Failed to extract image");
     res.status(500).json({ error: "internal_error", message: "Foto-Extraktion fehlgeschlagen" });

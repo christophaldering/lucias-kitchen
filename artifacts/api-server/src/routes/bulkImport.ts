@@ -11,7 +11,7 @@ import {
   usersTable,
   notificationsTable,
 } from "@workspace/db/schema";
-import { eq, and, desc, sql, or } from "drizzle-orm";
+import { eq, and, desc, sql, or, inArray } from "drizzle-orm";
 import { anthropic } from "@workspace/integrations-anthropic-ai";
 import { ObjectStorageService, objectStorageClient } from "../lib/objectStorage";
 import {
@@ -1367,6 +1367,28 @@ router.post("/bulk-import/:sessionId/retry/:fileId", authMiddleware, async (req,
   }
 });
 
+async function extractPdfPages(pdfBuffer: Buffer, pageNumbers: number[]): Promise<Buffer | null> {
+  if (pageNumbers.length === 0) return null;
+  try {
+    const { PDFDocument } = await import("pdf-lib");
+    const srcDoc = await PDFDocument.load(pdfBuffer);
+    const totalPages = srcDoc.getPageCount();
+    const newDoc = await PDFDocument.create();
+    for (const pageNum of pageNumbers) {
+      const pageIndex = pageNum - 1;
+      if (pageIndex >= 0 && pageIndex < totalPages) {
+        const [copiedPage] = await newDoc.copyPages(srcDoc, [pageIndex]);
+        newDoc.addPage(copiedPage);
+      }
+    }
+    if (newDoc.getPageCount() === 0) return null;
+    const bytes = await newDoc.save();
+    return Buffer.from(bytes);
+  } catch {
+    return null;
+  }
+}
+
 router.post("/bulk-import/:sessionId/save", authMiddleware, async (req, res) => {
   try {
     const sessionId = Number(req.params.sessionId);
@@ -1399,6 +1421,26 @@ router.post("/bulk-import/:sessionId/save", authMiddleware, async (req, res) => 
       (item) => item.status !== "failed" && item.recipeData != null && item.savedRecipeId == null
     );
 
+    // Preload original PDFs per file (keyed by fileId) for page extraction
+    const fileIds = [...new Set(savableItems.map((item) => item.fileId))];
+    const pdfBuffersByFileId = new Map<number, Buffer>();
+    const fileRecords = fileIds.length > 0
+      ? await db
+          .select()
+          .from(bulkImportFilesTable)
+          .where(inArray(bulkImportFilesTable.id, fileIds))
+      : [];
+
+    for (const fileRecord of fileRecords) {
+      if (fileRecord.pdfStoragePath) {
+        try {
+          const buf = await downloadPdfFromStorage(fileRecord.pdfStoragePath);
+          pdfBuffersByFileId.set(fileRecord.id, buf);
+        } catch {
+        }
+      }
+    }
+
     const userId = req.authUser!.id;
     let savedCount = 0;
 
@@ -1418,6 +1460,27 @@ router.post("/bulk-import/:sessionId/save", authMiddleware, async (req, res) => 
           source?: string;
         };
 
+        // Build source document URL: extract relevant pages from the original PDF
+        let sourceDocumentUrl: string | null = null;
+        const pageNumbers = (item.pageNumbers as number[]) ?? [];
+        const originalPdfBuffer = pdfBuffersByFileId.get(item.fileId);
+        if (originalPdfBuffer) {
+          try {
+            if (pageNumbers.length > 0) {
+              const miniPdf = await extractPdfPages(originalPdfBuffer, pageNumbers);
+              if (miniPdf) {
+                const storagePath = await storageService.uploadBuffer(miniPdf, "application/pdf", "source-documents");
+                sourceDocumentUrl = `/api/storage${storagePath}`;
+              }
+            } else {
+              // No page numbers — store the entire PDF
+              const storagePath = await storageService.uploadBuffer(originalPdfBuffer, "application/pdf", "source-documents");
+              sourceDocumentUrl = `/api/storage${storagePath}`;
+            }
+          } catch {
+          }
+        }
+
         const [recipe] = await db
           .insert(recipesTable)
           .values({
@@ -1433,6 +1496,7 @@ router.post("/bulk-import/:sessionId/save", authMiddleware, async (req, res) => 
             steps: (rd.steps ?? []) as unknown as string,
             createdBy: userId,
             seasons: [],
+            sourceDocumentUrl,
           })
           .returning();
 

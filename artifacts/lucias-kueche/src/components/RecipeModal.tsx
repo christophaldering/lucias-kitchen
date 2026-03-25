@@ -1,6 +1,6 @@
 import { useState } from "react";
 import type { Recipe } from "@/types/recipe";
-import { X, Clock, ChefHat, CalendarPlus, Users, Flame, BookOpen, Check, Printer, UtensilsCrossed, Minus, Plus, Star, ChevronDown, Copy, Share2, Trash2, Loader2 } from "lucide-react";
+import { X, Clock, ChefHat, CalendarPlus, Users, Flame, BookOpen, Check, Printer, UtensilsCrossed, Minus, Plus, Star, ChevronDown, Copy, Share2, Trash2, Loader2, ExternalLink } from "lucide-react";
 import { SEASON_ICONS, SEASON_LABELS } from "@/types/recipe";
 import type { Season } from "@/types/recipe";
 import { addMealPlanEntry } from "@/hooks/useMealPlans";
@@ -719,6 +719,18 @@ export default function RecipeModal({ recipe, onClose, onAddToWeek, onToggleFavo
                 <Share2 className="w-4 h-4" />
                 Vorschlagen
               </button>
+
+              {recipe.sourceDocumentUrl && (
+                <a
+                  href={recipe.sourceDocumentUrl}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="flex items-center gap-2 px-4 py-2.5 bg-secondary text-foreground border border-border rounded-xl text-sm font-semibold hover:bg-secondary/80 transition-colors"
+                >
+                  <ExternalLink className="w-4 h-4" />
+                  Original ansehen
+                </a>
+              )}
 
               {isOwner && onDeleteRecipe && !showDeleteConfirm && (
                 <button

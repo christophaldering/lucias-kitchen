@@ -69,6 +69,7 @@ const recipeBodySchema = z.object({
   seasons: z.array(z.enum(VALID_SEASONS)).default([]),
   parentRecipeId: z.coerce.number().int().positive().optional().nullable(),
   variantName: z.string().optional().nullable(),
+  sourceDocumentUrl: z.string().optional().nullable(),
 });
 
 async function getRecipesWithIngredients(currentUserId?: number, filter?: string) {
@@ -103,6 +104,7 @@ async function getRecipesWithIngredients(currentUserId?: number, filter?: string
       r.created_by      AS "createdBy",
       r.parent_recipe_id AS "parentRecipeId",
       r.variant_name    AS "variantName",
+      r.source_document_url AS "sourceDocumentUrl",
       COALESCE(
         json_agg(
           json_build_object(
@@ -149,6 +151,7 @@ async function getRecipesWithIngredients(currentUserId?: number, filter?: string
     createdBy: number | null;
     parentRecipeId: number | null;
     variantName: string | null;
+    sourceDocumentUrl: string | null;
     ingredients: Array<{ id: number; recipeId: number; amount: string; unit: string; name: string; note: string | null }>;
     isFavorite: boolean;
     isOwner: boolean;
@@ -180,6 +183,7 @@ async function getRecipesWithIngredients(currentUserId?: number, filter?: string
     createdBy: r.createdBy,
     parentRecipeId: r.parentRecipeId,
     variantName: r.variantName,
+    sourceDocumentUrl: r.sourceDocumentUrl,
     ingredients: r.ingredients,
     isFavorite: r.isFavorite,
     isOwner: r.isOwner,
@@ -469,6 +473,7 @@ router.post("/recipes", authMiddleware, async (req, res) => {
         createdBy: req.authUser!.id,
         parentRecipeId: recipeData.parentRecipeId ?? null,
         variantName: recipeData.variantName ?? null,
+        sourceDocumentUrl: recipeData.sourceDocumentUrl ?? null,
       }).returning();
 
       if (ingredients.length > 0) {
@@ -666,6 +671,8 @@ router.delete("/recipes/:id", authMiddleware, async (req, res) => {
       return;
     }
 
+    const sourceDocumentUrl = existing.sourceDocumentUrl;
+
     const [deleted] = await db
       .delete(recipesTable)
       .where(eq(recipesTable.id, id))
@@ -674,6 +681,25 @@ router.delete("/recipes/:id", authMiddleware, async (req, res) => {
     if (!deleted) {
       res.status(404).json({ error: "not_found", message: "Recipe not found" });
       return;
+    }
+
+    // Clean up source document from object storage (only if no other recipe references it)
+    if (sourceDocumentUrl) {
+      try {
+        const [otherRef] = await db
+          .select({ id: recipesTable.id })
+          .from(recipesTable)
+          .where(eq(recipesTable.sourceDocumentUrl, sourceDocumentUrl))
+          .limit(1);
+
+        if (!otherRef) {
+          const { ObjectStorageService } = await import("../lib/objectStorage");
+          const storageService = new ObjectStorageService();
+          const storagePath = sourceDocumentUrl.replace(/^\/api\/storage/, "");
+          await storageService.deleteObject(storagePath);
+        }
+      } catch {
+      }
     }
 
     res.json({ success: true, id });

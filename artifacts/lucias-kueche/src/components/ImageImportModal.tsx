@@ -10,7 +10,7 @@ interface Props {
 
 type Step = "upload" | "loading" | "review" | "saving" | "done" | "error";
 
-const ALLOWED_MIME = ["image/jpeg", "image/png", "image/webp", "image/gif"];
+const ALLOWED_MIME = ["image/jpeg", "image/png", "image/webp", "image/gif", "image/heic", "image/heif"];
 
 interface PhotoEntry {
   objectUrl: string;
@@ -93,6 +93,7 @@ export default function ImageImportModal({ onClose, onAdd }: Props) {
   const [photos, setPhotos] = useState<PhotoEntry[]>([]);
   const [extracted, setExtracted] = useState<Partial<Recipe>[]>([]);
   const [selected, setSelected] = useState<Set<number>>(new Set());
+  const [sourceDocumentUrl, setSourceDocumentUrl] = useState<string | null>(null);
   const [errorMsg, setErrorMsg] = useState("");
   const [expandedIndex, setExpandedIndex] = useState<number | null>(null);
 
@@ -133,9 +134,10 @@ export default function ImageImportModal({ onClose, onAdd }: Props) {
     setStep("loading");
     try {
       const images = imageList.map((p) => ({ base64: p.base64, mimeType: p.mimeType }));
-      const { recipes } = await extractImageRecipes(images);
+      const { recipes, sourceDocumentUrl: srcUrl } = await extractImageRecipes(images);
       const sanitized = recipes.map(sanitizeRecipe);
       setExtracted(sanitized);
+      setSourceDocumentUrl(srcUrl);
       setSelected(new Set(sanitized.map((_, i) => i)));
       setStep("review");
     } catch (err) {
@@ -147,7 +149,7 @@ export default function ImageImportModal({ onClose, onAdd }: Props) {
   const handleFile = async (file: File, isAdditional = false) => {
     const mimeType = file.type || "image/jpeg";
     if (!ALLOWED_MIME.includes(mimeType)) {
-      setErrorMsg("Bitte nur JPEG-, PNG-, WebP- oder GIF-Bilder hochladen.");
+      setErrorMsg("Bitte nur JPEG-, PNG-, WebP-, GIF- oder HEIC-Bilder hochladen.");
       setStep("error");
       return;
     }
@@ -232,7 +234,11 @@ export default function ImageImportModal({ onClose, onAdd }: Props) {
     if (toAdd.length === 0) return;
     setStep("saving");
     try {
-      await onAdd(toAdd);
+      const recipesWithSource = toAdd.map((r) => ({
+        ...r,
+        sourceDocumentUrl: sourceDocumentUrl ?? undefined,
+      }));
+      await onAdd(recipesWithSource);
       setStep("done");
     } catch (err) {
       let msg = "Rezepte konnten nicht gespeichert werden.";

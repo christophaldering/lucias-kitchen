@@ -76,6 +76,7 @@ export interface Recipe {
   owner?: RecipeOwner | null;
   parentRecipeId?: number | null;
   variantName?: string | null;
+  sourceDocumentUrl?: string | null;
 }
 
 export const ALL_CATEGORIES = [

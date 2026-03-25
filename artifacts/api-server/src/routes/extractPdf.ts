@@ -2,8 +2,10 @@ import { Router, type IRouter } from "express";
 import { openai } from "@workspace/integrations-openai-ai-server";
 import { anthropic } from "@workspace/integrations-anthropic-ai";
 import { RECIPE_EXTRACTION_SYSTEM_PROMPT } from "../lib/recipeExtractionPrompt";
+import { ObjectStorageService } from "../lib/objectStorage";
 
 const router: IRouter = Router();
+const storageService = new ObjectStorageService();
 
 router.post("/extract-pdf", async (req, res) => {
   try {
@@ -15,6 +17,15 @@ router.post("/extract-pdf", async (req, res) => {
     }
 
     const pdfBuffer = Buffer.from(pdf, "base64");
+
+    // Store the PDF in object storage so it can be referenced as source document
+    let sourceDocumentUrl: string | null = null;
+    try {
+      const storagePath = await storageService.uploadBuffer(pdfBuffer, "application/pdf", "source-documents");
+      sourceDocumentUrl = `/api/storage${storagePath}`;
+    } catch {
+      // Non-fatal — extraction still proceeds
+    }
 
     // Dynamic import to avoid ESM/CJS issues with pdf-parse
     const pdfParse = (await import("pdf-parse")).default;
@@ -88,7 +99,7 @@ router.post("/extract-pdf", async (req, res) => {
       return;
     }
 
-    res.json({ recipes: parsed.recipes ?? [], modelUsed });
+    res.json({ recipes: parsed.recipes ?? [], modelUsed, sourceDocumentUrl });
   } catch (err) {
     req.log.error({ err }, "Failed to extract PDF");
     res.status(500).json({ error: "internal_error", message: "PDF-Extraktion fehlgeschlagen" });

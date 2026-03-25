@@ -197,7 +197,7 @@ export async function uploadRecipeImage(file: File): Promise<string> {
 
 export async function extractPdfRecipes(
   base64Pdf: string
-): Promise<{ recipes: Partial<Recipe>[]; modelUsed: "openai" | "claude" }> {
+): Promise<{ recipes: Partial<Recipe>[]; modelUsed: "openai" | "claude"; sourceDocumentUrl: string | null }> {
   const res = await authFetch(`${API_BASE}/extract-pdf`, {
     method: "POST",
     headers: { "Content-Type": "application/json", ...authHeaders() },
@@ -207,7 +207,8 @@ export async function extractPdfRecipes(
     const err = await res.json().catch(() => ({}));
     throw new Error(err.message ?? `HTTP ${res.status}`);
   }
-  return res.json();
+  const data = await res.json();
+  return { recipes: data.recipes ?? [], modelUsed: data.modelUsed, sourceDocumentUrl: data.sourceDocumentUrl ?? null };
 }
 
 export async function extractUrlRecipes(
@@ -228,7 +229,7 @@ export async function extractUrlRecipes(
 export async function extractImageRecipes(
   images: Array<{ base64: string; mimeType: string }> | string,
   mimeType: string = "image/jpeg"
-): Promise<{ recipes: Partial<Recipe>[]; modelUsed: "openai" }> {
+): Promise<{ recipes: Partial<Recipe>[]; modelUsed: "openai"; sourceDocumentUrl: string | null }> {
   const body = Array.isArray(images)
     ? { images }
     : { image: images, mimeType };
@@ -242,7 +243,8 @@ export async function extractImageRecipes(
     const err = await res.json().catch(() => ({}));
     throw new Error(err.message ?? `HTTP ${res.status}`);
   }
-  return res.json();
+  const data = await res.json();
+  return { recipes: data.recipes ?? [], modelUsed: data.modelUsed, sourceDocumentUrl: data.sourceDocumentUrl ?? null };
 }
 
 export async function fetchRecipePhotos(recipeId: number): Promise<RecipePhoto[]> {

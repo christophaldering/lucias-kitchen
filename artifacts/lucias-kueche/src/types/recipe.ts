@@ -1,8 +1,13 @@
 export interface RecipePhoto {
   id: number;
-  recipeId: number;
   imageUrl: string;
+  caption: string | null;
+  uploadedBy: number | null;
   createdAt: string;
+  linkId: number;
+  recipeId: number;
+  sortOrder: number;
+  isMain: boolean;
 }
 
 export interface RecipeIngredient {

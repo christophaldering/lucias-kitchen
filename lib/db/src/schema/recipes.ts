@@ -68,6 +68,32 @@ export const recipePhotosTable = pgTable("recipe_photos", {
 export type RecipePhoto = typeof recipePhotosTable.$inferSelect;
 export type InsertRecipePhoto = typeof recipePhotosTable.$inferInsert;
 
+export const photosTable = pgTable("photos", {
+  id: serial("id").primaryKey(),
+  imageUrl: text("image_url").notNull(),
+  uploadedBy: integer("uploaded_by").references(() => usersTable.id, { onDelete: "set null" }),
+  caption: text("caption"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+});
+
+export const recipePhotoLinksTable = pgTable("recipe_photo_links", {
+  id: serial("id").primaryKey(),
+  photoId: integer("photo_id").notNull().references(() => photosTable.id, { onDelete: "cascade" }),
+  recipeId: integer("recipe_id").notNull().references(() => recipesTable.id, { onDelete: "cascade" }),
+  sortOrder: integer("sort_order").notNull().default(0),
+  isMain: boolean("is_main").notNull().default(false),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+}, (t) => [
+  unique("recipe_photo_links_photo_recipe_unique").on(t.photoId, t.recipeId),
+  index("recipe_photo_links_recipe_id_idx").on(t.recipeId),
+  index("recipe_photo_links_photo_id_idx").on(t.photoId),
+]);
+
+export type Photo = typeof photosTable.$inferSelect;
+export type InsertPhoto = typeof photosTable.$inferInsert;
+export type RecipePhotoLink = typeof recipePhotoLinksTable.$inferSelect;
+export type InsertRecipePhotoLink = typeof recipePhotoLinksTable.$inferInsert;
+
 export const insertRecipeSchema = createInsertSchema(recipesTable).omit({ id: true });
 export type InsertRecipe = z.infer<typeof insertRecipeSchema>;
 export type Recipe = typeof recipesTable.$inferSelect;

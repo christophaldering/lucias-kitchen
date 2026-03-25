@@ -728,7 +728,7 @@ export default function RecipeModal({ recipe, onClose, onAddToWeek, onToggleFavo
 
           {/* Cooking Photos */}
           <div>
-            <RecipePhotoGallery recipeId={recipe.id} />
+            <RecipePhotoGallery recipeId={recipe.id} allRecipes={allRecipes} />
           </div>
 
           {/* Cooking log entries for this recipe */}

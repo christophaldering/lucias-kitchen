@@ -319,3 +319,16 @@ export async function deleteRecipePhoto(recipeId: number, photoId: number): Prom
   });
   if (!res.ok) throw new Error(`HTTP ${res.status}`);
 }
+
+export async function linkPhotoToRecipe(photoId: number, recipeId: number): Promise<RecipePhoto> {
+  const res = await authFetch(`${API_BASE}/photos/${photoId}/link`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", ...authHeaders() },
+    body: JSON.stringify({ recipeId }),
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error(err.message ?? `HTTP ${res.status}`);
+  }
+  return res.json();
+}

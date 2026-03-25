@@ -1,10 +1,11 @@
 import { useState, useEffect, useRef, useCallback } from "react";
-import { Camera, Image, Loader2, Trash2, X } from "lucide-react";
-import type { RecipePhoto } from "@/types/recipe";
-import { fetchRecipePhotos, uploadRecipePhoto, deleteRecipePhoto } from "@/hooks/useRecipes";
+import { Camera, Image, Loader2, Trash2, X, Link } from "lucide-react";
+import type { RecipePhoto, Recipe } from "@/types/recipe";
+import { fetchRecipePhotos, uploadRecipePhoto, deleteRecipePhoto, linkPhotoToRecipe } from "@/hooks/useRecipes";
 
 interface Props {
   recipeId: number;
+  allRecipes?: Recipe[];
 }
 
 function formatDateTime(isoString: string): string {
@@ -22,13 +23,16 @@ function formatDateTime(isoString: string): string {
   }
 }
 
-export default function RecipePhotoGallery({ recipeId }: Props) {
+export default function RecipePhotoGallery({ recipeId, allRecipes }: Props) {
   const [photos, setPhotos] = useState<RecipePhoto[]>([]);
   const [loading, setLoading] = useState(true);
   const [uploading, setUploading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [confirmDeleteId, setConfirmDeleteId] = useState<number | null>(null);
   const [lightboxPhoto, setLightboxPhoto] = useState<RecipePhoto | null>(null);
+  const [linkingPhoto, setLinkingPhoto] = useState<RecipePhoto | null>(null);
+  const [selectedRecipeIds, setSelectedRecipeIds] = useState<Set<number>>(new Set());
+  const [linking, setLinking] = useState(false);
   const galleryInputRef = useRef<HTMLInputElement>(null);
   const cameraInputRef = useRef<HTMLInputElement>(null);
 
@@ -78,6 +82,29 @@ export default function RecipePhotoGallery({ recipeId }: Props) {
       setConfirmDeleteId(null);
     }
   };
+
+  const openLinkDialog = (photo: RecipePhoto) => {
+    setLinkingPhoto(photo);
+    setSelectedRecipeIds(new Set());
+  };
+
+  const handleLinkToRecipes = async () => {
+    if (!linkingPhoto || selectedRecipeIds.size === 0) return;
+    setLinking(true);
+    try {
+      for (const rid of selectedRecipeIds) {
+        await linkPhotoToRecipe(linkingPhoto.id, rid);
+      }
+      setLinkingPhoto(null);
+      setSelectedRecipeIds(new Set());
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : "Verknüpfung fehlgeschlagen.");
+    } finally {
+      setLinking(false);
+    }
+  };
+
+  const otherRecipes = allRecipes?.filter((r) => r.id !== recipeId) ?? [];
 
   return (
     <div>
@@ -151,14 +178,26 @@ export default function RecipePhotoGallery({ recipeId }: Props) {
               </div>
               <div className="flex items-center justify-between px-2 py-1 bg-white">
                 <p className="text-muted-foreground text-[10px] leading-tight">{formatDateTime(photo.createdAt)}</p>
-                <button
-                  type="button"
-                  onClick={(e) => { e.stopPropagation(); setConfirmDeleteId(photo.id); }}
-                  className="p-0.5 hover:bg-red-50 text-red-400 hover:text-red-600 rounded transition-colors"
-                  title="Foto löschen"
-                >
-                  <Trash2 className="w-3 h-3" />
-                </button>
+                <div className="flex gap-1">
+                  {otherRecipes.length > 0 && (
+                    <button
+                      type="button"
+                      onClick={(e) => { e.stopPropagation(); openLinkDialog(photo); }}
+                      className="p-0.5 hover:bg-blue-50 text-blue-400 hover:text-blue-600 rounded transition-colors"
+                      title="Mit weiteren Rezepten verknüpfen"
+                    >
+                      <Link className="w-3 h-3" />
+                    </button>
+                  )}
+                  <button
+                    type="button"
+                    onClick={(e) => { e.stopPropagation(); setConfirmDeleteId(photo.id); }}
+                    className="p-0.5 hover:bg-red-50 text-red-400 hover:text-red-600 rounded transition-colors"
+                    title="Foto löschen"
+                  >
+                    <Trash2 className="w-3 h-3" />
+                  </button>
+                </div>
               </div>
             </div>
           ))}
@@ -182,6 +221,56 @@ export default function RecipePhotoGallery({ recipeId }: Props) {
                 className="px-4 py-2 bg-red-600 text-white rounded-xl text-sm font-semibold hover:bg-red-700 transition-colors"
               >
                 Löschen
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {linkingPhoto && (
+        <div className="fixed inset-0 z-[60] flex items-center justify-center p-4 bg-black/50" onClick={() => setLinkingPhoto(null)}>
+          <div className="bg-white rounded-2xl shadow-xl p-6 max-w-sm w-full max-h-[80vh] flex flex-col" onClick={(e) => e.stopPropagation()}>
+            <div className="flex items-center justify-between mb-4">
+              <h4 className="font-semibold text-foreground">Mit Rezepten verknüpfen</h4>
+              <button onClick={() => setLinkingPhoto(null)} className="p-1 hover:bg-secondary rounded-lg">
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+            <p className="text-sm text-muted-foreground mb-3">
+              Wähle weitere Rezepte, denen dieses Foto zugeordnet werden soll:
+            </p>
+            <div className="flex-1 overflow-y-auto space-y-1 mb-4">
+              {otherRecipes.map((r) => (
+                <label key={r.id} className="flex items-center gap-2 p-2 rounded-xl hover:bg-secondary cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={selectedRecipeIds.has(r.id)}
+                    onChange={(e) => {
+                      const next = new Set(selectedRecipeIds);
+                      if (e.target.checked) next.add(r.id);
+                      else next.delete(r.id);
+                      setSelectedRecipeIds(next);
+                    }}
+                    className="rounded"
+                  />
+                  <span className="text-sm text-foreground">{r.title}</span>
+                </label>
+              ))}
+            </div>
+            <div className="flex gap-2 justify-end">
+              <button
+                onClick={() => setLinkingPhoto(null)}
+                className="px-4 py-2 border border-border rounded-xl text-sm font-medium hover:bg-secondary transition-colors"
+              >
+                Abbrechen
+              </button>
+              <button
+                onClick={handleLinkToRecipes}
+                disabled={selectedRecipeIds.size === 0 || linking}
+                className="px-4 py-2 bg-[#C1693A] text-white rounded-xl text-sm font-semibold hover:bg-[#A85830] transition-colors disabled:opacity-50 flex items-center gap-2"
+              >
+                {linking && <Loader2 className="w-3.5 h-3.5 animate-spin" />}
+                Verknüpfen ({selectedRecipeIds.size})
               </button>
             </div>
           </div>

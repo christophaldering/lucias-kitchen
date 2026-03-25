@@ -1,6 +1,6 @@
 import { Router, type IRouter } from "express";
 import { db } from "@workspace/db";
-import { recipesTable, recipeIngredientsTable, recipePhotosTable, recipeFavoritesTable, usersTable, groupMembersTable, groupsTable } from "@workspace/db/schema";
+import { recipesTable, recipeIngredientsTable, recipePhotosTable, recipeFavoritesTable, usersTable, groupMembersTable, groupsTable, photosTable, recipePhotoLinksTable } from "@workspace/db/schema";
 import { eq, inArray, sql, desc, and, isNull } from "drizzle-orm";
 import { z } from "zod/v4";
 import { seedRecipes } from "../db/seedRecipes";
@@ -525,6 +525,46 @@ router.get("/recipes/duplicates", authMiddleware, async (req, res) => {
   }
 });
 
+async function syncMainPhotoLink(recipeId: number, imageUrl: string | null | undefined, uploadedBy?: number | null) {
+  if (!imageUrl) {
+    await db
+      .delete(recipePhotoLinksTable)
+      .where(and(eq(recipePhotoLinksTable.recipeId, recipeId), eq(recipePhotoLinksTable.isMain, true)));
+    return;
+  }
+
+  let [photo] = await db
+    .select()
+    .from(photosTable)
+    .where(eq(photosTable.imageUrl, imageUrl))
+    .limit(1);
+
+  if (!photo) {
+    [photo] = await db
+      .insert(photosTable)
+      .values({ imageUrl, uploadedBy: uploadedBy ?? null })
+      .returning();
+  }
+
+  await db
+    .insert(recipePhotoLinksTable)
+    .values({ photoId: photo.id, recipeId, sortOrder: -1, isMain: true })
+    .onConflictDoUpdate({
+      target: [recipePhotoLinksTable.photoId, recipePhotoLinksTable.recipeId],
+      set: { isMain: true, sortOrder: -1 },
+    });
+
+  await db
+    .delete(recipePhotoLinksTable)
+    .where(
+      and(
+        eq(recipePhotoLinksTable.recipeId, recipeId),
+        eq(recipePhotoLinksTable.isMain, true),
+        sql`${recipePhotoLinksTable.photoId} != ${photo.id}`,
+      )
+    );
+}
+
 router.post("/recipes", authMiddleware, async (req, res) => {
   try {
     const body = req.body;
@@ -567,6 +607,10 @@ router.post("/recipes", authMiddleware, async (req, res) => {
             note: ing.note ?? null,
           }))
         );
+      }
+
+      if (recipeData.imageUrl) {
+        await syncMainPhotoLink(recipe.id, recipeData.imageUrl, req.authUser!.id);
       }
 
       const recipeIngredients = await db
@@ -645,6 +689,8 @@ router.put("/recipes/:id", authMiddleware, async (req, res) => {
       res.status(404).json({ error: "not_found", message: "Recipe not found" });
       return;
     }
+
+    await syncMainPhotoLink(id, recipeData.imageUrl, req.authUser!.id);
 
     await db.delete(recipeIngredientsTable).where(eq(recipeIngredientsTable.recipeId, id));
     if (ingredients.length > 0) {
@@ -1066,12 +1112,23 @@ router.get("/recipes/:id/photos", async (req, res) => {
       res.status(400).json({ error: "bad_request", message: "Invalid recipe id" });
       return;
     }
-    const photos = await db
-      .select()
-      .from(recipePhotosTable)
-      .where(eq(recipePhotosTable.recipeId, id))
-      .orderBy(desc(recipePhotosTable.createdAt));
-    res.json(photos);
+    const rows = await db
+      .select({
+        id: photosTable.id,
+        imageUrl: photosTable.imageUrl,
+        caption: photosTable.caption,
+        uploadedBy: photosTable.uploadedBy,
+        createdAt: photosTable.createdAt,
+        linkId: recipePhotoLinksTable.id,
+        recipeId: recipePhotoLinksTable.recipeId,
+        sortOrder: recipePhotoLinksTable.sortOrder,
+        isMain: recipePhotoLinksTable.isMain,
+      })
+      .from(recipePhotoLinksTable)
+      .innerJoin(photosTable, eq(photosTable.id, recipePhotoLinksTable.photoId))
+      .where(eq(recipePhotoLinksTable.recipeId, id))
+      .orderBy(recipePhotoLinksTable.sortOrder, desc(photosTable.createdAt));
+    res.json(rows);
   } catch (err) {
     req.log.error({ err }, "Failed to fetch recipe photos");
     res.status(500).json({ error: "internal_error", message: "Failed to fetch recipe photos" });
@@ -1090,11 +1147,29 @@ router.post("/recipes/:id/photos", singleImageUploadMiddleware, async (req, res)
       return;
     }
     const imageUrl = `/api/uploads/${req.file.filename}`;
+    const uploadedBy = req.authUser?.id ?? null;
+
     const [photo] = await db
-      .insert(recipePhotosTable)
-      .values({ recipeId: id, imageUrl })
+      .insert(photosTable)
+      .values({ imageUrl, uploadedBy })
       .returning();
-    res.status(201).json(photo);
+
+    const [link] = await db
+      .insert(recipePhotoLinksTable)
+      .values({ photoId: photo.id, recipeId: id, sortOrder: 0, isMain: false })
+      .returning();
+
+    res.status(201).json({
+      id: photo.id,
+      imageUrl: photo.imageUrl,
+      caption: photo.caption,
+      uploadedBy: photo.uploadedBy,
+      createdAt: photo.createdAt,
+      linkId: link.id,
+      recipeId: link.recipeId,
+      sortOrder: link.sortOrder,
+      isMain: link.isMain,
+    });
   } catch (err) {
     req.log.error({ err }, "Failed to upload recipe photo");
     res.status(500).json({ error: "internal_error", message: "Failed to upload recipe photo" });
@@ -1109,23 +1184,105 @@ router.delete("/recipes/:id/photos/:photoId", async (req, res) => {
       res.status(400).json({ error: "bad_request", message: "Invalid id" });
       return;
     }
-    const [deleted] = await db
-      .delete(recipePhotosTable)
-      .where(and(eq(recipePhotosTable.id, photoId), eq(recipePhotosTable.recipeId, id)))
+
+    const [deletedLink] = await db
+      .delete(recipePhotoLinksTable)
+      .where(and(eq(recipePhotoLinksTable.photoId, photoId), eq(recipePhotoLinksTable.recipeId, id)))
       .returning();
-    if (!deleted) {
+
+    if (!deletedLink) {
       res.status(404).json({ error: "not_found", message: "Photo not found" });
       return;
     }
-    const filename = deleted.imageUrl.split("/").pop();
-    if (filename) {
-      const filepath = path.join(UPLOADS_DIR, filename);
-      fs.unlink(filepath, () => {});
+
+    const remainingLinks = await db
+      .select({ id: recipePhotoLinksTable.id })
+      .from(recipePhotoLinksTable)
+      .where(eq(recipePhotoLinksTable.photoId, photoId))
+      .limit(1);
+
+    if (remainingLinks.length === 0) {
+      const [deletedPhoto] = await db
+        .delete(photosTable)
+        .where(eq(photosTable.id, photoId))
+        .returning();
+
+      if (deletedPhoto) {
+        const filename = deletedPhoto.imageUrl.split("/").pop();
+        if (filename) {
+          const filepath = path.join(UPLOADS_DIR, filename);
+          fs.unlink(filepath, () => {});
+        }
+      }
     }
+
     res.json({ success: true, id: photoId });
   } catch (err) {
     req.log.error({ err }, "Failed to delete recipe photo");
     res.status(500).json({ error: "internal_error", message: "Failed to delete recipe photo" });
+  }
+});
+
+router.post("/photos/:photoId/link", authMiddleware, async (req, res) => {
+  try {
+    const photoId = Number(req.params.photoId);
+    if (isNaN(photoId)) {
+      res.status(400).json({ error: "bad_request", message: "Invalid photo id" });
+      return;
+    }
+
+    const linkBodySchema = z.object({
+      recipeId: z.number().int().positive(),
+      sortOrder: z.number().int().default(0),
+      isMain: z.boolean().default(false),
+    });
+
+    const data = linkBodySchema.parse(req.body);
+
+    const [photo] = await db.select().from(photosTable).where(eq(photosTable.id, photoId)).limit(1);
+    if (!photo) {
+      res.status(404).json({ error: "not_found", message: "Photo not found" });
+      return;
+    }
+
+    const [recipe] = await db
+      .select({ id: recipesTable.id })
+      .from(recipesTable)
+      .where(and(eq(recipesTable.id, data.recipeId), isNull(recipesTable.deletedAt)))
+      .limit(1);
+
+    if (!recipe) {
+      res.status(404).json({ error: "not_found", message: "Recipe not found" });
+      return;
+    }
+
+    const [link] = await db
+      .insert(recipePhotoLinksTable)
+      .values({ photoId, recipeId: data.recipeId, sortOrder: data.sortOrder, isMain: data.isMain })
+      .onConflictDoUpdate({
+        target: [recipePhotoLinksTable.photoId, recipePhotoLinksTable.recipeId],
+        set: { sortOrder: data.sortOrder, isMain: data.isMain },
+      })
+      .returning();
+
+    res.status(201).json({
+      id: photo.id,
+      imageUrl: photo.imageUrl,
+      caption: photo.caption,
+      uploadedBy: photo.uploadedBy,
+      createdAt: photo.createdAt,
+      linkId: link.id,
+      recipeId: link.recipeId,
+      sortOrder: link.sortOrder,
+      isMain: link.isMain,
+    });
+  } catch (err) {
+    if (err instanceof z.ZodError) {
+      res.status(400).json({ error: "validation_error", issues: err.issues });
+      return;
+    }
+    req.log.error({ err }, "Failed to link photo to recipe");
+    res.status(500).json({ error: "internal_error", message: "Failed to link photo to recipe" });
   }
 });
 

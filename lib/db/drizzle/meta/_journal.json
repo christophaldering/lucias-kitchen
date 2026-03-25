@@ -78,6 +78,13 @@
       "when": 1774454433030,
       "tag": "0010_invite_token_fields",
       "breakpoints": true
+    },
+    {
+      "idx": 11,
+      "version": "7",
+      "when": 1774500000000,
+      "tag": "0011_photo_many_to_many",
+      "breakpoints": true
     }
   ]
 }

@@ -25,6 +25,15 @@ export default function GroupMembersModal({ group, onClose, isOwner }: Props) {
   const [inviteInput, setInviteInput] = useState("");
   const [inviting, setBusy] = useState(false);
 
+  const isAlreadyMember = inviteInput.trim().length > 0 && members.some((m) => {
+    const needle = inviteInput.trim().toLowerCase();
+    return (
+      (m.email?.toLowerCase() === needle) ||
+      (m.invitedEmail?.toLowerCase() === needle) ||
+      (m.displayName?.toLowerCase() === needle)
+    );
+  });
+
   const [editingName, setEditingName] = useState(false);
   const [displayedName, setDisplayedName] = useState(group.name);
   const [nameInput, setNameInput] = useState(group.name);
@@ -190,20 +199,31 @@ export default function GroupMembersModal({ group, onClose, isOwner }: Props) {
               <h3 className="text-sm font-semibold mb-2 flex items-center gap-2">
                 <UserPlus className="w-4 h-4 text-[#4A7C59]" /> Mitglied einladen
               </h3>
-              <form onSubmit={handleInvite} className="flex gap-2">
-                <input
-                  value={inviteInput}
-                  onChange={(e) => setInviteInput(e.target.value)}
-                  placeholder="E-Mail oder Nutzername…"
-                  className="flex-1 px-3 py-2 rounded-xl border border-border bg-white text-sm focus:outline-none focus:ring-2 focus:ring-[#4A7C59]/30"
-                />
-                <button
-                  type="submit"
-                  disabled={inviting || !inviteInput.trim()}
-                  className="px-4 py-2 bg-[#4A7C59] text-white rounded-xl text-sm font-semibold hover:bg-[#3d6849] transition-colors disabled:opacity-50 flex items-center gap-1"
-                >
-                  {inviting ? <Loader2 className="w-4 h-4 animate-spin" /> : "Einladen"}
-                </button>
+              <form onSubmit={handleInvite} className="flex flex-col gap-1">
+                <div className="flex gap-2">
+                  <input
+                    value={inviteInput}
+                    onChange={(e) => setInviteInput(e.target.value)}
+                    placeholder="E-Mail oder Nutzername…"
+                    className={`flex-1 px-3 py-2 rounded-xl border bg-white text-sm focus:outline-none focus:ring-2 transition-colors ${
+                      isAlreadyMember
+                        ? "border-red-400 focus:ring-red-300"
+                        : "border-border focus:ring-[#4A7C59]/30"
+                    }`}
+                  />
+                  <button
+                    type="submit"
+                    disabled={inviting || !inviteInput.trim() || isAlreadyMember}
+                    className="px-4 py-2 bg-[#4A7C59] text-white rounded-xl text-sm font-semibold hover:bg-[#3d6849] transition-colors disabled:opacity-50 flex items-center gap-1"
+                  >
+                    {inviting ? <Loader2 className="w-4 h-4 animate-spin" /> : "Einladen"}
+                  </button>
+                </div>
+                {isAlreadyMember && (
+                  <p className="text-xs text-red-600 font-medium px-1">
+                    Diese Person ist bereits Mitglied oder eingeladen.
+                  </p>
+                )}
               </form>
             </div>
           )}

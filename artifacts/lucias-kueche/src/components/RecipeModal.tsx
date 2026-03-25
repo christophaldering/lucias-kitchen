@@ -437,6 +437,154 @@ export default function RecipeModal({ recipe, onClose, onAddToWeek, onToggleFavo
             )}
           </div>
 
+          {/* Actions */}
+          <div className="flex flex-col gap-3 pt-2">
+            {/* Calendar date picker */}
+            {showDatePicker ? (
+              <div className="flex flex-wrap items-center gap-2 p-3 bg-[#4A7C59]/5 rounded-xl border border-[#4A7C59]/20">
+                <label htmlFor="calendar-date-picker" className="text-sm font-medium text-foreground">Datum wählen:</label>
+                <input
+                  id="calendar-date-picker"
+                  type="date"
+                  value={selectedDate}
+                  min={today}
+                  onChange={(e) => setSelectedDate(e.target.value)}
+                  className="text-sm border border-border rounded-lg px-2 py-1.5 focus:outline-none focus:ring-2 focus:ring-[#4A7C59]/30 bg-white"
+                />
+                <button
+                  onClick={handleAddToCalendar}
+                  disabled={saving}
+                  className="flex items-center gap-1.5 px-3 py-1.5 bg-[#4A7C59] text-white rounded-lg text-sm font-medium hover:bg-[#3d6849] transition-colors disabled:opacity-60"
+                >
+                  <Check className="w-3.5 h-3.5" />
+                  {saving ? "Speichern…" : "Speichern"}
+                </button>
+                <button
+                  onClick={() => setShowDatePicker(false)}
+                  className="px-3 py-1.5 border border-border rounded-lg text-sm text-muted-foreground hover:bg-secondary transition-colors"
+                >
+                  Abbrechen
+                </button>
+              </div>
+            ) : null}
+
+            <div className="flex gap-3 flex-wrap">
+              {recipe.steps && (recipe.steps as string[]).length > 0 && (
+                <button
+                  onClick={() => setCookingMode(true)}
+                  className="flex items-center gap-2 px-4 py-2.5 bg-[#C1693A] text-white rounded-xl text-sm font-semibold hover:bg-[#a85830] transition-colors"
+                >
+                  <UtensilsCrossed className="w-4 h-4" />
+                  Kochen starten
+                </button>
+              )}
+
+              <button
+                onClick={handleTodayCookedClick}
+                disabled={stockReductionLoading}
+                className="flex items-center gap-2 px-4 py-2.5 bg-[#4A7C59] text-white rounded-xl text-sm font-semibold hover:bg-[#3d6849] disabled:opacity-70 transition-colors"
+              >
+                {stockReductionLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : <UtensilsCrossed className="w-4 h-4" />}
+                Heute gekocht
+              </button>
+
+              {!showDatePicker && (
+                <button
+                  onClick={() => setShowDatePicker(true)}
+                  className="flex items-center gap-2 px-4 py-2.5 bg-secondary text-foreground border border-border rounded-xl text-sm font-semibold hover:bg-secondary/80 transition-colors"
+                >
+                  <CalendarPlus className="w-4 h-4" />
+                  Zum Kalender
+                </button>
+              )}
+
+              {!isOwner && onToggleFavorite && (
+                <button
+                  onClick={handleToggleFavorite}
+                  disabled={favLoading}
+                  className={`flex items-center gap-2 px-4 py-2.5 rounded-xl text-sm font-semibold transition-colors disabled:opacity-60 ${
+                    isFavorite
+                      ? "bg-amber-500 text-white hover:bg-amber-600"
+                      : "border border-border text-foreground hover:bg-secondary"
+                  }`}
+                >
+                  <Star className={`w-4 h-4 ${isFavorite ? "fill-white" : ""}`} />
+                  {isFavorite ? "Gemerkt ✓" : "⭐ Merken"}
+                </button>
+              )}
+
+              {onAddToWeek && (
+                <button
+                  onClick={() => { onAddToWeek(recipe.id); onClose(); }}
+                  className="flex items-center gap-2 px-4 py-2.5 bg-secondary text-foreground border border-border rounded-xl text-sm font-semibold hover:bg-secondary/80 transition-colors"
+                >
+                  Zur Woche
+                </button>
+              )}
+
+              <button
+                onClick={() => setShowSuggestModal(true)}
+                className="flex items-center gap-2 px-4 py-2.5 bg-secondary text-foreground border border-border rounded-xl text-sm font-semibold hover:bg-secondary/80 transition-colors"
+                title="An Familienmitglied vorschlagen"
+              >
+                <Share2 className="w-4 h-4" />
+                Vorschlagen
+              </button>
+
+              {recipe.sourceDocumentUrl && (
+                <a
+                  href={recipe.sourceDocumentUrl}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="flex items-center gap-2 px-4 py-2.5 bg-secondary text-foreground border border-border rounded-xl text-sm font-semibold hover:bg-secondary/80 transition-colors"
+                >
+                  <ExternalLink className="w-4 h-4" />
+                  Original ansehen
+                </a>
+              )}
+
+              {isOwner && onDeleteRecipe && !showDeleteConfirm && (
+                <button
+                  onClick={() => setShowDeleteConfirm(true)}
+                  className="flex items-center gap-2 px-4 py-2.5 border border-red-200 text-red-600 rounded-xl text-sm font-semibold hover:bg-red-50 transition-colors"
+                >
+                  <Trash2 className="w-4 h-4" />
+                  Löschen
+                </button>
+              )}
+
+              {isOwner && onDeleteRecipe && showDeleteConfirm && (
+                <>
+                  <span className="text-sm text-red-600 font-medium self-center">
+                    Rezept wirklich löschen?
+                  </span>
+                  <button
+                    onClick={handleDelete}
+                    disabled={deleting}
+                    className="flex items-center gap-2 px-4 py-2.5 bg-red-600 text-white rounded-xl text-sm font-semibold hover:bg-red-700 transition-colors disabled:opacity-60"
+                  >
+                    <Trash2 className="w-4 h-4" />
+                    {deleting ? "Löschen…" : "Ja, löschen"}
+                  </button>
+                  <button
+                    onClick={() => setShowDeleteConfirm(false)}
+                    disabled={deleting}
+                    className="px-4 py-2.5 border border-border rounded-xl text-sm font-medium hover:bg-secondary transition-colors disabled:opacity-60"
+                  >
+                    Abbrechen
+                  </button>
+                </>
+              )}
+
+              <button
+                onClick={onClose}
+                className="px-4 py-2.5 border border-border rounded-xl text-sm font-medium hover:bg-secondary transition-colors"
+              >
+                Schließen
+              </button>
+            </div>
+          </div>
+
           {/* Variants chips */}
           {(variants.length > 0 || onCreateVariant) && (
             <div className="bg-amber-50 border border-amber-200 rounded-xl px-4 py-3">
@@ -625,154 +773,6 @@ export default function RecipeModal({ recipe, onClose, onAddToWeek, onToggleFavo
 
           {/* Comments */}
           <RecipeComments recipeId={recipe.id} />
-
-          {/* Actions */}
-          <div className="flex flex-col gap-3 pt-2">
-            {/* Calendar date picker */}
-            {showDatePicker ? (
-              <div className="flex flex-wrap items-center gap-2 p-3 bg-[#4A7C59]/5 rounded-xl border border-[#4A7C59]/20">
-                <label htmlFor="calendar-date-picker" className="text-sm font-medium text-foreground">Datum wählen:</label>
-                <input
-                  id="calendar-date-picker"
-                  type="date"
-                  value={selectedDate}
-                  min={today}
-                  onChange={(e) => setSelectedDate(e.target.value)}
-                  className="text-sm border border-border rounded-lg px-2 py-1.5 focus:outline-none focus:ring-2 focus:ring-[#4A7C59]/30 bg-white"
-                />
-                <button
-                  onClick={handleAddToCalendar}
-                  disabled={saving}
-                  className="flex items-center gap-1.5 px-3 py-1.5 bg-[#4A7C59] text-white rounded-lg text-sm font-medium hover:bg-[#3d6849] transition-colors disabled:opacity-60"
-                >
-                  <Check className="w-3.5 h-3.5" />
-                  {saving ? "Speichern…" : "Speichern"}
-                </button>
-                <button
-                  onClick={() => setShowDatePicker(false)}
-                  className="px-3 py-1.5 border border-border rounded-lg text-sm text-muted-foreground hover:bg-secondary transition-colors"
-                >
-                  Abbrechen
-                </button>
-              </div>
-            ) : null}
-
-            <div className="flex gap-3 flex-wrap">
-              {recipe.steps && (recipe.steps as string[]).length > 0 && (
-                <button
-                  onClick={() => setCookingMode(true)}
-                  className="flex items-center gap-2 px-4 py-2.5 bg-[#C1693A] text-white rounded-xl text-sm font-semibold hover:bg-[#a85830] transition-colors"
-                >
-                  <UtensilsCrossed className="w-4 h-4" />
-                  Kochen starten
-                </button>
-              )}
-
-              <button
-                onClick={handleTodayCookedClick}
-                disabled={stockReductionLoading}
-                className="flex items-center gap-2 px-4 py-2.5 bg-[#4A7C59] text-white rounded-xl text-sm font-semibold hover:bg-[#3d6849] disabled:opacity-70 transition-colors"
-              >
-                {stockReductionLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : <UtensilsCrossed className="w-4 h-4" />}
-                Heute gekocht
-              </button>
-
-              {!showDatePicker && (
-                <button
-                  onClick={() => setShowDatePicker(true)}
-                  className="flex items-center gap-2 px-4 py-2.5 bg-secondary text-foreground border border-border rounded-xl text-sm font-semibold hover:bg-secondary/80 transition-colors"
-                >
-                  <CalendarPlus className="w-4 h-4" />
-                  Zum Kalender
-                </button>
-              )}
-
-              {!isOwner && onToggleFavorite && (
-                <button
-                  onClick={handleToggleFavorite}
-                  disabled={favLoading}
-                  className={`flex items-center gap-2 px-4 py-2.5 rounded-xl text-sm font-semibold transition-colors disabled:opacity-60 ${
-                    isFavorite
-                      ? "bg-amber-500 text-white hover:bg-amber-600"
-                      : "border border-border text-foreground hover:bg-secondary"
-                  }`}
-                >
-                  <Star className={`w-4 h-4 ${isFavorite ? "fill-white" : ""}`} />
-                  {isFavorite ? "Gemerkt ✓" : "⭐ Merken"}
-                </button>
-              )}
-
-              {onAddToWeek && (
-                <button
-                  onClick={() => { onAddToWeek(recipe.id); onClose(); }}
-                  className="flex items-center gap-2 px-4 py-2.5 bg-secondary text-foreground border border-border rounded-xl text-sm font-semibold hover:bg-secondary/80 transition-colors"
-                >
-                  Zur Woche
-                </button>
-              )}
-
-              <button
-                onClick={() => setShowSuggestModal(true)}
-                className="flex items-center gap-2 px-4 py-2.5 bg-secondary text-foreground border border-border rounded-xl text-sm font-semibold hover:bg-secondary/80 transition-colors"
-                title="An Familienmitglied vorschlagen"
-              >
-                <Share2 className="w-4 h-4" />
-                Vorschlagen
-              </button>
-
-              {recipe.sourceDocumentUrl && (
-                <a
-                  href={recipe.sourceDocumentUrl}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="flex items-center gap-2 px-4 py-2.5 bg-secondary text-foreground border border-border rounded-xl text-sm font-semibold hover:bg-secondary/80 transition-colors"
-                >
-                  <ExternalLink className="w-4 h-4" />
-                  Original ansehen
-                </a>
-              )}
-
-              {isOwner && onDeleteRecipe && !showDeleteConfirm && (
-                <button
-                  onClick={() => setShowDeleteConfirm(true)}
-                  className="flex items-center gap-2 px-4 py-2.5 border border-red-200 text-red-600 rounded-xl text-sm font-semibold hover:bg-red-50 transition-colors"
-                >
-                  <Trash2 className="w-4 h-4" />
-                  Löschen
-                </button>
-              )}
-
-              {isOwner && onDeleteRecipe && showDeleteConfirm && (
-                <>
-                  <span className="text-sm text-red-600 font-medium self-center">
-                    Rezept wirklich löschen?
-                  </span>
-                  <button
-                    onClick={handleDelete}
-                    disabled={deleting}
-                    className="flex items-center gap-2 px-4 py-2.5 bg-red-600 text-white rounded-xl text-sm font-semibold hover:bg-red-700 transition-colors disabled:opacity-60"
-                  >
-                    <Trash2 className="w-4 h-4" />
-                    {deleting ? "Löschen…" : "Ja, löschen"}
-                  </button>
-                  <button
-                    onClick={() => setShowDeleteConfirm(false)}
-                    disabled={deleting}
-                    className="px-4 py-2.5 border border-border rounded-xl text-sm font-medium hover:bg-secondary transition-colors disabled:opacity-60"
-                  >
-                    Abbrechen
-                  </button>
-                </>
-              )}
-
-              <button
-                onClick={onClose}
-                className="px-4 py-2.5 border border-border rounded-xl text-sm font-medium hover:bg-secondary transition-colors"
-              >
-                Schließen
-              </button>
-            </div>
-          </div>
         </div>
       </div>
     </div>

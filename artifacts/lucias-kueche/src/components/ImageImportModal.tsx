@@ -2,6 +2,7 @@ import { useState, useRef, useEffect, useCallback } from "react";
 import { X, Camera, ImageIcon, FileText, Check, Loader2, Bot, ChevronUp, Edit2, SkipForward, Zap } from "lucide-react";
 import type { Recipe } from "@/types/recipe";
 import { extractImageRecipes } from "@/hooks/useRecipes";
+import { compressImageToBase64 } from "@/lib/imageCompression";
 
 interface Props {
   onClose: () => void;
@@ -128,10 +129,16 @@ export default function ImageImportModal({ onClose, onAdd }: Props) {
   const readFileAsBase64 = (file: File): Promise<{ base64: string; mimeType: string }> =>
     new Promise((resolve, reject) => {
       const reader = new FileReader();
-      reader.onload = () => {
-        const dataUrl = reader.result as string;
-        const base64 = dataUrl.split(",")[1];
-        resolve({ base64, mimeType: file.type || "image/jpeg" });
+      reader.onload = async () => {
+        try {
+          const dataUrl = reader.result as string;
+          const rawBase64 = dataUrl.split(",")[1];
+          const mimeType = file.type || "image/jpeg";
+          const compressed = await compressImageToBase64(rawBase64, mimeType);
+          resolve(compressed);
+        } catch (e) {
+          reject(e);
+        }
       };
       reader.onerror = () => reject(new Error("Bild konnte nicht gelesen werden."));
       reader.readAsDataURL(file);

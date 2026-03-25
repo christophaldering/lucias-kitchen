@@ -272,11 +272,17 @@ export async function extractImageRecipes(
     ? { images }
     : { image: images, mimeType };
 
-  const res = await authFetch(`${API_BASE}/extract-image`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json", ...authHeaders() },
-    body: JSON.stringify(body),
-  });
+  let res: Response;
+  try {
+    res = await authFetch(`${API_BASE}/extract-image`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", ...authHeaders() },
+      body: JSON.stringify(body),
+    });
+  } catch (e) {
+    throw new Error("Bild zu groß oder Verbindung unterbrochen — bitte versuche es mit einem kleineren Foto.");
+  }
+
   if (!res.ok) {
     const err = await res.json().catch(() => ({}));
     throw new Error(err.message ?? `HTTP ${res.status}`);

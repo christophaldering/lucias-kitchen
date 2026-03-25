@@ -280,7 +280,7 @@ export default function RecipeEditModal({ recipe, onClose, onSave, knownCategori
             </div>
 
             <div className="sm:col-span-2">
-              <label className="block text-xs font-semibold text-muted-foreground mb-1 uppercase tracking-wide">Lucias Notizen</label>
+              <label className="block text-xs font-semibold text-muted-foreground mb-1 uppercase tracking-wide">Notizen</label>
               <textarea value={notes} onChange={(e) => setNotes(e.target.value)} rows={2}
                 className="w-full px-3 py-2 rounded-xl border border-border bg-white text-sm focus:outline-none focus:ring-2 focus:ring-[#C1693A]/30 resize-none" />
             </div>

@@ -472,7 +472,7 @@ export default function RecipeModal({ recipe, onClose, onAddToWeek, onToggleFavo
           {recipe.notes && (
             <div className="sticky-note rounded-lg p-4">
               <p className="text-sm font-semibold text-amber-800 mb-1 uppercase tracking-wide font-sans">
-                📝 Lucias Notizen
+                📝 Notizen
               </p>
               <p className="text-base text-amber-900 leading-relaxed font-script">
                 {recipe.notes}

@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect } from "react";
+import { useState, useRef, useEffect, useCallback } from "react";
 import * as XLSX from "xlsx";
 import {
   Loader2, Trash2, Edit2, Download, Tag, RefreshCw,
@@ -291,17 +291,20 @@ function CategoryManager({ recipes, patchRecipe, patchRecipeSilent, refetch }: {
 
 function BackupSection({
   recipes,
+  totalCount,
   addRecipes,
   deleteAllRecipes,
   restoreDemo,
   refetch,
 }: {
   recipes: Recipe[];
+  totalCount?: number | null;
   addRecipes: (r: Partial<Recipe>[]) => Promise<void>;
   deleteAllRecipes: () => Promise<void>;
   restoreDemo: () => Promise<void>;
   refetch: () => Promise<void>;
 }) {
+  const displayCount = totalCount ?? recipes.length;
   const fileRef = useRef<HTMLInputElement>(null);
   const [importPreview, setImportPreview] = useState<Partial<Recipe>[] | null>(null);
   const [deleteConfirmText, setDeleteConfirmText] = useState("");
@@ -452,7 +455,7 @@ function BackupSection({
         <div className="bg-white rounded-2xl border border-border shadow-sm p-6">
           <h3 className="font-serif font-semibold text-lg mb-2">💾 Export</h3>
           <p className="text-sm text-muted-foreground mb-4">
-            {recipes.length} Rezepte als JSON-Datei herunterladen (vollständige Sicherung inkl. Zutaten und Schritte).
+            {displayCount} Rezepte als JSON-Datei herunterladen (vollständige Sicherung inkl. Zutaten und Schritte).
           </p>
           <div className="flex flex-wrap gap-2">
             <button onClick={doExport}
@@ -508,7 +511,7 @@ function BackupSection({
         <div className="bg-white rounded-2xl border border-red-200 shadow-sm p-6">
           <h3 className="font-serif font-semibold text-lg mb-2 text-red-700">⚠️ Alle Rezepte löschen</h3>
           <p className="text-sm text-muted-foreground mb-4">
-            Löscht <strong>alle {recipes.length} Rezepte</strong> unwiderruflich aus der Datenbank.
+            Löscht <strong>alle {displayCount} Rezepte</strong> unwiderruflich aus der Datenbank.
           </p>
           <button onClick={() => setShowDeleteAll(true)}
             className="flex items-center gap-2 px-4 py-2.5 bg-red-600 text-white rounded-xl text-sm font-semibold hover:bg-red-700 transition-colors">
@@ -754,10 +757,36 @@ function AppSettings() {
   );
 }
 
+function useRecipeCount() {
+  const [count, setCount] = useState<number | null>(null);
+  const [loading, setLoading] = useState(true);
+
+  const fetchCount = useCallback(async () => {
+    try {
+      const res = await fetch("/api/recipes/count", { cache: "no-store" });
+      if (res.ok) {
+        const data = await res.json();
+        setCount(data.count);
+      }
+    } catch {
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    fetchCount();
+    const interval = setInterval(fetchCount, 15000);
+    return () => clearInterval(interval);
+  }, [fetchCount]);
+
+  return { count, loading, refetch: fetchCount };
+}
+
 function RecipeCountBadge() {
-  const { recipes, loading } = useRecipes();
+  const { count, loading } = useRecipeCount();
   if (loading) return <span className="ml-auto text-sm text-muted-foreground">Lade…</span>;
-  return <span className="ml-auto text-sm text-muted-foreground">{recipes.length} Rezepte</span>;
+  return <span className="ml-auto text-sm text-muted-foreground">{count ?? "?"} Rezepte</span>;
 }
 
 function CategoryManagerWithData() {
@@ -791,6 +820,12 @@ function CategoryManagerWithData() {
 
 function BackupSectionWithData() {
   const { recipes, loading, error, refetch, addRecipes, deleteAllRecipes, restoreDemo } = useRecipes();
+  const { count: totalCount, refetch: refetchCount } = useRecipeCount();
+
+  const handleRefetch = useCallback(async () => {
+    await refetch();
+    await refetchCount();
+  }, [refetch, refetchCount]);
 
   if (loading) {
     return (
@@ -806,7 +841,7 @@ function BackupSectionWithData() {
         <AlertTriangle className="w-10 h-10 text-amber-500 mx-auto mb-3" />
         <p className="font-serif text-base font-semibold mb-1">Backup-Daten konnten nicht geladen werden</p>
         <p className="text-sm text-muted-foreground mb-4">{error}</p>
-        <button onClick={() => refetch()} className="px-4 py-2 bg-[#4A7C59] text-white rounded-xl text-sm font-semibold hover:bg-[#3d6849] transition-colors flex items-center gap-2 mx-auto">
+        <button onClick={() => handleRefetch()} className="px-4 py-2 bg-[#4A7C59] text-white rounded-xl text-sm font-semibold hover:bg-[#3d6849] transition-colors flex items-center gap-2 mx-auto">
           <RefreshCw className="w-4 h-4" /> Erneut versuchen
         </button>
       </div>
@@ -816,10 +851,11 @@ function BackupSectionWithData() {
   return (
     <BackupSection
       recipes={recipes}
+      totalCount={totalCount}
       addRecipes={addRecipes}
       deleteAllRecipes={deleteAllRecipes}
       restoreDemo={restoreDemo}
-      refetch={refetch}
+      refetch={handleRefetch}
     />
   );
 }

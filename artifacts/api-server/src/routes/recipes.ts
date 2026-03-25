@@ -16,7 +16,7 @@ function recipeListCacheKey(userId?: number, filter?: string) {
   return `${userId ?? "anon"}:${filter ?? "all"}`;
 }
 
-function invalidateRecipeListCache() {
+export function invalidateRecipeListCache() {
   recipeListCache.clear();
 }
 
@@ -292,6 +292,18 @@ router.get("/recipes/search", async (req, res) => {
   } catch (err) {
     req.log.error({ err }, "Failed to search recipes");
     res.status(500).json({ error: "internal_error", message: "Failed to search recipes" });
+  }
+});
+
+router.get("/recipes/count", async (req, res) => {
+  try {
+    const result = await db.execute(sql`SELECT COUNT(*)::int AS count FROM recipes`);
+    const count = (result.rows[0] as { count: number }).count;
+    res.set("Cache-Control", "no-store");
+    res.json({ count });
+  } catch (err) {
+    req.log.error({ err }, "Failed to count recipes");
+    res.status(500).json({ error: "internal_error", message: "Failed to count recipes" });
   }
 });
 

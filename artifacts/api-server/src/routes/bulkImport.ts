@@ -18,6 +18,7 @@ import {
   BULK_IMPORT_EXTRACTION_SYSTEM_PROMPT,
   BULK_IMPORT_HANDWRITING_PROMPT,
 } from "../lib/bulkImportExtractionPrompt";
+import { invalidateRecipeListCache } from "./recipes";
 import { authMiddleware } from "./auth";
 
 const router: IRouter = Router();
@@ -1467,6 +1468,10 @@ router.post("/bulk-import/:sessionId/save", authMiddleware, async (req, res) => 
       } catch (err) {
         console.error(`Failed to save item ${item.id}:`, err);
       }
+    }
+
+    if (savedCount > 0) {
+      invalidateRecipeListCache();
     }
 
     res.json({ success: true, savedCount });

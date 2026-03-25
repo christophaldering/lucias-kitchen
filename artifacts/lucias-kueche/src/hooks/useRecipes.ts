@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback } from "react";
 import type { Recipe, IngredientInput, Season, RecipePhoto } from "@/types/recipe";
+import { authFetch, authHeaders } from "@/lib/authFetch";
 
 export interface RecipeUpdatePayload {
   title: string;
@@ -25,19 +26,6 @@ export interface RecipeUpdatePayload {
 
 const API_BASE = "/api";
 
-function getToken(): string | null {
-  try {
-    return localStorage.getItem("lk_auth_token");
-  } catch {
-    return null;
-  }
-}
-
-function authHeaders(): HeadersInit {
-  const token = getToken();
-  return token ? { Authorization: `Bearer ${token}` } : {};
-}
-
 export type RecipeFilter = "all" | "mine" | "favorites";
 
 export function useRecipes(filter: RecipeFilter = "all") {
@@ -51,7 +39,7 @@ export function useRecipes(filter: RecipeFilter = "all") {
     try {
       const activeFilter = f ?? filter;
       const url = activeFilter === "all" ? `${API_BASE}/recipes` : `${API_BASE}/recipes?filter=${activeFilter}`;
-      const res = await fetch(url, { headers: authHeaders() });
+      const res = await authFetch(url, { headers: authHeaders() });
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const data = await res.json();
       setRecipes(data);
@@ -67,7 +55,7 @@ export function useRecipes(filter: RecipeFilter = "all") {
   }, [fetchRecipes]);
 
   const addRecipes = useCallback(async (newRecipes: Partial<Recipe>[]) => {
-    const res = await fetch(`${API_BASE}/recipes`, {
+    const res = await authFetch(`${API_BASE}/recipes`, {
       method: "POST",
       headers: { "Content-Type": "application/json", ...authHeaders() },
       body: JSON.stringify(newRecipes),
@@ -80,7 +68,7 @@ export function useRecipes(filter: RecipeFilter = "all") {
   }, [fetchRecipes]);
 
   const updateRecipe = useCallback(async (id: number, data: RecipeUpdatePayload) => {
-    const res = await fetch(`${API_BASE}/recipes/${id}`, {
+    const res = await authFetch(`${API_BASE}/recipes/${id}`, {
       method: "PUT",
       headers: { "Content-Type": "application/json", ...authHeaders() },
       body: JSON.stringify(data),
@@ -90,7 +78,7 @@ export function useRecipes(filter: RecipeFilter = "all") {
   }, [fetchRecipes]);
 
   const patchRecipeSilent = useCallback(async (id: number, patch: Record<string, unknown>) => {
-    const res = await fetch(`${API_BASE}/recipes/${id}`, {
+    const res = await authFetch(`${API_BASE}/recipes/${id}`, {
       method: "PATCH",
       headers: { "Content-Type": "application/json", ...authHeaders() },
       body: JSON.stringify(patch),
@@ -104,7 +92,7 @@ export function useRecipes(filter: RecipeFilter = "all") {
   }, [fetchRecipes, patchRecipeSilent]);
 
   const deleteRecipeSilent = useCallback(async (id: number) => {
-    const res = await fetch(`${API_BASE}/recipes/${id}`, {
+    const res = await authFetch(`${API_BASE}/recipes/${id}`, {
       method: "DELETE",
       headers: authHeaders(),
     });
@@ -117,20 +105,20 @@ export function useRecipes(filter: RecipeFilter = "all") {
   }, [fetchRecipes, deleteRecipeSilent]);
 
   const deleteAllRecipes = useCallback(async () => {
-    const res = await fetch(`${API_BASE}/recipes`, { method: "DELETE", headers: authHeaders() });
+    const res = await authFetch(`${API_BASE}/recipes`, { method: "DELETE", headers: authHeaders() });
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
     await fetchRecipes();
   }, [fetchRecipes]);
 
   const restoreDemo = useCallback(async () => {
-    const res = await fetch(`${API_BASE}/recipes/seed`, { method: "POST", headers: authHeaders() });
+    const res = await authFetch(`${API_BASE}/recipes/seed`, { method: "POST", headers: authHeaders() });
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
     await fetchRecipes();
   }, [fetchRecipes]);
 
   const toggleFavorite = useCallback(async (recipeId: number, isFavorite: boolean) => {
     const method = isFavorite ? "DELETE" : "POST";
-    const res = await fetch(`${API_BASE}/recipes/${recipeId}/favorite`, {
+    const res = await authFetch(`${API_BASE}/recipes/${recipeId}/favorite`, {
       method,
       headers: authHeaders(),
     });
@@ -182,9 +170,9 @@ export async function uploadRecipeImage(file: File): Promise<string> {
 export async function extractPdfRecipes(
   base64Pdf: string
 ): Promise<{ recipes: Partial<Recipe>[]; modelUsed: "openai" | "claude" }> {
-  const res = await fetch(`${API_BASE}/extract-pdf`, {
+  const res = await authFetch(`${API_BASE}/extract-pdf`, {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers: { "Content-Type": "application/json", ...authHeaders() },
     body: JSON.stringify({ pdf: base64Pdf }),
   });
   if (!res.ok) {
@@ -197,9 +185,9 @@ export async function extractPdfRecipes(
 export async function extractUrlRecipes(
   url: string
 ): Promise<{ recipes: Partial<Recipe>[] }> {
-  const res = await fetch(`${API_BASE}/extract-url`, {
+  const res = await authFetch(`${API_BASE}/extract-url`, {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers: { "Content-Type": "application/json", ...authHeaders() },
     body: JSON.stringify({ url }),
   });
   if (!res.ok) {
@@ -217,9 +205,9 @@ export async function extractImageRecipes(
     ? { images }
     : { image: images, mimeType };
 
-  const res = await fetch(`${API_BASE}/extract-image`, {
+  const res = await authFetch(`${API_BASE}/extract-image`, {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers: { "Content-Type": "application/json", ...authHeaders() },
     body: JSON.stringify(body),
   });
   if (!res.ok) {
@@ -230,7 +218,7 @@ export async function extractImageRecipes(
 }
 
 export async function fetchRecipePhotos(recipeId: number): Promise<RecipePhoto[]> {
-  const res = await fetch(`${API_BASE}/recipes/${recipeId}/photos`);
+  const res = await authFetch(`${API_BASE}/recipes/${recipeId}/photos`, { headers: authHeaders() });
   if (!res.ok) throw new Error(`HTTP ${res.status}`);
   return res.json();
 }
@@ -238,8 +226,9 @@ export async function fetchRecipePhotos(recipeId: number): Promise<RecipePhoto[]
 export async function uploadRecipePhoto(recipeId: number, file: File): Promise<RecipePhoto> {
   const formData = new FormData();
   formData.append("image", file);
-  const res = await fetch(`${API_BASE}/recipes/${recipeId}/photos`, {
+  const res = await authFetch(`${API_BASE}/recipes/${recipeId}/photos`, {
     method: "POST",
+    headers: authHeaders(),
     body: formData,
   });
   if (!res.ok) {
@@ -250,8 +239,9 @@ export async function uploadRecipePhoto(recipeId: number, file: File): Promise<R
 }
 
 export async function deleteRecipePhoto(recipeId: number, photoId: number): Promise<void> {
-  const res = await fetch(`${API_BASE}/recipes/${recipeId}/photos/${photoId}`, {
+  const res = await authFetch(`${API_BASE}/recipes/${recipeId}/photos/${photoId}`, {
     method: "DELETE",
+    headers: authHeaders(),
   });
   if (!res.ok) throw new Error(`HTTP ${res.status}`);
 }

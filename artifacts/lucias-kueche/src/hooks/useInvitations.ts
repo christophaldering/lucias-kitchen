@@ -1,18 +1,10 @@
 import { useState, useEffect, useCallback } from "react";
+import { authFetch, authHeaders as baseAuthHeaders } from "@/lib/authFetch";
 
 const API_BASE = "/api";
 
-function getToken(): string | null {
-  try {
-    return localStorage.getItem("lk_auth_token");
-  } catch {
-    return null;
-  }
-}
-
 function authHeaders(): HeadersInit {
-  const t = getToken();
-  return t ? { Authorization: `Bearer ${t}`, "Content-Type": "application/json" } : { "Content-Type": "application/json" };
+  return baseAuthHeaders({ "Content-Type": "application/json" });
 }
 
 export type InvitationMode = "surprise" | "wishlist" | "vote" | "choice";
@@ -78,7 +70,7 @@ export function useInvitations() {
   const fetchInvitations = useCallback(async () => {
     setLoading(true);
     try {
-      const res = await fetch(`${API_BASE}/meal-invitations`, { headers: authHeaders() });
+      const res = await authFetch(`${API_BASE}/meal-invitations`, { headers: authHeaders() });
       if (res.ok) {
         const data = await res.json();
         setInvitations(data);
@@ -99,7 +91,7 @@ export function useInvitations() {
     recipeOptions?: number[];
     deadline?: string | null;
   }) => {
-    const res = await fetch(`${API_BASE}/meal-invitations`, {
+    const res = await authFetch(`${API_BASE}/meal-invitations`, {
       method: "POST",
       headers: authHeaders(),
       body: JSON.stringify(payload),
@@ -114,7 +106,7 @@ export function useInvitations() {
   }, []);
 
   const updateInvitation = useCallback(async (id: number, payload: { status?: InvitationStatus; finalRecipeId?: number | null }) => {
-    const res = await fetch(`${API_BASE}/meal-invitations/${id}`, {
+    const res = await authFetch(`${API_BASE}/meal-invitations/${id}`, {
       method: "PATCH",
       headers: authHeaders(),
       body: JSON.stringify(payload),
@@ -129,7 +121,7 @@ export function useInvitations() {
   }, []);
 
   const cancelInvitation = useCallback(async (id: number) => {
-    const res = await fetch(`${API_BASE}/meal-invitations/${id}`, {
+    const res = await authFetch(`${API_BASE}/meal-invitations/${id}`, {
       method: "DELETE",
       headers: authHeaders(),
     });
@@ -146,7 +138,7 @@ export function useInvitations() {
     ranking?: number | null;
     constraints?: string | null;
   }) => {
-    const res = await fetch(`${API_BASE}/meal-invitations/${invitationId}/wishes`, {
+    const res = await authFetch(`${API_BASE}/meal-invitations/${invitationId}/wishes`, {
       method: "POST",
       headers: authHeaders(),
       body: JSON.stringify(payload),
@@ -160,7 +152,7 @@ export function useInvitations() {
   }, [fetchInvitations]);
 
   const updateRsvp = useCallback(async (invitationId: number, rsvp: RsvpStatus) => {
-    const res = await fetch(`${API_BASE}/meal-invitations/${invitationId}/rsvp`, {
+    const res = await authFetch(`${API_BASE}/meal-invitations/${invitationId}/rsvp`, {
       method: "PATCH",
       headers: authHeaders(),
       body: JSON.stringify({ rsvp }),
@@ -192,7 +184,7 @@ export function useNotifications() {
   const fetchNotifications = useCallback(async () => {
     setLoading(true);
     try {
-      const res = await fetch(`${API_BASE}/notifications`, { headers: authHeaders() });
+      const res = await authFetch(`${API_BASE}/notifications`, { headers: authHeaders() });
       if (res.ok) {
         const data = await res.json();
         setNotifications(data);
@@ -209,7 +201,7 @@ export function useNotifications() {
   }, [fetchNotifications]);
 
   const markRead = useCallback(async (id: number) => {
-    await fetch(`${API_BASE}/notifications/${id}/read`, {
+    await authFetch(`${API_BASE}/notifications/${id}/read`, {
       method: "PATCH",
       headers: authHeaders(),
     });
@@ -217,7 +209,7 @@ export function useNotifications() {
   }, []);
 
   const markAllRead = useCallback(async () => {
-    await fetch(`${API_BASE}/notifications/read-all`, {
+    await authFetch(`${API_BASE}/notifications/read-all`, {
       method: "PATCH",
       headers: authHeaders(),
     });
@@ -233,10 +225,8 @@ export function useUsers() {
   const [users, setUsers] = useState<AppUser[]>([]);
 
   useEffect(() => {
-    const t = getToken();
-    if (!t) return;
-    fetch(`${API_BASE}/users`, { headers: authHeaders() })
-      .then((r) => r.json())
+    authFetch(`${API_BASE}/users`, { headers: authHeaders() })
+      .then((r) => r.ok ? r.json() : [])
       .then((data) => setUsers(data))
       .catch(() => {});
   }, []);

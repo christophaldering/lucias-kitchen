@@ -3,16 +3,9 @@ import {
   Upload, Loader2, Check, X, AlertTriangle, PenLine, ChevronDown, ChevronUp,
   Eye, RefreshCw, Save, FileText, Clock, RotateCcw, History, Plus
 } from "lucide-react";
+import { authFetch, authHeaders } from "@/lib/authFetch";
 
 const API_BASE = "/api";
-
-function getToken(): string | null {
-  try { return localStorage.getItem("lk_auth_token"); } catch { return null; }
-}
-function authHeaders(): HeadersInit {
-  const token = getToken();
-  return token ? { Authorization: `Bearer ${token}` } : {};
-}
 
 interface BulkImportStatus {
   id: number;
@@ -372,7 +365,7 @@ function ReviewDashboard({
 
   const fetchStatus = useCallback(async () => {
     try {
-      const res = await fetch(`${API_BASE}/bulk-import/${sessionId}/status`, {
+      const res = await authFetch(`${API_BASE}/bulk-import/${sessionId}/status`, {
         headers: authHeaders(),
       });
       if (!res.ok) return;
@@ -384,7 +377,7 @@ function ReviewDashboard({
 
   const fetchResults = useCallback(async () => {
     try {
-      const res = await fetch(`${API_BASE}/bulk-import/${sessionId}/results`, {
+      const res = await authFetch(`${API_BASE}/bulk-import/${sessionId}/results`, {
         headers: authHeaders(),
       });
       if (!res.ok) {
@@ -430,7 +423,7 @@ function ReviewDashboard({
   }, [fetchResults, fetchStatus]);
 
   const handleReject = async (itemId: number) => {
-    await fetch(`${API_BASE}/bulk-import/${sessionId}/reject/${itemId}`, {
+    await authFetch(`${API_BASE}/bulk-import/${sessionId}/reject/${itemId}`, {
       method: "POST",
       headers: authHeaders(),
     });
@@ -438,7 +431,7 @@ function ReviewDashboard({
   };
 
   const handleRestore = async (itemId: number) => {
-    await fetch(`${API_BASE}/bulk-import/${sessionId}/restore/${itemId}`, {
+    await authFetch(`${API_BASE}/bulk-import/${sessionId}/restore/${itemId}`, {
       method: "POST",
       headers: authHeaders(),
     });
@@ -446,7 +439,7 @@ function ReviewDashboard({
   };
 
   const handleRetry = async (fileId: number) => {
-    await fetch(`${API_BASE}/bulk-import/${sessionId}/retry/${fileId}`, {
+    await authFetch(`${API_BASE}/bulk-import/${sessionId}/retry/${fileId}`, {
       method: "POST",
       headers: authHeaders(),
     });
@@ -457,7 +450,7 @@ function ReviewDashboard({
   const handleSaveAll = async () => {
     setSaving(true);
     try {
-      const res = await fetch(`${API_BASE}/bulk-import/${sessionId}/save`, {
+      const res = await authFetch(`${API_BASE}/bulk-import/${sessionId}/save`, {
         method: "POST",
         headers: authHeaders(),
       });
@@ -465,7 +458,7 @@ function ReviewDashboard({
       const savedCount = json.savedCount ?? 0;
       let newTotal: number | undefined;
       try {
-        const countRes = await fetch(`${API_BASE}/recipes/count`, { headers: authHeaders() });
+        const countRes = await authFetch(`${API_BASE}/recipes/count`, { headers: authHeaders() });
         if (countRes.ok) {
           const countJson = await countRes.json();
           newTotal = countJson.count ?? countJson.total ?? undefined;
@@ -483,7 +476,7 @@ function ReviewDashboard({
     setArchiving(true);
     setArchiveError(null);
     try {
-      const res = await fetch(`${API_BASE}/bulk-import/${sessionId}`, {
+      const res = await authFetch(`${API_BASE}/bulk-import/${sessionId}`, {
         method: "DELETE",
         headers: authHeaders(),
       });
@@ -693,7 +686,7 @@ function ImportHistory() {
   useEffect(() => {
     const fetchHistory = async () => {
       try {
-        const res = await fetch(`${API_BASE}/bulk-import/history`, {
+        const res = await authFetch(`${API_BASE}/bulk-import/history`, {
           headers: authHeaders(),
         });
         if (!res.ok) return;
@@ -793,7 +786,7 @@ export default function BulkImportTab() {
     if (sessionId === null) {
       const fetchActive = async () => {
         try {
-          const res = await fetch(`${API_BASE}/bulk-import/active`, {
+          const res = await authFetch(`${API_BASE}/bulk-import/active`, {
             headers: authHeaders(),
           });
           if (!res.ok) return;
@@ -867,7 +860,7 @@ export default function BulkImportTab() {
       };
       if (currentSessionId != null) body.sessionId = currentSessionId;
 
-      const res = await fetch(`${API_BASE}/bulk-import/upload-chunk`, {
+      const res = await authFetch(`${API_BASE}/bulk-import/upload-chunk`, {
         method: "POST",
         headers: { ...authHeaders(), "Content-Type": "application/json" },
         body: JSON.stringify(body),

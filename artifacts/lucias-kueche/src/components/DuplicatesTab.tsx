@@ -1,20 +1,8 @@
 import { useState, useEffect, useCallback } from "react";
 import { Loader2, Trash2, Check, RefreshCw, Copy } from "lucide-react";
+import { authFetch, authHeaders } from "@/lib/authFetch";
 
 const API_BASE = "/api";
-
-function getToken(): string | null {
-  try {
-    return localStorage.getItem("lk_auth_token");
-  } catch {
-    return null;
-  }
-}
-
-function authHeaders(): HeadersInit {
-  const token = getToken();
-  return token ? { Authorization: `Bearer ${token}` } : {};
-}
 
 function toast(msg: string, type: "ok" | "err" = "ok") {
   const el = document.createElement("div");
@@ -132,7 +120,7 @@ export default function DuplicatesTab() {
     setLoading(true);
     setError(null);
     try {
-      const res = await fetch(`${API_BASE}/recipes/duplicates`, { headers: authHeaders() });
+      const res = await authFetch(`${API_BASE}/recipes/duplicates`, { headers: authHeaders() });
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const data = await res.json();
       setGroups(data.groups ?? []);
@@ -158,7 +146,7 @@ export default function DuplicatesTab() {
       let failed = 0;
       for (const recipe of toDelete) {
         try {
-          const res = await fetch(`${API_BASE}/recipes/${recipe.id}`, {
+          const res = await authFetch(`${API_BASE}/recipes/${recipe.id}`, {
             method: "DELETE",
             headers: authHeaders(),
           });

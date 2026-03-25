@@ -1,4 +1,5 @@
 import React, { createContext, useContext, useState, useEffect, useCallback } from "react";
+import { registerUnauthorizedHandler, authFetch } from "@/lib/authFetch";
 
 const API_BASE = "/api";
 
@@ -101,10 +102,14 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     setUser(null);
   }, []);
 
+  useEffect(() => {
+    registerUnauthorizedHandler(logout);
+  }, [logout]);
+
   const updateProfile = useCallback(async (data: Partial<AuthUser>) => {
     const t = getStoredToken();
     if (!t) throw new Error("Not authenticated");
-    const res = await fetch(`${API_BASE}/auth/profile`, {
+    const res = await authFetch(`${API_BASE}/auth/profile`, {
       method: "PUT",
       headers: { "Content-Type": "application/json", Authorization: `Bearer ${t}` },
       body: JSON.stringify(data),
@@ -120,7 +125,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const uploadAvatar = useCallback(async (avatarUrl: string) => {
     const t = getStoredToken();
     if (!t) throw new Error("Not authenticated");
-    const res = await fetch(`${API_BASE}/auth/avatar`, {
+    const res = await authFetch(`${API_BASE}/auth/avatar`, {
       method: "POST",
       headers: { "Content-Type": "application/json", Authorization: `Bearer ${t}` },
       body: JSON.stringify({ avatarUrl }),
@@ -133,7 +138,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const changePassword = useCallback(async (oldPassword: string, newPassword: string) => {
     const t = getStoredToken();
     if (!t) throw new Error("Not authenticated");
-    const res = await fetch(`${API_BASE}/auth/password`, {
+    const res = await authFetch(`${API_BASE}/auth/password`, {
       method: "PUT",
       headers: { "Content-Type": "application/json", Authorization: `Bearer ${t}` },
       body: JSON.stringify({ oldPassword, newPassword }),

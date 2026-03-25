@@ -15,14 +15,13 @@ import ImageImportModal from "@/components/ImageImportModal";
 import RecipeEditModal from "@/components/RecipeEditModal";
 import type { RecipeUpdatePayload } from "@/hooks/useRecipes";
 import { useCommentStats } from "@/components/RecipeComments";
+import { authFetch, authHeaders } from "@/lib/authFetch";
 
 const API_BASE = "/api";
 
 async function searchRecipesApi(q: string, filter: RecipeFilter): Promise<Recipe[]> {
-  const token = localStorage.getItem("lk_auth_token");
-  const headers: HeadersInit = token ? { Authorization: `Bearer ${token}` } : {};
   const filterParam = filter !== "all" ? `&filter=${filter}` : "";
-  const res = await fetch(`${API_BASE}/recipes/search?q=${encodeURIComponent(q)}${filterParam}`, { headers });
+  const res = await authFetch(`${API_BASE}/recipes/search?q=${encodeURIComponent(q)}${filterParam}`, { headers: authHeaders() });
   if (!res.ok) throw new Error(`HTTP ${res.status}`);
   return res.json();
 }

@@ -8,6 +8,7 @@ import {
 import type { Recipe } from "@/types/recipe";
 import RecipeModal from "@/components/RecipeModal";
 import { useAuth } from "@/contexts/AuthContext";
+import { authFetch, authHeaders } from "@/lib/authFetch";
 
 const API_BASE = "/api";
 
@@ -161,14 +162,6 @@ function RecipeSuggestionCard({
   );
 }
 
-function authFetch(url: string, token: string | null, opts: RequestInit = {}) {
-  const headers: Record<string, string> = {
-    "Content-Type": "application/json",
-    ...(opts.headers as Record<string, string> ?? {}),
-  };
-  if (token) headers["Authorization"] = `Bearer ${token}`;
-  return fetch(url, { ...opts, headers });
-}
 
 export default function WasKocheIch() {
   const { token } = useAuth();
@@ -234,7 +227,7 @@ export default function WasKocheIch() {
   useEffect(() => {
     if (!token) return;
     setPantryLoading(true);
-    authFetch(`${API_BASE}/pantry`, token)
+    authFetch(`${API_BASE}/pantry`, { headers: authHeaders() })
       .then((r) => r.json())
       .then((data) => {
         const items: PantryItem[] = data.items ?? [];
@@ -285,8 +278,8 @@ export default function WasKocheIch() {
 
     // Cooking history analysis: after 10+ entries, suggest frequent ingredients as pantry defaults
     Promise.all([
-      authFetch(`${API_BASE}/cooking-log/ingredient-frequency`, token).then((r) => r.json()),
-      authFetch(`${API_BASE}/pantry`, token).then((r) => r.json()),
+      authFetch(`${API_BASE}/cooking-log/ingredient-frequency`, { headers: authHeaders() }).then((r) => r.json()),
+      authFetch(`${API_BASE}/pantry`, { headers: authHeaders() }).then((r) => r.json()),
     ])
       .then(([freqData, pantryData]) => {
         const logCount: number = freqData.count ?? 0;
@@ -364,9 +357,9 @@ export default function WasKocheIch() {
         reader.readAsDataURL(file);
       });
       const mimeType = file.type || "image/jpeg";
-      const res = await fetch(`${API_BASE}/extract-fridge`, {
+      const res = await authFetch(`${API_BASE}/extract-fridge`, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: { "Content-Type": "application/json", ...authHeaders() },
         body: JSON.stringify({ image: base64, mimeType }),
       });
       if (!res.ok) throw new Error("Analyse fehlgeschlagen");
@@ -463,8 +456,9 @@ export default function WasKocheIch() {
     if (token) {
       const effectivePriority = ingredientPriorities[ingredient] === priority ? "good" : priority;
       const existingPantryItem = pantryItems.find((i) => i.ingredientName === ingredient);
-      authFetch(`${API_BASE}/pantry`, token, {
+      authFetch(`${API_BASE}/pantry`, {
         method: "POST",
+        headers: { "Content-Type": "application/json", ...authHeaders() },
         body: JSON.stringify({
           ingredientName: ingredient,
           expiryPriority: effectivePriority,
@@ -542,9 +536,9 @@ export default function WasKocheIch() {
         });
         ingredients = list;
       }
-      const res = await fetch(`${API_BASE}/recipes/suggest`, {
+      const res = await authFetch(`${API_BASE}/recipes/suggest`, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: { "Content-Type": "application/json", ...authHeaders() },
         body: JSON.stringify({
           ingredients,
           moods: Array.from(lm),
@@ -611,8 +605,9 @@ export default function WasKocheIch() {
       // Force completion after max rounds
       const forceComplete = newRoundCount >= MAX_CHAT_ROUNDS;
 
-      const res = await authFetch(`${API_BASE}/kochidee-chat`, token!, {
+      const res = await authFetch(`${API_BASE}/kochidee-chat`, {
         method: "POST",
+        headers: { "Content-Type": "application/json", ...authHeaders() },
         body: JSON.stringify({
           messages: newMessages,
           pantryIngredients: pantryDefaults,
@@ -698,8 +693,9 @@ export default function WasKocheIch() {
         .filter(([name, p]) => p !== "good" && !pantryNames.has(name.toLowerCase()))
         .map(([name, p]) => ({ ingredientName: name, expiryPriority: p, isDefault: 0 }));
       const allItems = [...pantryItems, ...expiryOnlyItems];
-      await authFetch(`${API_BASE}/pantry/batch`, token, {
+      await authFetch(`${API_BASE}/pantry/batch`, {
         method: "POST",
+        headers: { "Content-Type": "application/json", ...authHeaders() },
         body: JSON.stringify({ items: allItems }),
       });
       setPantryDirty(false);

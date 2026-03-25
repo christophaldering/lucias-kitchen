@@ -1,18 +1,10 @@
 import { useState, useEffect, useCallback } from "react";
+import { authFetch, authHeaders as baseAuthHeaders, getToken } from "@/lib/authFetch";
 
 const API_BASE = "/api";
 
-function getToken(): string | null {
-  try {
-    return localStorage.getItem("lk_auth_token");
-  } catch {
-    return null;
-  }
-}
-
 function authHeaders(): Record<string, string> {
-  const token = getToken();
-  return token ? { Authorization: `Bearer ${token}`, "Content-Type": "application/json" } : { "Content-Type": "application/json" };
+  return baseAuthHeaders({ "Content-Type": "application/json" });
 }
 
 export interface GroupMemberForSuggestion {
@@ -47,7 +39,7 @@ export function useGroupMembersForSuggestion() {
     setLoading(true);
     setError(null);
     try {
-      const res = await fetch(`${API_BASE}/recipe-suggestions/group-members`, { headers: authHeaders() });
+      const res = await authFetch(`${API_BASE}/recipe-suggestions/group-members`, { headers: authHeaders() });
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const data = await res.json();
       setMembers(data);
@@ -74,7 +66,7 @@ export function useIncomingSuggestions() {
     setLoading(true);
     setError(null);
     try {
-      const res = await fetch(`${API_BASE}/recipe-suggestions/incoming`, { headers: authHeaders() });
+      const res = await authFetch(`${API_BASE}/recipe-suggestions/incoming`, { headers: authHeaders() });
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const data = await res.json();
       setSuggestions(data);
@@ -92,7 +84,7 @@ export function useIncomingSuggestions() {
   }, [fetchSuggestions]);
 
   const saveSuggestion = useCallback(async (id: number) => {
-    const res = await fetch(`${API_BASE}/recipe-suggestions/${id}/save`, {
+    const res = await authFetch(`${API_BASE}/recipe-suggestions/${id}/save`, {
       method: "PUT",
       headers: authHeaders(),
     });
@@ -101,7 +93,7 @@ export function useIncomingSuggestions() {
   }, [fetchSuggestions]);
 
   const ignoreSuggestion = useCallback(async (id: number) => {
-    const res = await fetch(`${API_BASE}/recipe-suggestions/${id}/ignore`, {
+    const res = await authFetch(`${API_BASE}/recipe-suggestions/${id}/ignore`, {
       method: "PUT",
       headers: authHeaders(),
     });
@@ -135,7 +127,7 @@ export function useOutgoingSuggestions() {
     setLoading(true);
     setError(null);
     try {
-      const res = await fetch(`${API_BASE}/recipe-suggestions/outgoing`, { headers: authHeaders() });
+      const res = await authFetch(`${API_BASE}/recipe-suggestions/outgoing`, { headers: authHeaders() });
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const data = await res.json();
       setSuggestions(data);
@@ -158,7 +150,7 @@ export async function sendRecipeSuggestion(recipientId: number, recipeId: number
   const headers: Record<string, string> = { "Content-Type": "application/json" };
   if (token) headers["Authorization"] = `Bearer ${token}`;
 
-  const res = await fetch(`${API_BASE}/recipe-suggestions`, {
+  const res = await authFetch(`${API_BASE}/recipe-suggestions`, {
     method: "POST",
     headers,
     body: JSON.stringify({ recipientId, recipeId, message }),

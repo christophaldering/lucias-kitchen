@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback } from "react";
+import { authFetch, authHeaders } from "@/lib/authFetch";
 
 export interface CookingLogEntry {
   id: number;
@@ -15,18 +16,6 @@ export interface CookingLogEntry {
 
 const API_BASE = "/api";
 
-function getAuthToken(): string | null {
-  try {
-    return localStorage.getItem("lk_auth_token");
-  } catch {
-    return null;
-  }
-}
-
-function authHeaders(): Record<string, string> {
-  const token = getAuthToken();
-  return token ? { Authorization: `Bearer ${token}` } : {};
-}
 
 export function useCookingLog(recipeId?: number, limit?: number) {
   const [entries, setEntries] = useState<CookingLogEntry[]>([]);
@@ -40,7 +29,7 @@ export function useCookingLog(recipeId?: number, limit?: number) {
       const params = new URLSearchParams();
       if (recipeId !== undefined) params.set("recipeId", String(recipeId));
       if (limit !== undefined) params.set("limit", String(limit));
-      const res = await fetch(`${API_BASE}/cooking-log?${params.toString()}`, {
+      const res = await authFetch(`${API_BASE}/cooking-log?${params.toString()}`, {
         headers: authHeaders(),
       });
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
@@ -66,7 +55,7 @@ export async function createCookingLogEntry(payload: {
   comment?: string | null;
   photoUrl?: string | null;
 }): Promise<{ entry: CookingLogEntry; recipe: unknown }> {
-  const res = await fetch(`${API_BASE}/cooking-log`, {
+  const res = await authFetch(`${API_BASE}/cooking-log`, {
     method: "POST",
     headers: { "Content-Type": "application/json", ...authHeaders() },
     body: JSON.stringify(payload),
@@ -79,7 +68,7 @@ export async function createCookingLogEntry(payload: {
 }
 
 export async function deleteCookingLogEntry(id: number): Promise<void> {
-  const res = await fetch(`${API_BASE}/cooking-log/${id}`, {
+  const res = await authFetch(`${API_BASE}/cooking-log/${id}`, {
     method: "DELETE",
     headers: authHeaders(),
   });

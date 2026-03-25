@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback } from "react";
+import { authFetch, authHeaders } from "@/lib/authFetch";
 
 export interface NutritionSummary {
   from: string;
@@ -30,7 +31,7 @@ export function useNutritionSummary(from: string, to: string) {
     setLoading(true);
     setError(null);
     try {
-      const res = await fetch(`${API_BASE}/meal-plans/nutrition-summary?from=${from}&to=${to}`);
+      const res = await authFetch(`${API_BASE}/meal-plans/nutrition-summary?from=${from}&to=${to}`, { headers: authHeaders() });
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const data = await res.json();
       setSummary(data);
@@ -56,7 +57,7 @@ export function useKcalHistory(weeks = 4) {
   useEffect(() => {
     setLoading(true);
     setError(null);
-    fetch(`${API_BASE}/meal-plans/kcal-history?weeks=${weeks}`)
+    authFetch(`${API_BASE}/meal-plans/kcal-history?weeks=${weeks}`, { headers: authHeaders() })
       .then((res) => {
         if (!res.ok) throw new Error(`HTTP ${res.status}`);
         return res.json();

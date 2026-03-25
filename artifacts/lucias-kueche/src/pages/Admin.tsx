@@ -714,8 +714,77 @@ function AppSettings() {
   );
 }
 
+function RecipeCountBadge() {
+  const { recipes, loading } = useRecipes();
+  if (loading) return <span className="ml-auto text-sm text-muted-foreground">Lade…</span>;
+  return <span className="ml-auto text-sm text-muted-foreground">{recipes.length} Rezepte</span>;
+}
+
+function CategoryManagerWithData() {
+  const { recipes, loading, error, refetch, patchRecipe, patchRecipeSilent } = useRecipes();
+
+  if (loading) {
+    return (
+      <div className="flex justify-center py-10">
+        <Loader2 className="w-6 h-6 animate-spin text-[#4A7C59]" />
+      </div>
+    );
+  }
+
+  if (error) {
+    return (
+      <div className="bg-white rounded-2xl border border-border shadow-sm p-8 text-center">
+        <AlertTriangle className="w-10 h-10 text-amber-500 mx-auto mb-3" />
+        <p className="font-serif text-base font-semibold mb-1">Kategorien konnten nicht geladen werden</p>
+        <p className="text-sm text-muted-foreground mb-4">{error}</p>
+        <button onClick={() => refetch()} className="px-4 py-2 bg-[#4A7C59] text-white rounded-xl text-sm font-semibold hover:bg-[#3d6849] transition-colors flex items-center gap-2 mx-auto">
+          <RefreshCw className="w-4 h-4" /> Erneut versuchen
+        </button>
+      </div>
+    );
+  }
+
+  return (
+    <CategoryManager recipes={recipes} patchRecipe={patchRecipe} patchRecipeSilent={patchRecipeSilent} refetch={refetch} />
+  );
+}
+
+function BackupSectionWithData() {
+  const { recipes, loading, error, refetch, addRecipes, deleteAllRecipes, restoreDemo } = useRecipes();
+
+  if (loading) {
+    return (
+      <div className="flex justify-center py-10">
+        <Loader2 className="w-6 h-6 animate-spin text-[#4A7C59]" />
+      </div>
+    );
+  }
+
+  if (error) {
+    return (
+      <div className="bg-white rounded-2xl border border-border shadow-sm p-8 text-center">
+        <AlertTriangle className="w-10 h-10 text-amber-500 mx-auto mb-3" />
+        <p className="font-serif text-base font-semibold mb-1">Backup-Daten konnten nicht geladen werden</p>
+        <p className="text-sm text-muted-foreground mb-4">{error}</p>
+        <button onClick={() => refetch()} className="px-4 py-2 bg-[#4A7C59] text-white rounded-xl text-sm font-semibold hover:bg-[#3d6849] transition-colors flex items-center gap-2 mx-auto">
+          <RefreshCw className="w-4 h-4" /> Erneut versuchen
+        </button>
+      </div>
+    );
+  }
+
+  return (
+    <BackupSection
+      recipes={recipes}
+      addRecipes={addRecipes}
+      deleteAllRecipes={deleteAllRecipes}
+      restoreDemo={restoreDemo}
+      refetch={refetch}
+    />
+  );
+}
+
 export default function Admin({ initialTab }: { initialTab?: string }) {
-  const { recipes, loading, error, refetch, patchRecipe, patchRecipeSilent, addRecipes, deleteAllRecipes, restoreDemo } = useRecipes();
   const validTabs = SECTION_TABS.map((t) => t.id);
   const resolvedTab: SectionTab = (validTabs.includes(initialTab as SectionTab) ? initialTab : "categories") as SectionTab;
   const [section, setSection] = useState<SectionTab>(resolvedTab);
@@ -726,30 +795,12 @@ export default function Admin({ initialTab }: { initialTab?: string }) {
     }
   }, [initialTab]);
 
-  if (loading) {
-    return (
-      <div className="flex flex-col items-center py-20 gap-3 text-muted-foreground">
-        <Loader2 className="w-8 h-8 animate-spin text-[#4A7C59]" />
-        <p className="font-serif text-lg">Wird geladen…</p>
-      </div>
-    );
-  }
-
-  if (error) {
-    return (
-      <div className="text-center py-16">
-        <p className="text-4xl mb-4">⚠️</p>
-        <p className="font-serif text-lg text-foreground">{error}</p>
-      </div>
-    );
-  }
-
   return (
     <div className="max-w-6xl mx-auto px-4 py-6 pb-28">
       <div className="mb-6 flex items-center gap-3">
         <Settings className="w-6 h-6 text-[#4A7C59]" />
         <h2 className="font-serif text-2xl font-semibold text-foreground">Admin-Bereich</h2>
-        <span className="ml-auto text-sm text-muted-foreground">{recipes.length} Rezepte</span>
+        <RecipeCountBadge />
       </div>
 
       <div className="flex gap-1 mb-6 flex-wrap">
@@ -766,23 +817,13 @@ export default function Admin({ initialTab }: { initialTab?: string }) {
         ))}
       </div>
 
-      {section === "categories" && (
-        <CategoryManager recipes={recipes} patchRecipe={patchRecipe} patchRecipeSilent={patchRecipeSilent} refetch={refetch} />
-      )}
+      {section === "categories" && <CategoryManagerWithData />}
 
       {section === "groups" && <GroupsAdmin />}
 
       {section === "duplicates" && <DuplicatesTab />}
 
-      {section === "backup" && (
-        <BackupSection
-          recipes={recipes}
-          addRecipes={addRecipes}
-          deleteAllRecipes={deleteAllRecipes}
-          restoreDemo={restoreDemo}
-          refetch={refetch}
-        />
-      )}
+      {section === "backup" && <BackupSectionWithData />}
 
       {section === "bulk-import" && <BulkImportTab />}
 

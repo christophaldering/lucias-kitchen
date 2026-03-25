@@ -1,15 +1,8 @@
 import { useState, useEffect, useRef, useCallback } from "react";
 import { Loader2, X, CheckCircle, AlertCircle, ExternalLink } from "lucide-react";
+import { authFetch, authHeaders } from "@/lib/authFetch";
 
 const API_BASE = "/api";
-
-function getToken(): string | null {
-  try { return localStorage.getItem("lk_auth_token"); } catch { return null; }
-}
-function authHeaders(): HeadersInit {
-  const token = getToken();
-  return token ? { Authorization: `Bearer ${token}` } : {};
-}
 
 interface ActiveSession {
   id: number;
@@ -51,7 +44,7 @@ export function BulkImportProgressBar({ onNavigateToImport }: BulkImportProgress
 
   const fetchStatus = useCallback(async (sessionId: number) => {
     try {
-      const res = await fetch(`${API_BASE}/bulk-import/${sessionId}/status`, {
+      const res = await authFetch(`${API_BASE}/bulk-import/${sessionId}/status`, {
         headers: authHeaders(),
       });
       if (!res.ok) {
@@ -90,7 +83,7 @@ export function BulkImportProgressBar({ onNavigateToImport }: BulkImportProgress
 
   const checkForActiveSession = useCallback(async () => {
     try {
-      const res = await fetch(`${API_BASE}/bulk-import/active`, {
+      const res = await authFetch(`${API_BASE}/bulk-import/active`, {
         headers: authHeaders(),
       });
       if (!res.ok) return;

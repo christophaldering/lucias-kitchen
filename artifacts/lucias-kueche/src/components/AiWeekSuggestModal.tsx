@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { X, Wand2, Loader2, RefreshCw, Check, AlertCircle, ChevronDown } from "lucide-react";
+import { authFetch, authHeaders } from "@/lib/authFetch";
 
 const DAY_NAMES_LONG = ["Sonntag", "Montag", "Dienstag", "Mittwoch", "Donnerstag", "Freitag", "Samstag"];
 const CATEGORY_EMOJIS: Record<string, string> = {
@@ -72,9 +73,9 @@ export default function AiWeekSuggestModal({
     setLoading(true);
     setError(null);
     try {
-      const res = await fetch("/api/meal-plans/suggest", {
+      const res = await authFetch("/api/meal-plans/suggest", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: { "Content-Type": "application/json", ...authHeaders() },
         body: JSON.stringify({
           startDate: toIsoDate(weekStart),
           days,

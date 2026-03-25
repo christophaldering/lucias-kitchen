@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback } from "react";
+import { authFetch, authHeaders as baseAuthHeaders } from "@/lib/authFetch";
 
 const API_BASE = "/api";
 
@@ -33,17 +34,8 @@ export interface GroupMember {
   avatarUrl: string | null;
 }
 
-function getToken(): string | null {
-  try {
-    return localStorage.getItem("lk_auth_token");
-  } catch {
-    return null;
-  }
-}
-
 function authHeaders(): Record<string, string> {
-  const token = getToken();
-  return token ? { Authorization: `Bearer ${token}`, "Content-Type": "application/json" } : { "Content-Type": "application/json" };
+  return baseAuthHeaders({ "Content-Type": "application/json" });
 }
 
 export function useGroups() {
@@ -55,7 +47,7 @@ export function useGroups() {
     setLoading(true);
     setError(null);
     try {
-      const res = await fetch(`${API_BASE}/groups`, { headers: authHeaders() });
+      const res = await authFetch(`${API_BASE}/groups`, { headers: authHeaders() });
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const data = await res.json();
       setGroups(data);
@@ -71,7 +63,7 @@ export function useGroups() {
   }, [fetchGroups]);
 
   const createGroup = useCallback(async (name: string, imageUrl?: string) => {
-    const res = await fetch(`${API_BASE}/groups`, {
+    const res = await authFetch(`${API_BASE}/groups`, {
       method: "POST",
       headers: authHeaders(),
       body: JSON.stringify({ name, imageUrl }),
@@ -86,7 +78,7 @@ export function useGroups() {
   }, [fetchGroups]);
 
   const joinGroup = useCallback(async (groupId: number) => {
-    const res = await fetch(`${API_BASE}/groups/${groupId}/join`, {
+    const res = await authFetch(`${API_BASE}/groups/${groupId}/join`, {
       method: "PUT",
       headers: authHeaders(),
     });
@@ -95,7 +87,7 @@ export function useGroups() {
   }, [fetchGroups]);
 
   const inviteMember = useCallback(async (groupId: number, emailOrUsername: string) => {
-    const res = await fetch(`${API_BASE}/groups/${groupId}/invite`, {
+    const res = await authFetch(`${API_BASE}/groups/${groupId}/invite`, {
       method: "POST",
       headers: authHeaders(),
       body: JSON.stringify({ emailOrUsername }),
@@ -108,13 +100,13 @@ export function useGroups() {
   }, []);
 
   const getMembers = useCallback(async (groupId: number): Promise<GroupMember[]> => {
-    const res = await fetch(`${API_BASE}/groups/${groupId}/members`, { headers: authHeaders() });
+    const res = await authFetch(`${API_BASE}/groups/${groupId}/members`, { headers: authHeaders() });
     if (!res.ok) throw new Error("Mitglieder konnten nicht geladen werden");
     return res.json();
   }, []);
 
   const removeMember = useCallback(async (groupId: number, memberId: number) => {
-    const res = await fetch(`${API_BASE}/groups/${groupId}/members/${memberId}`, {
+    const res = await authFetch(`${API_BASE}/groups/${groupId}/members/${memberId}`, {
       method: "DELETE",
       headers: authHeaders(),
     });
@@ -122,7 +114,7 @@ export function useGroups() {
   }, []);
 
   const renameGroup = useCallback(async (groupId: number, name: string) => {
-    const res = await fetch(`${API_BASE}/groups/${groupId}`, {
+    const res = await authFetch(`${API_BASE}/groups/${groupId}`, {
       method: "PUT",
       headers: authHeaders(),
       body: JSON.stringify({ name }),
@@ -137,7 +129,7 @@ export function useGroups() {
   }, [fetchGroups]);
 
   const familyInvite = useCallback(async (email: string) => {
-    const res = await fetch(`${API_BASE}/groups/family-invite`, {
+    const res = await authFetch(`${API_BASE}/groups/family-invite`, {
       method: "POST",
       headers: authHeaders(),
       body: JSON.stringify({ email }),
@@ -163,7 +155,7 @@ export function useAdminGroups() {
     setLoading(true);
     setError(null);
     try {
-      const res = await fetch(`${API_BASE}/groups/admin`, { headers: authHeaders() });
+      const res = await authFetch(`${API_BASE}/groups/admin`, { headers: authHeaders() });
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const data = await res.json();
       setGroups(data);
@@ -179,7 +171,7 @@ export function useAdminGroups() {
   }, [fetchGroups]);
 
   const approveGroup = useCallback(async (groupId: number) => {
-    const res = await fetch(`${API_BASE}/groups/${groupId}/approve`, {
+    const res = await authFetch(`${API_BASE}/groups/${groupId}/approve`, {
       method: "PUT",
       headers: authHeaders(),
     });
@@ -188,7 +180,7 @@ export function useAdminGroups() {
   }, [fetchGroups]);
 
   const rejectGroup = useCallback(async (groupId: number, reason?: string) => {
-    const res = await fetch(`${API_BASE}/groups/${groupId}/reject`, {
+    const res = await authFetch(`${API_BASE}/groups/${groupId}/reject`, {
       method: "PUT",
       headers: authHeaders(),
       body: JSON.stringify({ reason }),

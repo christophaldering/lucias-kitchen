@@ -1,5 +1,6 @@
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useAuth } from "@/contexts/AuthContext";
+import { authFetch } from "@/lib/authFetch";
 
 const API_BASE = "/api";
 
@@ -26,7 +27,7 @@ export function useNotifications() {
     queryKey: ["notifications"],
     queryFn: async () => {
       if (!token) return [];
-      const res = await fetch(`${API_BASE}/notifications`, {
+      const res = await authFetch(`${API_BASE}/notifications`, {
         headers: { Authorization: `Bearer ${token}` },
       });
       if (!res.ok) return [];
@@ -44,7 +45,7 @@ export function useMarkNotificationRead() {
 
   return useMutation({
     mutationFn: async (id: number) => {
-      const res = await fetch(`${API_BASE}/notifications/${id}/read`, {
+      const res = await authFetch(`${API_BASE}/notifications/${id}/read`, {
         method: "PATCH",
         headers: { Authorization: `Bearer ${token}` },
       });
@@ -61,7 +62,7 @@ export function useMarkAllNotificationsRead() {
 
   return useMutation({
     mutationFn: async () => {
-      const res = await fetch(`${API_BASE}/notifications/read-all`, {
+      const res = await authFetch(`${API_BASE}/notifications/read-all`, {
         method: "PATCH",
         headers: { Authorization: `Bearer ${token}` },
       });

@@ -2,6 +2,7 @@ import { useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useAuth } from "@/contexts/AuthContext";
 import { MessageCircle, Star, Pencil, Trash2, Check, X, Loader2 } from "lucide-react";
+import { authFetch, authHeaders } from "@/lib/authFetch";
 
 const API_BASE = "/api";
 
@@ -182,7 +183,7 @@ export function RecipeComments({ recipeId }: { recipeId: number }) {
   const { data: comments = [], isLoading } = useQuery<RecipeComment[]>({
     queryKey: ["comments", recipeId],
     queryFn: async () => {
-      const res = await fetch(`${API_BASE}/recipes/${recipeId}/comments`);
+      const res = await authFetch(`${API_BASE}/recipes/${recipeId}/comments`, { headers: authHeaders() });
       if (!res.ok) throw new Error("Failed to load comments");
       return res.json();
     },
@@ -190,7 +191,7 @@ export function RecipeComments({ recipeId }: { recipeId: number }) {
 
   const createMutation = useMutation({
     mutationFn: async ({ content, rating }: { content: string; rating: number | null }) => {
-      const res = await fetch(`${API_BASE}/recipes/${recipeId}/comments`, {
+      const res = await authFetch(`${API_BASE}/recipes/${recipeId}/comments`, {
         method: "POST",
         headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
         body: JSON.stringify({ content, rating }),
@@ -208,7 +209,7 @@ export function RecipeComments({ recipeId }: { recipeId: number }) {
 
   const editMutation = useMutation({
     mutationFn: async ({ id, content, rating }: { id: number; content: string; rating: number | null }) => {
-      const res = await fetch(`${API_BASE}/recipes/${recipeId}/comments/${id}`, {
+      const res = await authFetch(`${API_BASE}/recipes/${recipeId}/comments/${id}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
         body: JSON.stringify({ content, rating }),
@@ -224,7 +225,7 @@ export function RecipeComments({ recipeId }: { recipeId: number }) {
 
   const deleteMutation = useMutation({
     mutationFn: async (id: number) => {
-      const res = await fetch(`${API_BASE}/recipes/${recipeId}/comments/${id}`, {
+      const res = await authFetch(`${API_BASE}/recipes/${recipeId}/comments/${id}`, {
         method: "DELETE",
         headers: { Authorization: `Bearer ${token}` },
       });
@@ -325,7 +326,7 @@ export function useCommentStats(recipeIds: number[]) {
       const results: Record<number, { count: number; avgRating: number | null }> = {};
       await Promise.all(
         recipeIds.map(async (id) => {
-          const res = await fetch(`${API_BASE}/recipes/${id}/comments`);
+          const res = await authFetch(`${API_BASE}/recipes/${id}/comments`, { headers: authHeaders() });
           if (!res.ok) return;
           const comments: RecipeComment[] = await res.json();
           const rated = comments.filter((c) => c.rating !== null);

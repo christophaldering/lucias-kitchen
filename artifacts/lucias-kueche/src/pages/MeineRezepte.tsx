@@ -287,25 +287,18 @@ function RecipeTableRow({
   onClick,
   onCook,
   onSuggest,
-  checked,
-  onCheck,
 }: {
   recipe: Recipe;
   onClick: () => void;
   onCook: () => void;
   onSuggest?: () => void;
-  checked: boolean;
-  onCheck: (e: React.MouseEvent) => void;
 }) {
   const emoji = CATEGORY_EMOJIS[recipe.category] ?? "🍽️";
   const createdLabel = recipe.createdAt
     ? new Date(recipe.createdAt).toLocaleDateString("de-DE", { day: "2-digit", month: "2-digit", year: "numeric" })
     : "–";
   return (
-    <tr className={`border-b border-border/50 hover:bg-[#4A7C59]/5 transition-colors cursor-pointer ${checked ? "bg-[#4A7C59]/5" : ""}`} onClick={onClick}>
-      <td className="px-3 py-3 w-10" onClick={onCheck}>
-        <input type="checkbox" checked={checked} onChange={() => {}} className="w-4 h-4 rounded accent-[#4A7C59] cursor-pointer" />
-      </td>
+    <tr className="border-b border-border/50 hover:bg-[#4A7C59]/5 transition-colors cursor-pointer" onClick={onClick}>
       <td className="px-4 py-3">
         <div className="font-medium text-foreground flex items-center gap-2">
           {recipe.title}
@@ -432,7 +425,6 @@ export default function MeineRezepte({ onNavigate: _onNavigate, initialOpenRecip
 
   const [fabOpen, setFabOpen] = useState(false);
   const [managedSelected, setManagedSelected] = useState<Set<number>>(new Set());
-  const [tableSelected, setTableSelected] = useState<Set<number>>(new Set());
   const [tableSortKey, setTableSortKey] = useState<TableSortKey>("title");
   const [tableSortDir, setTableSortDir] = useState<"asc" | "desc">("asc");
 
@@ -481,21 +473,6 @@ export default function MeineRezepte({ onNavigate: _onNavigate, initialOpenRecip
   const toggleAll = () => {
     if (managedSelected.size === recipes.length) setManagedSelected(new Set());
     else setManagedSelected(new Set(recipes.map((r) => r.id)));
-  };
-
-  const toggleTableSelect = (id: number, e: React.MouseEvent) => {
-    e.stopPropagation();
-    setTableSelected((prev) => {
-      const next = new Set(prev);
-      if (next.has(id)) next.delete(id); else next.add(id);
-      return next;
-    });
-  };
-
-  const toggleTableAll = () => {
-    setTableSelected((prev) =>
-      prev.size === filtered.length ? new Set() : new Set(filtered.map((r) => r.id))
-    );
   };
 
   const handleTableSort = (col: TableSortKey) => {
@@ -905,12 +882,6 @@ export default function MeineRezepte({ onNavigate: _onNavigate, initialOpenRecip
                   <table className="w-full text-sm">
                     <thead>
                       <tr className="border-b border-border bg-[#4A7C59]/5">
-                        <th className="px-3 py-3 w-10">
-                          <input type="checkbox"
-                            checked={tableSelected.size === tableSorted.length && tableSorted.length > 0}
-                            onChange={toggleTableAll}
-                            className="w-4 h-4 rounded accent-[#4A7C59] cursor-pointer" />
-                        </th>
                         {(
                           [
                             { col: "title" as TableSortKey, label: "Titel", cls: "" },
@@ -951,8 +922,6 @@ export default function MeineRezepte({ onNavigate: _onNavigate, initialOpenRecip
                           onClick={() => setSelectedId(recipe.id)}
                           onCook={() => setCookingRecipe(recipe)}
                           onSuggest={() => setSuggestRecipe(recipe)}
-                          checked={tableSelected.has(recipe.id)}
-                          onCheck={(e) => toggleTableSelect(recipe.id, e)}
                         />
                       ))}
                     </tbody>

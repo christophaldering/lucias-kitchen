@@ -864,16 +864,70 @@ export default function Admin({ initialTab, navToken, onTabInitialized }: { init
   const validTabs = SECTION_TABS.map((t) => t.id);
   const resolvedTab: SectionTab = (validTabs.includes(initialTab as SectionTab) ? initialTab : "categories") as SectionTab;
   const [section, setSection] = useState<SectionTab>(resolvedTab);
+  const [isBulkUploading, setIsBulkUploading] = useState(false);
+  const [pendingTab, setPendingTab] = useState<SectionTab | null>(null);
+
+  const handleTabClick = (tabId: SectionTab) => {
+    if (tabId === section) return;
+    if (isBulkUploading && section === "bulk-import") {
+      setPendingTab(tabId);
+      return;
+    }
+    setSection(tabId);
+  };
+
+  const confirmNavigation = () => {
+    if (pendingTab) {
+      setSection(pendingTab);
+      setPendingTab(null);
+    }
+  };
+
+  const cancelNavigation = () => {
+    setPendingTab(null);
+  };
 
   useEffect(() => {
     if (navToken && initialTab && validTabs.includes(initialTab as SectionTab)) {
-      setSection(initialTab as SectionTab);
-      onTabInitialized?.();
+      if (isBulkUploading && section === "bulk-import") {
+        setPendingTab(initialTab as SectionTab);
+      } else {
+        setSection(initialTab as SectionTab);
+        onTabInitialized?.();
+      }
     }
   }, [navToken]);
 
   return (
     <div className="max-w-6xl mx-auto px-4 py-6 pb-28">
+      {pendingTab && (
+        <div className="fixed inset-0 z-[200] flex items-center justify-center bg-black/50 p-4">
+          <div className="bg-white rounded-2xl shadow-2xl p-6 max-w-sm w-full">
+            <div className="text-center mb-4">
+              <Upload className="w-10 h-10 text-amber-500 mx-auto mb-2" />
+              <h3 className="font-serif text-lg font-semibold">Upload läuft</h3>
+              <p className="text-sm text-muted-foreground mt-2">
+                Wirklich verlassen? Der aktuelle Upload-Fortschritt geht verloren.
+              </p>
+            </div>
+            <div className="flex gap-3">
+              <button
+                onClick={cancelNavigation}
+                className="flex-1 py-2 border border-border rounded-xl text-sm hover:bg-secondary transition-colors font-medium"
+              >
+                Abbrechen
+              </button>
+              <button
+                onClick={confirmNavigation}
+                className="flex-1 py-2 bg-red-600 text-white rounded-xl text-sm font-semibold hover:bg-red-700 transition-colors"
+              >
+                Trotzdem verlassen
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       <div className="mb-6 flex items-center gap-3">
         <Settings className="w-6 h-6 text-[#4A7C59]" />
         <h2 className="font-serif text-2xl font-semibold text-foreground">Admin-Bereich</h2>
@@ -882,7 +936,7 @@ export default function Admin({ initialTab, navToken, onTabInitialized }: { init
 
       <div className="flex gap-1 mb-6 flex-wrap">
         {SECTION_TABS.map((tab) => (
-          <button key={tab.id} onClick={() => setSection(tab.id)}
+          <button key={tab.id} onClick={() => handleTabClick(tab.id)}
             className={`flex items-center gap-1.5 px-4 py-2 rounded-xl text-sm font-medium transition-colors ${
               section === tab.id
                 ? "bg-[#4A7C59] text-white shadow-sm"
@@ -902,7 +956,7 @@ export default function Admin({ initialTab, navToken, onTabInitialized }: { init
 
       {section === "backup" && <BackupSectionWithData />}
 
-      {section === "bulk-import" && <BulkImportTab />}
+      {section === "bulk-import" && <BulkImportTab onUploadingChange={setIsBulkUploading} />}
 
       {section === "settings" && <AppSettings />}
     </div>

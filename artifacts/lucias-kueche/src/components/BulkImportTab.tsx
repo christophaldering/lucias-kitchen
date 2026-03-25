@@ -767,7 +767,7 @@ function ImportHistory() {
   );
 }
 
-export default function BulkImportTab() {
+export default function BulkImportTab({ onUploadingChange }: { onUploadingChange?: (isUploading: boolean) => void }) {
   const [files, setFiles] = useState<File[]>([]);
   const [uploading, setUploading] = useState(false);
   const [uploadProgress, setUploadProgress] = useState<{ current: number; total: number; label?: string } | null>(null);
@@ -783,6 +783,20 @@ export default function BulkImportTab() {
   const refreshCallbackRef = useRef<(() => void) | null>(null);
   const fileRef = useRef<HTMLInputElement>(null);
   const dropRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    onUploadingChange?.(uploading);
+  }, [uploading, onUploadingChange]);
+
+  useEffect(() => {
+    if (!uploading) return;
+    const handler = (e: BeforeUnloadEvent) => {
+      e.preventDefault();
+      e.returnValue = "";
+    };
+    window.addEventListener("beforeunload", handler);
+    return () => window.removeEventListener("beforeunload", handler);
+  }, [uploading]);
 
   useEffect(() => {
     if (sessionId === null) {

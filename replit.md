@@ -43,6 +43,11 @@ The project is structured as a pnpm monorepo with distinct packages for deployab
         - **Bulk PDF Import:** Advanced admin feature for uploading multiple PDFs, AI-powered recipe extraction (Claude AI), and a review dashboard with page scan thumbnails.
 - **Group/Community Features:** Initial architecture for group management, including creation, invitations, and membership roles with admin moderation.
 
+## Production Deployment Architecture:
+- **Full-Stack Single Server:** In production, the API server serves both the backend API and the frontend static files. The `build.mjs` builds the frontend (`pnpm --filter @workspace/lucias-kueche build`) with `BASE_PATH=/` and copies the output to `artifacts/api-server/dist/public/`.
+- **Express Static Serving:** When `NODE_ENV=production`, `app.ts` uses `express.static` to serve the frontend files and a catch-all route to return `index.html` for SPA routing.
+- **Single Deployment Entry Point:** Only the API server is deployed. The `lucias-kueche` artifact is used only in development (no production block in its `artifact.toml`).
+
 ## Feature Specifications:
 - **API Server:** Handles all backend logic, data persistence, and API endpoints. Routes are organized under `src/routes/`.
 - **Database Schema:** Defined using Drizzle ORM, including tables for users, recipes, meal plans, invitations, notifications, groups, and user_pantry (for persistent ingredient storage with expiry priorities).

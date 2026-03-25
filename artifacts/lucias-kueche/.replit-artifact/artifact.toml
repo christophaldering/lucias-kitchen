@@ -17,15 +17,6 @@ localPort = 18160
 [services.development]
 run = "pnpm --filter @workspace/lucias-kueche run dev"
 
-[services.production]
-build = [ "pnpm", "--filter", "@workspace/lucias-kueche", "run", "build" ]
-publicDir = "artifacts/lucias-kueche/dist/public"
-serve = "static"
-
-[[services.production.rewrites]]
-from = "/*"
-to = "/index.html"
-
 [services.env]
 PORT = "18160"
 BASE_PATH = "/"

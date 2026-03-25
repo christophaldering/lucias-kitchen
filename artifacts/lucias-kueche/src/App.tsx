@@ -171,6 +171,7 @@ function AppShell() {
   const [activeTab, setActiveTab] = useState<Tab>("rezepte");
   const [openRecipeId, setOpenRecipeId] = useState<number | null>(null);
   const [adminInitialTab, setAdminInitialTab] = useState<string | null>(null);
+  const [adminNavToken, setAdminNavToken] = useState(0);
   const [recipesInitialSortOrder, setRecipesInitialSortOrder] = useState<string | null>(null);
   const { data: notifications = [] } = useNotifications();
   const notificationUnreadCount = notifications.filter((n) => !n.readAt).length;
@@ -241,7 +242,7 @@ function AppShell() {
         {activeTab === "was-koche-ich" && <WasKocheIch />}
         {activeTab === "wochenplan" && <Wochenplan onNavigate={(tab) => setActiveTab(tab as Tab)} />}
         {activeTab === "statistiken" && <Statistiken />}
-        {activeTab === "admin" && <Admin initialTab={adminInitialTab ?? "categories"} />}
+        {activeTab === "admin" && <Admin initialTab={adminInitialTab ?? "categories"} navToken={adminNavToken} onTabInitialized={() => setAdminInitialTab(null)} />}
         {activeTab === "profil" && <Profil />}
         {activeTab === "meine-kueche" && <MeineKueche onOpenRecipe={(recipeId) => { setActiveTab("rezepte"); setOpenRecipeId(recipeId); }} />}
       </main>
@@ -250,6 +251,7 @@ function AppShell() {
       <BulkImportProgressBar onNavigateToImport={() => {
         setActiveTab("admin");
         setAdminInitialTab("bulk-import");
+        setAdminNavToken((t) => t + 1);
       }} />
     </>
   );

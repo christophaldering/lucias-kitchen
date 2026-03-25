@@ -784,16 +784,17 @@ function BackupSectionWithData() {
   );
 }
 
-export default function Admin({ initialTab }: { initialTab?: string }) {
+export default function Admin({ initialTab, navToken, onTabInitialized }: { initialTab?: string; navToken?: number; onTabInitialized?: () => void }) {
   const validTabs = SECTION_TABS.map((t) => t.id);
   const resolvedTab: SectionTab = (validTabs.includes(initialTab as SectionTab) ? initialTab : "categories") as SectionTab;
   const [section, setSection] = useState<SectionTab>(resolvedTab);
 
   useEffect(() => {
-    if (initialTab && validTabs.includes(initialTab as SectionTab)) {
+    if (navToken && initialTab && validTabs.includes(initialTab as SectionTab)) {
       setSection(initialTab as SectionTab);
+      onTabInitialized?.();
     }
-  }, [initialTab]);
+  }, [navToken]);
 
   return (
     <div className="max-w-6xl mx-auto px-4 py-6 pb-28">

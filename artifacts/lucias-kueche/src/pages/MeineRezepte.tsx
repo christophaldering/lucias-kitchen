@@ -728,6 +728,12 @@ export default function MeineRezepte({ onNavigate: _onNavigate, initialOpenRecip
             <div className="text-center py-16">
               <p className="text-4xl mb-4">⚠️</p>
               <p className="font-serif text-lg text-foreground">{error}</p>
+              <button
+                onClick={() => refetch()}
+                className="mt-4 px-4 py-2 rounded-md bg-[#4A7C59] text-white font-medium hover:bg-[#3a6347] transition-colors"
+              >
+                Nochmal versuchen
+              </button>
             </div>
           )}
           {!loading && !error && (
@@ -862,6 +868,12 @@ export default function MeineRezepte({ onNavigate: _onNavigate, initialOpenRecip
             <div className="text-center py-16">
               <p className="text-4xl mb-4">⚠️</p>
               <p className="font-serif text-lg text-foreground">{error}</p>
+              <button
+                onClick={() => refetch()}
+                className="mt-4 px-4 py-2 rounded-md bg-[#4A7C59] text-white font-medium hover:bg-[#3a6347] transition-colors"
+              >
+                Nochmal versuchen
+              </button>
             </div>
           )}
 

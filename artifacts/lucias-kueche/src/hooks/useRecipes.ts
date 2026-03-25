@@ -2,6 +2,13 @@ import { useState, useEffect, useCallback } from "react";
 import type { Recipe, IngredientInput, Season, RecipePhoto } from "@/types/recipe";
 import { authFetch, authHeaders } from "@/lib/authFetch";
 
+class UnauthorizedError extends Error {
+  constructor() {
+    super("HTTP 401");
+    this.name = "UnauthorizedError";
+  }
+}
+
 export interface RecipeUpdatePayload {
   title: string;
   category: string;
@@ -40,6 +47,7 @@ export function useRecipes(filter: RecipeFilter = "all") {
     const url = activeFilter === "all" ? `${API_BASE}/recipes` : `${API_BASE}/recipes?filter=${activeFilter}`;
     const attempt = async (): Promise<Response> => {
       const res = await authFetch(url, { headers: authHeaders() });
+      if (res.status === 401) throw new UnauthorizedError();
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       return res;
     };
@@ -47,14 +55,17 @@ export function useRecipes(filter: RecipeFilter = "all") {
       let res: Response;
       try {
         res = await attempt();
-      } catch {
+      } catch (e) {
+        if (e instanceof UnauthorizedError) throw e;
         await new Promise((resolve) => setTimeout(resolve, 1500));
         res = await attempt();
       }
       const data = await res.json();
       setRecipes(data);
-    } catch {
-      setError("Rezepte konnten nicht geladen werden.");
+    } catch (e) {
+      if (!(e instanceof UnauthorizedError)) {
+        setError("Rezepte konnten nicht geladen werden.");
+      }
     } finally {
       setLoading(false);
     }

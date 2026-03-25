@@ -27,6 +27,8 @@ const VALID_CATEGORIES = ["Fisch", "Fleisch", "Pasta", "Vegetarisch", "Geflügel
 const VALID_DIFFICULTIES = ["simpel", "normal", "schwer"] as const;
 
 function sanitizeRecipe(r: Partial<Recipe>): Partial<Recipe> {
+  const title = r.title != null && String(r.title).trim().length > 0 ? String(r.title).trim() : "Importiertes Rezept";
+
   const servingsRaw = r.servings;
   let servings: number | null = null;
   if (servingsRaw != null) {
@@ -52,13 +54,22 @@ function sanitizeRecipe(r: Partial<Recipe>): Partial<Recipe> {
     ? (rawDifficulty as "simpel" | "normal" | "schwer")
     : "normal";
 
-  const ingredients = (r.ingredients ?? []).filter((ing) => {
-    const name = (ing as { name?: string }).name?.trim() ?? "";
-    return name.length > 0;
-  });
+  const ingredients = (r.ingredients ?? [])
+    .filter((ing) => {
+      const name = (ing as { name?: string | null }).name;
+      return name != null && String(name).trim().length > 0;
+    })
+    .map((ing) => ({
+      ...(ing as object),
+      amount: (ing as { amount?: string | null }).amount != null ? String((ing as { amount?: string | null }).amount) : "",
+      unit: (ing as { unit?: string | null }).unit != null ? String((ing as { unit?: string | null }).unit) : "",
+    }));
+
+  const steps = (r.steps ?? []).filter((s) => s != null && String(s).trim().length > 0);
 
   return {
     ...r,
+    title,
     servings,
     kcalPerPortion,
     prepTime,
@@ -66,6 +77,7 @@ function sanitizeRecipe(r: Partial<Recipe>): Partial<Recipe> {
     category,
     difficulty,
     ingredients,
+    steps,
   };
 }
 

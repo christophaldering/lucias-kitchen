@@ -46,8 +46,8 @@ router.use((req, _res, next) => {
 });
 
 const ingredientSchema = z.object({
-  amount: z.string().default(""),
-  unit: z.string().default(""),
+  amount: z.preprocess((v) => (v == null ? "" : String(v)), z.string()).default(""),
+  unit: z.preprocess((v) => (v == null ? "" : String(v)), z.string()).default(""),
   name: z.string().min(1),
   note: z.string().optional().nullable(),
 });
@@ -68,8 +68,14 @@ const recipeBodySchema = z.object({
   cookedCount: z.coerce.number().int().min(0).optional().nullable(),
   notes: z.string().optional().nullable(),
   personalNotes: z.string().optional().nullable(),
-  steps: z.array(z.string()).default([]),
-  ingredients: z.array(ingredientSchema).default([]),
+  steps: z.preprocess(
+    (v) => (Array.isArray(v) ? v.filter((s) => s != null && String(s).trim().length > 0) : []),
+    z.array(z.string()).default([])
+  ),
+  ingredients: z.preprocess(
+    (v) => (Array.isArray(v) ? v.filter((ing) => ing != null && ing.name != null && String(ing.name).trim().length > 0) : []),
+    z.array(ingredientSchema).default([])
+  ),
   imageUrl: z.string().optional().nullable(),
   seasons: z.array(z.enum(VALID_SEASONS)).default([]),
   parentRecipeId: z.coerce.number().int().positive().optional().nullable(),

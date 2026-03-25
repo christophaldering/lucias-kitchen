@@ -359,7 +359,7 @@ function RecipeTableRow({
   );
 }
 
-type ViewMode = "galerie" | "tabelle" | "verwalten";
+type ViewMode = "galerie" | "tabelle";
 
 interface MeineRezepteProps {
   onNavigate?: (tab: string) => void;
@@ -382,7 +382,9 @@ export default function MeineRezepte({ onNavigate: _onNavigate, initialOpenRecip
 
   const defaultViewRaw = useLocalStorage<string>("lk_viewMode", "");
   const defaultView = ((): ViewMode => {
-    if (["galerie", "tabelle", "verwalten"].includes(defaultViewRaw)) return defaultViewRaw as ViewMode;
+    if (defaultViewRaw === "galerie") return "galerie";
+    if (defaultViewRaw === "tabelle") return "tabelle";
+    if (defaultViewRaw === "verwalten") return "tabelle";
     try {
       const legacy = localStorage.getItem("lk_defaultView");
       const legacyParsed = legacy !== null ? JSON.parse(legacy) : null;
@@ -398,9 +400,11 @@ export default function MeineRezepte({ onNavigate: _onNavigate, initialOpenRecip
   const showCookCount = useLocalStorage<boolean>("lk_showCookCount", true);
 
   const [viewMode, setViewModeState] = useState<ViewMode>(defaultView);
+  const [isManaging, setIsManaging] = useState(false);
 
   const setViewMode = (mode: ViewMode) => {
     setViewModeState(mode);
+    if (mode !== "tabelle") setIsManaging(false);
     try { localStorage.setItem("lk_viewMode", JSON.stringify(mode)); } catch {}
   };
 
@@ -666,13 +670,6 @@ export default function MeineRezepte({ onNavigate: _onNavigate, initialOpenRecip
                 <Table className="w-4 h-4" />
                 Tabelle
               </button>
-              <button
-                onClick={() => setViewMode("verwalten")}
-                className={`flex items-center gap-1.5 px-3 py-2 rounded-lg text-sm font-medium transition-colors min-h-[40px] ${viewMode === "verwalten" ? "bg-[#3d6849] text-white" : "text-muted-foreground hover:text-foreground"}`}
-              >
-                <Settings2 className="w-4 h-4" />
-                Verwalten
-              </button>
             </div>
 
             {/* Recipe count chip */}
@@ -711,8 +708,8 @@ export default function MeineRezepte({ onNavigate: _onNavigate, initialOpenRecip
             </div>
           </div>
 
-          {/* Search + category filters (only shown in galerie/tabelle mode) */}
-          {viewMode !== "verwalten" && (
+          {/* Search + category filters */}
+          {(
             <div className="space-y-3">
               {/* Search row */}
               <div className="flex items-center gap-3 flex-wrap">
@@ -767,45 +764,7 @@ export default function MeineRezepte({ onNavigate: _onNavigate, initialOpenRecip
       {/* Main content area */}
       <div className="max-w-6xl mx-auto px-4 py-4">
 
-      {viewMode === "verwalten" ? (
-        <>
-          {loading && (
-            <div className="flex flex-col items-center py-20 gap-3 text-muted-foreground">
-              <Loader2 className="w-8 h-8 animate-spin text-[#4A7C59]" />
-              <p className="font-serif text-lg">Rezepte werden geladen…</p>
-            </div>
-          )}
-          {error && !loading && (
-            <div className="text-center py-16">
-              <p className="text-4xl mb-4">⚠️</p>
-              <p className="font-serif text-lg text-foreground">{error}</p>
-              <button
-                onClick={() => refetch()}
-                className="mt-4 px-4 py-2 rounded-md bg-[#4A7C59] text-white font-medium hover:bg-[#3a6347] transition-colors"
-              >
-                Nochmal versuchen
-              </button>
-            </div>
-          )}
-          {!loading && !error && (
-            <div className="pb-28">
-              <RecipeManagement
-                recipes={recipes}
-                selected={managedSelected}
-                onToggle={toggleSelect}
-                onToggleAll={toggleAll}
-                patchRecipeSilent={patchRecipeSilent}
-                deleteRecipeSilent={deleteRecipeSilent}
-                updateRecipe={updateRecipe}
-                refetch={refetch}
-                onClearSelect={() => setManagedSelected(new Set())}
-                addRecipes={addRecipes}
-              />
-            </div>
-          )}
-        </>
-      ) : (
-        <>
+      <>
           {loading && (
             <div className="flex flex-col items-center py-20 gap-3 text-muted-foreground">
               <Loader2 className="w-8 h-8 animate-spin text-[#4A7C59]" />
@@ -891,56 +850,92 @@ export default function MeineRezepte({ onNavigate: _onNavigate, initialOpenRecip
                     />
                   ))}
                 </div>
-              ) : (
-                <div className="overflow-x-auto rounded-2xl border border-border bg-white shadow-sm">
-                  <table className="w-full text-sm">
-                    <thead>
-                      <tr className="border-b border-border bg-[#4A7C59]/5">
-                        {(
-                          [
-                            { col: "title" as TableSortKey, label: "Titel", cls: "" },
-                          ]
-                        ).map(({ col, label, cls }) => (
-                          <th key={col}
-                            onClick={() => handleTableSort(col)}
-                            className={`px-4 py-3 text-left font-semibold text-foreground cursor-pointer select-none hover:text-[#4A7C59] transition-colors ${cls}`}>
-                            {label}
-                            <SortIcon col={col} sortKey={tableSortKey} sortDir={tableSortDir} />
-                          </th>
-                        ))}
-                        <th className="px-4 py-3 hidden sm:table-cell"></th>
-                        {(
-                          [
-                            { col: "category" as TableSortKey, label: "Kategorie", cls: "hidden sm:table-cell" },
-                            { col: "difficulty" as TableSortKey, label: "Schwierigkeit", cls: "hidden md:table-cell" },
-                            { col: "time" as TableSortKey, label: "Zeit", cls: "hidden md:table-cell" },
-                            { col: "rating" as TableSortKey, label: "Bewertung", cls: "hidden lg:table-cell" },
-                            { col: "cookedCount" as TableSortKey, label: "Gekocht", cls: "hidden xl:table-cell" },
-                            { col: "createdAt" as TableSortKey, label: "Hochgeladen am", cls: "hidden xl:table-cell" },
-                          ]
-                        ).map(({ col, label, cls }) => (
-                          <th key={col}
-                            onClick={() => handleTableSort(col)}
-                            className={`px-4 py-3 text-left font-semibold text-foreground cursor-pointer select-none hover:text-[#4A7C59] transition-colors ${cls}`}>
-                            {label}
-                            <SortIcon col={col} sortKey={tableSortKey} sortDir={tableSortDir} />
-                          </th>
-                        ))}
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {tableSorted.map((recipe) => (
-                        <RecipeTableRow
-                          key={recipe.id}
-                          recipe={recipe}
-                          onClick={() => setSelectedId(recipe.id)}
-                          onCook={() => setCookingRecipe(recipe)}
-                          onSuggest={() => setSuggestRecipe(recipe)}
-                        />
-                      ))}
-                    </tbody>
-                  </table>
+              ) : isManaging ? (
+                <div className="pb-28">
+                  <div className="flex items-center justify-between mb-3">
+                    <span className="text-sm text-muted-foreground font-medium">Verwalten-Modus aktiv</span>
+                    <button
+                      onClick={() => { setIsManaging(false); setManagedSelected(new Set()); }}
+                      className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-medium border border-[#4A7C59]/30 text-[#4A7C59] hover:bg-[#4A7C59]/10 transition-colors"
+                    >
+                      <Settings2 className="w-4 h-4" />
+                      Verwalten beenden
+                    </button>
+                  </div>
+                  <RecipeManagement
+                    recipes={recipes}
+                    selected={managedSelected}
+                    onToggle={toggleSelect}
+                    onToggleAll={toggleAll}
+                    patchRecipeSilent={patchRecipeSilent}
+                    deleteRecipeSilent={deleteRecipeSilent}
+                    updateRecipe={updateRecipe}
+                    refetch={refetch}
+                    onClearSelect={() => setManagedSelected(new Set())}
+                    addRecipes={addRecipes}
+                  />
                 </div>
+              ) : (
+                <>
+                  <div className="flex justify-end mb-2">
+                    <button
+                      onClick={() => setIsManaging(true)}
+                      className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-medium border border-border text-muted-foreground hover:text-[#4A7C59] hover:border-[#4A7C59]/40 transition-colors"
+                    >
+                      <Settings2 className="w-4 h-4" />
+                      Verwalten
+                    </button>
+                  </div>
+                  <div className="overflow-x-auto rounded-2xl border border-border bg-white shadow-sm">
+                    <table className="w-full text-sm">
+                      <thead>
+                        <tr className="border-b border-border bg-[#4A7C59]/5">
+                          {(
+                            [
+                              { col: "title" as TableSortKey, label: "Titel", cls: "" },
+                            ]
+                          ).map(({ col, label, cls }) => (
+                            <th key={col}
+                              onClick={() => handleTableSort(col)}
+                              className={`px-4 py-3 text-left font-semibold text-foreground cursor-pointer select-none hover:text-[#4A7C59] transition-colors ${cls}`}>
+                              {label}
+                              <SortIcon col={col} sortKey={tableSortKey} sortDir={tableSortDir} />
+                            </th>
+                          ))}
+                          <th className="px-4 py-3 hidden sm:table-cell"></th>
+                          {(
+                            [
+                              { col: "category" as TableSortKey, label: "Kategorie", cls: "hidden sm:table-cell" },
+                              { col: "difficulty" as TableSortKey, label: "Schwierigkeit", cls: "hidden md:table-cell" },
+                              { col: "time" as TableSortKey, label: "Zeit", cls: "hidden md:table-cell" },
+                              { col: "rating" as TableSortKey, label: "Bewertung", cls: "hidden lg:table-cell" },
+                              { col: "cookedCount" as TableSortKey, label: "Gekocht", cls: "hidden xl:table-cell" },
+                              { col: "createdAt" as TableSortKey, label: "Hochgeladen am", cls: "hidden xl:table-cell" },
+                            ]
+                          ).map(({ col, label, cls }) => (
+                            <th key={col}
+                              onClick={() => handleTableSort(col)}
+                              className={`px-4 py-3 text-left font-semibold text-foreground cursor-pointer select-none hover:text-[#4A7C59] transition-colors ${cls}`}>
+                              {label}
+                              <SortIcon col={col} sortKey={tableSortKey} sortDir={tableSortDir} />
+                            </th>
+                          ))}
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {tableSorted.map((recipe) => (
+                          <RecipeTableRow
+                            key={recipe.id}
+                            recipe={recipe}
+                            onClick={() => setSelectedId(recipe.id)}
+                            onCook={() => setCookingRecipe(recipe)}
+                            onSuggest={() => setSuggestRecipe(recipe)}
+                          />
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </>
               )}
             </>
           )}
@@ -1108,8 +1103,7 @@ export default function MeineRezepte({ onNavigate: _onNavigate, initialOpenRecip
               <Plus className="w-7 h-7" />
             </button>
           </div>
-        </>
-      )}
+      </>
       </div>
     </div>
   );

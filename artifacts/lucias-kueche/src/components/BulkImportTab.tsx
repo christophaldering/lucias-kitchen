@@ -354,12 +354,16 @@ function FileStatusTable({
 function ReviewDashboard({
   sessionId,
   onArchiveAndReset,
+  onManualRefresh,
 }: {
   sessionId: number;
   onArchiveAndReset: () => Promise<void>;
+  onManualRefresh?: (fn: () => void) => void;
 }) {
   const [data, setData] = useState<BulkImportResults | null>(null);
   const [statusData, setStatusData] = useState<BulkImportStatus | null>(null);
+  const [loadError, setLoadError] = useState<string | null>(null);
+  const [initialLoadDone, setInitialLoadDone] = useState(false);
   const [saving, setSaving] = useState(false);
   const [archiving, setArchiving] = useState(false);
   const [archiveError, setArchiveError] = useState<string | null>(null);
@@ -383,18 +387,35 @@ function ReviewDashboard({
       const res = await fetch(`${API_BASE}/bulk-import/${sessionId}/results`, {
         headers: authHeaders(),
       });
-      if (!res.ok) return;
+      if (!res.ok) {
+        setLoadError(`Fehler ${res.status}: Session konnte nicht geladen werden.`);
+        setInitialLoadDone(true);
+        return;
+      }
       const json = await res.json() as BulkImportResults;
       setData(json);
+      setLoadError(null);
+      setInitialLoadDone(true);
 
       const isProcessing = json.session.status === "pending" || json.session.status === "processing";
       if (!isProcessing && pollingRef.current) {
         clearInterval(pollingRef.current);
         pollingRef.current = null;
       }
-    } catch {
+    } catch (err) {
+      setLoadError(err instanceof Error ? err.message : "Netzwerkfehler beim Laden der Session.");
+      setInitialLoadDone(true);
     }
   }, [sessionId]);
+
+  const handleManualRefresh = useCallback(() => {
+    fetchResults();
+    fetchStatus();
+  }, [fetchResults, fetchStatus]);
+
+  useEffect(() => {
+    if (onManualRefresh) onManualRefresh(handleManualRefresh);
+  }, [onManualRefresh, handleManualRefresh]);
 
   useEffect(() => {
     fetchResults();
@@ -479,6 +500,35 @@ function ReviewDashboard({
       setArchiving(false);
     }
   };
+
+  if (!initialLoadDone) {
+    return (
+      <div className="flex justify-center py-12">
+        <Loader2 className="w-8 h-8 animate-spin text-[#4A7C59]" />
+      </div>
+    );
+  }
+
+  if (loadError && !data) {
+    return (
+      <div className="space-y-4">
+        <div className="bg-red-50 border border-red-200 rounded-xl p-5 flex flex-col items-center gap-3 text-center">
+          <AlertTriangle className="w-8 h-8 text-red-500" />
+          <div>
+            <p className="font-semibold text-red-800 mb-1">Session konnte nicht geladen werden</p>
+            <p className="text-sm text-red-600">{loadError}</p>
+          </div>
+          <button
+            onClick={handleManualRefresh}
+            className="flex items-center gap-2 px-4 py-2 bg-red-600 text-white rounded-xl text-sm font-semibold hover:bg-red-700 transition-colors"
+          >
+            <RefreshCw className="w-4 h-4" />
+            Erneut versuchen
+          </button>
+        </div>
+      </div>
+    );
+  }
 
   if (!data) {
     return (
@@ -734,6 +784,8 @@ export default function BulkImportTab() {
   });
   const [error, setError] = useState<string | null>(null);
   const [historyKey, setHistoryKey] = useState(0);
+  const [showLeaveConfirm, setShowLeaveConfirm] = useState(false);
+  const refreshCallbackRef = useRef<(() => void) | null>(null);
   const fileRef = useRef<HTMLInputElement>(null);
   const dropRef = useRef<HTMLDivElement>(null);
 
@@ -880,13 +932,69 @@ export default function BulkImportTab() {
     setHistoryKey((k) => k + 1);
   };
 
+  const handleLeaveSession = () => {
+    localStorage.removeItem("lk_bulk_import_session");
+    setSessionId(null);
+    setFiles([]);
+    setError(null);
+    setShowLeaveConfirm(false);
+  };
+
   if (sessionId !== null) {
     return (
       <div>
-        <div className="flex items-center justify-between mb-4">
-          <h3 className="font-semibold text-foreground">Import-Session #{sessionId}</h3>
+        <div className="flex items-center gap-2 mb-4">
+          <h3 className="font-semibold text-foreground flex-1">Import-Session #{sessionId}</h3>
+          <button
+            onClick={() => refreshCallbackRef.current?.()}
+            title="Neu laden"
+            className="p-1.5 rounded-lg text-muted-foreground hover:bg-secondary hover:text-foreground transition-colors"
+          >
+            <RefreshCw className="w-4 h-4" />
+          </button>
+          <button
+            onClick={() => setShowLeaveConfirm(true)}
+            title="Session verlassen"
+            className="text-xs text-muted-foreground hover:text-red-500 transition-colors px-2 py-1 rounded-lg hover:bg-red-50"
+          >
+            Session verlassen
+          </button>
         </div>
-        <ReviewDashboard sessionId={sessionId} onArchiveAndReset={handleArchiveAndReset} />
+
+        {showLeaveConfirm && (
+          <div className="mb-4 bg-amber-50 border border-amber-200 rounded-xl p-4 space-y-3">
+            <div className="flex items-start gap-2">
+              <AlertTriangle className="w-4 h-4 text-amber-600 flex-shrink-0 mt-0.5" />
+              <div>
+                <p className="text-sm font-semibold text-amber-900">Session wirklich verlassen?</p>
+                <p className="text-xs text-amber-700 mt-0.5">
+                  Die Session-ID wird aus dem Browser entfernt. Die Session bleibt auf dem Server erhalten und kann bei Bedarf wiederhergestellt werden.
+                </p>
+              </div>
+            </div>
+            <div className="flex gap-2">
+              <button
+                onClick={handleLeaveSession}
+                className="flex items-center gap-1.5 px-3 py-1.5 bg-red-600 text-white rounded-lg text-xs font-semibold hover:bg-red-700 transition-colors"
+              >
+                <X className="w-3 h-3" />
+                Ja, Session verlassen
+              </button>
+              <button
+                onClick={() => setShowLeaveConfirm(false)}
+                className="px-3 py-1.5 text-xs text-muted-foreground hover:text-foreground transition-colors rounded-lg hover:bg-secondary"
+              >
+                Abbrechen
+              </button>
+            </div>
+          </div>
+        )}
+
+        <ReviewDashboard
+          sessionId={sessionId}
+          onArchiveAndReset={handleArchiveAndReset}
+          onManualRefresh={(fn) => { refreshCallbackRef.current = fn; }}
+        />
       </div>
     );
   }

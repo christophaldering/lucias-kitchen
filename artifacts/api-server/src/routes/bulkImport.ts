@@ -11,7 +11,7 @@ import {
   usersTable,
   notificationsTable,
 } from "@workspace/db/schema";
-import { eq, and, desc, sql } from "drizzle-orm";
+import { eq, and, desc, sql, or } from "drizzle-orm";
 import { anthropic } from "@workspace/integrations-anthropic-ai";
 import { ObjectStorageService, objectStorageClient } from "../lib/objectStorage";
 import {
@@ -422,7 +422,12 @@ export async function recoverProcessingSessions(): Promise<void> {
     const processingSessions = await db
       .select()
       .from(bulkImportSessionsTable)
-      .where(eq(bulkImportSessionsTable.status, "processing"));
+      .where(
+        or(
+          eq(bulkImportSessionsTable.status, "processing"),
+          eq(bulkImportSessionsTable.status, "pending")
+        )
+      );
 
     if (processingSessions.length === 0) {
       console.log("[BulkImport] No interrupted sessions found.");

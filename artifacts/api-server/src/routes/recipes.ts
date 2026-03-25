@@ -20,6 +20,17 @@ function invalidateRecipeListCache() {
   recipeListCache.clear();
 }
 
+export async function warmupRecipeCache(userId?: number) {
+  try {
+    const cacheKey = recipeListCacheKey(userId, undefined);
+    const recipes = await getRecipesWithIngredients(userId, undefined);
+    const body = JSON.stringify(recipes);
+    const etag = `"${createHash("sha1").update(body).digest("hex").slice(0, 24)}"`;
+    recipeListCache.set(cacheKey, { etag, body });
+  } catch {
+  }
+}
+
 const router: IRouter = Router();
 
 router.use((req, _res, next) => {

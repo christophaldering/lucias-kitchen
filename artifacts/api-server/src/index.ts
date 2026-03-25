@@ -3,6 +3,7 @@ import { logger } from "./lib/logger";
 import { seedRecipes } from "./db/seedRecipes";
 import { seedUser } from "./db/seedUser";
 import { recoverProcessingSessions } from "./routes/bulkImport";
+import { warmupRecipeCache } from "./routes/recipes";
 
 const rawPort = process.env["PORT"];
 
@@ -43,6 +44,9 @@ const server = app.listen(port, async (err) => {
   } catch (recoverErr) {
     logger.error({ err: recoverErr }, "Failed to recover processing sessions");
   }
+
+  warmupRecipeCache(1).catch(() => {});
+  warmupRecipeCache(undefined).catch(() => {});
 });
 
 if (devProxy) {

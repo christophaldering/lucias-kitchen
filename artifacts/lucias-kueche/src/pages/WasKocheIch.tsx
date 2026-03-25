@@ -64,6 +64,35 @@ const CATEGORY_KEYWORDS: Record<string, string[]> = {
   "🫙 Gewürze & Öle": ["salz", "pfeffer", "öl", "olivenöl", "essig", "senf", "ketchup", "soja", "knoblauch", "ingwer", "chili", "paprikapulver", "kurkuma", "oregano", "basilikum", "thymian", "rosmarin", "lorbeer", "zimt", "muskat", "currypulver", "majoran", "dill", "petersilie", "schnittlauch"],
 };
 
+type LocationSuggestions = Record<string, Record<string, string[]>>;
+
+const QUICK_SUGGESTIONS: LocationSuggestions = {
+  fridge: {
+    "🥦 Gemüse": ["Möhre", "Paprika", "Tomate", "Brokkoli", "Zucchini", "Gurke", "Lauch", "Spinat", "Salat", "Champignons", "Zwiebel", "Sellerie", "Fenchel", "Rucola", "Avocado"],
+    "🥩 Fleisch & Fisch": ["Hähnchenbrust", "Hackfleisch", "Lachs", "Thunfisch (Dose)", "Schinken", "Speck", "Schweinefilet", "Rindersteaks", "Putenbrust", "Garnelen"],
+    "🥛 Milch & Käse": ["Milch", "Butter", "Joghurt", "Sahne", "Mozzarella", "Parmesan", "Feta", "Quark", "Frischkäse", "Crème fraîche", "Eier", "Schmand", "Käse"],
+    "🌾 Getreide & Teig": ["Brot", "Brötchen", "Tortilla", "Blätterteig", "Pizzateig"],
+    "🫙 Gewürze & Öle": ["Senf", "Ketchup", "Mayonnaise", "Sojasoße", "Sriracha", "Worcestershiresoße", "Zitronensaft", "Pesto"],
+    "🍳 Sonstiges": ["Eier", "Orangensaft", "Apfelsaft", "Hummus", "Aufschnitt", "Oliven"],
+  },
+  freezer: {
+    "🥦 Gemüse": ["Erbsen (TK)", "Mais (TK)", "Spinat (TK)", "Brokkoli (TK)", "Bohnen (TK)", "Blumenkohl (TK)", "Möhren (TK)", "Rote Bete (TK)", "Edamame (TK)"],
+    "🥩 Fleisch & Fisch": ["Hähnchenbrust (TK)", "Hackfleisch (TK)", "Lachs (TK)", "Garnelen (TK)", "Fischfilet (TK)", "Putenbrust (TK)", "Schweinebauch (TK)", "Rindfleisch (TK)"],
+    "🥛 Milch & Käse": ["Butter (TK)", "Rahm (TK)"],
+    "🌾 Getreide & Teig": ["Pizzaboden (TK)", "Brot (TK)", "Brötchen (TK)", "Spätzle (TK)", "Gnocchi (TK)", "Blätterteig (TK)"],
+    "🫙 Gewürze & Öle": ["Petersilie (TK)", "Basilikum (TK)", "Schnittlauch (TK)", "Kräuterbutter (TK)"],
+    "🍳 Sonstiges": ["Vanilleeis", "Pommes (TK)", "Maultaschen (TK)", "Pierogies (TK)", "Beeren-Mix (TK)", "Mango (TK)"],
+  },
+  pantry: {
+    "🥦 Gemüse": ["Tomaten (Dose)", "Bohnen (Dose)", "Kichererbsen (Dose)", "Linsen (Dose)", "Mais (Dose)", "Artischocken (Dose)", "Oliven (Glas)", "Paprika (Glas)", "Getrocknete Tomaten"],
+    "🥩 Fleisch & Fisch": ["Thunfisch (Dose)", "Sardinen (Dose)", "Makrele (Dose)", "Anchovis (Glas)", "Corned Beef (Dose)"],
+    "🥛 Milch & Käse": ["Kokosmilch (Dose)", "Kondensmilch (Dose)", "Milchpulver"],
+    "🌾 Getreide & Teig": ["Nudeln", "Reis", "Mehl", "Haferflocken", "Couscous", "Quinoa", "Linsen", "Kichererbsen", "Paniermehl", "Grieß", "Polenta", "Bulgur"],
+    "🫙 Gewürze & Öle": ["Olivenöl", "Sonnenblumenöl", "Essig", "Salz", "Pfeffer", "Paprikapulver", "Kurkuma", "Oregano", "Basilikum (trocken)", "Thymian", "Rosmarin", "Zimt", "Muskat", "Currypulver", "Chili", "Knoblauchpulver", "Zwiebelpulver"],
+    "🍳 Sonstiges": ["Zucker", "Honig", "Ahornsirup", "Backpulver", "Natron", "Vanillezucker", "Hefe", "Sojasauce", "Worcestershiresoße", "Brühwürfel", "Tomatenmark", "Passierte Tomaten"],
+  },
+};
+
 function getCategoryForIngredient(name: string): string {
   const lower = name.toLowerCase();
   for (const [cat, keywords] of Object.entries(CATEGORY_KEYWORDS)) {
@@ -245,6 +274,7 @@ export default function WasKocheIch() {
   const [activeCategory, setActiveCategory] = useState("all");
   const [openChipEditor, setOpenChipEditor] = useState<number | null>(null);
   const [defaultSectionOpen, setDefaultSectionOpen] = useState(false);
+  const [quickSelectCategory, setQuickSelectCategory] = useState<string | null>(null);
 
   // === Photo Scan Modal ===
   const [photoScanResult, setPhotoScanResult] = useState<{
@@ -392,6 +422,65 @@ export default function WasKocheIch() {
       }
       return next;
     });
+  };
+
+  const addIngredientByName = async (name: string, location: StorageLocation) => {
+    const trimmed = name.trim();
+    if (!trimmed) return;
+    const alreadyExists = pantryItems.some(
+      (i) => i.ingredientName.toLowerCase() === trimmed.toLowerCase() && i.storageLocation === location
+    );
+    if (alreadyExists) return;
+    setSelectedIngredients((prev) => new Set([...prev, trimmed]));
+    if (!allIngredients.some((i) => i.toLowerCase() === trimmed.toLowerCase())) {
+      setAllIngredients((prev) => [...prev, trimmed].sort((a, b) => a.localeCompare(b, "de")));
+    }
+    if (token) {
+      try {
+        const res = await authFetch(`${API_BASE}/pantry`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json", ...authHeaders() },
+          body: JSON.stringify({
+            ingredientName: trimmed,
+            expiryPriority: "good",
+            isDefault: 0,
+            storageLocation: location,
+          }),
+        });
+        if (res.ok) {
+          const data = await res.json();
+          setPantryItems((prev) => {
+            const exists = prev.some((i) => i.id === data.item?.id);
+            if (exists) return prev;
+            return [...prev, { ...data.item, storageLocation: data.item?.storageLocation ?? location }];
+          });
+        }
+      } catch {
+      }
+    }
+  };
+
+  const removeIngredientByName = async (name: string, location: StorageLocation) => {
+    const item = pantryItems.find(
+      (i) => i.ingredientName.toLowerCase() === name.toLowerCase() && i.storageLocation === location && i.isDefault === 0
+    );
+    if (!item || !item.id) return;
+    await authFetch(`${API_BASE}/pantry/by-id/${item.id}`, {
+      method: "DELETE",
+      headers: { ...authHeaders() },
+    });
+    const remaining = pantryItems.filter((i) => i.id !== item.id);
+    setPantryItems(remaining);
+    const stillExists = remaining.some(
+      (i) => i.ingredientName.toLowerCase() === item.ingredientName.toLowerCase()
+    );
+    if (!stillExists) {
+      setSelectedIngredients((prev) => {
+        const next = new Set(prev);
+        next.delete(item.ingredientName);
+        return next;
+      });
+    }
   };
 
   const addIngredient = async () => {
@@ -1046,7 +1135,7 @@ export default function WasKocheIch() {
           {(["fridge", "freezer", "pantry"] as StorageLocation[]).map((loc) => (
             <button
               key={loc}
-              onClick={() => { setActiveLocation(loc); setActiveCategory("all"); setOpenChipEditor(null); }}
+              onClick={() => { setActiveLocation(loc); setActiveCategory("all"); setOpenChipEditor(null); setQuickSelectCategory(null); }}
               className={`flex-1 px-2 py-2 rounded-lg text-xs font-medium transition-colors ${
                 activeLocation === loc
                   ? "bg-white text-foreground shadow-sm"
@@ -1059,11 +1148,18 @@ export default function WasKocheIch() {
         </div>
 
         {/* Category filter bar */}
-        <div className="flex gap-1.5 overflow-x-auto pb-2 mb-3 no-scrollbar">
+        <div className="flex gap-1.5 overflow-x-auto pb-2 mb-1 no-scrollbar">
           {["all", "🥦 Gemüse", "🥩 Fleisch & Fisch", "🥛 Milch & Käse", "🌾 Getreide & Teig", "🫙 Gewürze & Öle", "🍳 Sonstiges"].map((cat) => (
             <button
               key={cat}
-              onClick={() => setActiveCategory(cat)}
+              onClick={() => {
+                setActiveCategory(cat);
+                if (cat === "all") {
+                  setQuickSelectCategory(null);
+                } else {
+                  setQuickSelectCategory((prev) => (prev === cat ? null : cat));
+                }
+              }}
               className={`flex-shrink-0 px-3 py-1 rounded-full text-xs font-medium transition-colors border ${
                 activeCategory === cat
                   ? "bg-[#4A7C59] text-white border-[#4A7C59]"
@@ -1071,9 +1167,61 @@ export default function WasKocheIch() {
               }`}
             >
               {cat === "all" ? "Alle" : cat}
+              {cat !== "all" && quickSelectCategory === cat && (
+                <span className="ml-1 opacity-70">▲</span>
+              )}
+              {cat !== "all" && quickSelectCategory !== cat && activeCategory === cat && (
+                <span className="ml-1 opacity-70">▼</span>
+              )}
             </button>
           ))}
         </div>
+
+        {/* Quick-select panel */}
+        {quickSelectCategory && quickSelectCategory !== "all" && (() => {
+          const suggestions = QUICK_SUGGESTIONS[activeLocation]?.[quickSelectCategory] ?? [];
+          if (suggestions.length === 0) return null;
+          return (
+            <div className="mb-3 p-3 bg-[#f0f4f1] rounded-xl border border-[#4A7C59]/20">
+              <p className="text-xs font-medium text-[#4A7C59] mb-2">
+                Schnell hinzufügen – {quickSelectCategory}
+              </p>
+              <div className="flex flex-wrap gap-1.5">
+                {suggestions.map((item) => {
+                  const matchingItem = pantryItems.find(
+                    (p) => p.ingredientName.toLowerCase() === item.toLowerCase() && p.storageLocation === activeLocation
+                  );
+                  const inPantry = !!matchingItem;
+                  const isDefault = matchingItem?.isDefault === 1;
+                  return (
+                    <button
+                      key={item}
+                      disabled={isDefault}
+                      onClick={() => {
+                        if (inPantry && !isDefault) {
+                          removeIngredientByName(item, activeLocation);
+                        } else if (!inPantry) {
+                          addIngredientByName(item, activeLocation);
+                        }
+                      }}
+                      className={`flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-medium border transition-colors ${
+                        isDefault
+                          ? "bg-[#4A7C59]/40 text-white border-[#4A7C59]/40 cursor-default"
+                          : inPantry
+                          ? "bg-[#4A7C59] text-white border-[#4A7C59]"
+                          : "bg-white text-foreground border-border hover:border-[#4A7C59]/50"
+                      }`}
+                    >
+                      {inPantry && <span className="text-[10px]">✓</span>}
+                      {item}
+                      {isDefault && <span className="text-[10px] opacity-70">★</span>}
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+          );
+        })()}
 
         {/* Ingredients list for active location */}
         {pantryLoading ? (

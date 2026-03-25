@@ -3,16 +3,32 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { build as esbuild } from "esbuild";
 import esbuildPluginPino from "esbuild-plugin-pino";
-import { rm } from "node:fs/promises";
+import { rm, cp, mkdir } from "node:fs/promises";
+import { execSync } from "node:child_process";
 
 // Plugins (e.g. 'esbuild-plugin-pino') may use `require` to resolve dependencies
 globalThis.require = createRequire(import.meta.url);
 
 const artifactDir = path.dirname(fileURLToPath(import.meta.url));
+const workspaceRoot = path.resolve(artifactDir, "..", "..");
 
 async function buildAll() {
   const distDir = path.resolve(artifactDir, "dist");
   await rm(distDir, { recursive: true, force: true });
+
+  if (process.env["NODE_ENV"] === "production") {
+    console.log("Building frontend...");
+    execSync("pnpm --filter @workspace/lucias-kueche build", {
+      cwd: workspaceRoot,
+      stdio: "inherit",
+      env: { ...process.env, NODE_ENV: "production", BASE_PATH: "/" },
+    });
+    const frontendDist = path.resolve(workspaceRoot, "artifacts/lucias-kueche/dist/public");
+    const apiPublicDir = path.resolve(distDir, "public");
+    console.log("Copying frontend build to dist/public...");
+    await mkdir(apiPublicDir, { recursive: true });
+    await cp(frontendDist, apiPublicDir, { recursive: true });
+  }
 
   await esbuild({
     entryPoints: [path.resolve(artifactDir, "src/index.ts")],

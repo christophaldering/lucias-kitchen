@@ -2,12 +2,14 @@ import express, { type Express, type Request, type Response, type NextFunction }
 import cors from "cors";
 import pinoHttp from "pino-http";
 import path from "path";
+import { fileURLToPath } from "url";
 import router from "./routes";
 import { logger } from "./lib/logger";
 import jwt from "jsonwebtoken";
 import type { AuthUser } from "./routes/auth";
 
 const JWT_SECRET = process.env["JWT_SECRET"] ?? "lucias-kueche-secret-key-2026";
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
 const app: Express = express();
 
@@ -48,5 +50,16 @@ app.use((req: Request, _res: Response, next: NextFunction) => {
 
 app.use("/api/uploads", express.static(path.join(process.cwd(), "public", "uploads")));
 app.use("/api", router);
+
+if (process.env["NODE_ENV"] === "production") {
+  const frontendDistPath = path.resolve(__dirname, "public");
+  app.use(express.static(frontendDistPath));
+  app.use((req: Request, res: Response, next: NextFunction) => {
+    if (req.path.startsWith("/api")) {
+      return next();
+    }
+    res.sendFile(path.join(frontendDistPath, "index.html"));
+  });
+}
 
 export default app;

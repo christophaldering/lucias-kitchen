@@ -643,67 +643,129 @@ export default function MeineRezepte({ onNavigate: _onNavigate, initialOpenRecip
   const isFiltered = search.trim() !== "" || activeCategory !== "Alle" || timeFilter !== "Alle" || seasonFilter !== "Alle" || cookedFilter !== "Alle";
 
   return (
-    <div className="max-w-6xl mx-auto px-4 py-6">
-      <div className="mb-5 flex items-center gap-2 flex-wrap">
-        <div className="flex gap-1 bg-white border border-border rounded-xl p-1">
-          <button
-            onClick={() => setViewMode("galerie")}
-            className={`flex items-center gap-1.5 px-3 py-2 rounded-lg text-sm font-medium transition-colors min-h-[40px] ${viewMode === "galerie" ? "bg-[#3d6849] text-white" : "text-muted-foreground hover:text-foreground"}`}
-          >
-            <LayoutGrid className="w-4 h-4" />
-            Galerie
-          </button>
-          <button
-            onClick={() => setViewMode("tabelle")}
-            className={`flex items-center gap-1.5 px-3 py-2 rounded-lg text-sm font-medium transition-colors min-h-[40px] ${viewMode === "tabelle" ? "bg-[#3d6849] text-white" : "text-muted-foreground hover:text-foreground"}`}
-          >
-            <Table className="w-4 h-4" />
-            Tabelle
-          </button>
-          <button
-            onClick={() => setViewMode("verwalten")}
-            className={`flex items-center gap-1.5 px-3 py-2 rounded-lg text-sm font-medium transition-colors min-h-[40px] ${viewMode === "verwalten" ? "bg-[#3d6849] text-white" : "text-muted-foreground hover:text-foreground"}`}
-          >
-            <Settings2 className="w-4 h-4" />
-            Verwalten
-          </button>
-        </div>
+    <div>
+      {/* Sticky filter bar */}
+      <div
+        className="sticky top-16 z-30 px-4 pt-4 pb-3"
+        style={{ background: "linear-gradient(160deg, #f9efe0 0%, #f5e8d0 50%, #f2e4c8 100%)" }}
+      >
+        <div className="max-w-6xl mx-auto">
+          <div className="mb-3 flex items-center gap-2 flex-wrap">
+            <div className="flex gap-1 bg-white border border-border rounded-xl p-1">
+              <button
+                onClick={() => setViewMode("galerie")}
+                className={`flex items-center gap-1.5 px-3 py-2 rounded-lg text-sm font-medium transition-colors min-h-[40px] ${viewMode === "galerie" ? "bg-[#3d6849] text-white" : "text-muted-foreground hover:text-foreground"}`}
+              >
+                <LayoutGrid className="w-4 h-4" />
+                Galerie
+              </button>
+              <button
+                onClick={() => setViewMode("tabelle")}
+                className={`flex items-center gap-1.5 px-3 py-2 rounded-lg text-sm font-medium transition-colors min-h-[40px] ${viewMode === "tabelle" ? "bg-[#3d6849] text-white" : "text-muted-foreground hover:text-foreground"}`}
+              >
+                <Table className="w-4 h-4" />
+                Tabelle
+              </button>
+              <button
+                onClick={() => setViewMode("verwalten")}
+                className={`flex items-center gap-1.5 px-3 py-2 rounded-lg text-sm font-medium transition-colors min-h-[40px] ${viewMode === "verwalten" ? "bg-[#3d6849] text-white" : "text-muted-foreground hover:text-foreground"}`}
+              >
+                <Settings2 className="w-4 h-4" />
+                Verwalten
+              </button>
+            </div>
 
-        {/* Recipe count chip */}
-        {!loading && (
-          <span className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-sm font-semibold transition-colors ${
-            isFiltered
-              ? "bg-[#C1693A]/10 text-[#C1693A] border border-[#C1693A]/30"
-              : "bg-[#4A7C59]/10 text-[#4A7C59] border border-[#4A7C59]/20"
-          }`}>
-            {isFiltered ? (
-              <><span>{filtered.length}</span><span className="font-normal text-muted-foreground">von</span><span>{recipes.length}</span><span className="font-normal">Rezepte</span></>
-            ) : (
-              <><span>{recipes.length}</span><span className="font-normal">Rezepte</span></>
+            {/* Recipe count chip */}
+            {!loading && (
+              <span className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-sm font-semibold transition-colors ${
+                isFiltered
+                  ? "bg-[#C1693A]/10 text-[#C1693A] border border-[#C1693A]/30"
+                  : "bg-[#4A7C59]/10 text-[#4A7C59] border border-[#4A7C59]/20"
+              }`}>
+                {isFiltered ? (
+                  <><span>{filtered.length}</span><span className="font-normal text-muted-foreground">von</span><span>{recipes.length}</span><span className="font-normal">Rezepte</span></>
+                ) : (
+                  <><span>{recipes.length}</span><span className="font-normal">Rezepte</span></>
+                )}
+              </span>
             )}
-          </span>
-        )}
 
-        {/* Ownership segmented control */}
-        <div className="flex gap-0.5 bg-muted border border-border rounded-xl p-1 ml-auto">
-          {(["all", "mine", "favorites"] as RecipeFilter[]).map((f) => (
-            <button
-              key={f}
-              onClick={() => setRecipeFilter(f)}
-              className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-medium transition-all min-h-[34px] ${
-                recipeFilter === f
-                  ? "bg-white text-foreground shadow-sm"
-                  : "text-muted-foreground hover:text-foreground"
-              }`}
-            >
-              {f === "all" && <BookOpen className="w-3.5 h-3.5" />}
-              {f === "mine" && <ChefHat className="w-3.5 h-3.5" />}
-              {f === "favorites" && <Star className="w-3.5 h-3.5" />}
-              {FILTER_LABELS[f]}
-            </button>
-          ))}
+            {/* Ownership segmented control */}
+            <div className="flex gap-0.5 bg-muted border border-border rounded-xl p-1 ml-auto">
+              {(["all", "mine", "favorites"] as RecipeFilter[]).map((f) => (
+                <button
+                  key={f}
+                  onClick={() => setRecipeFilter(f)}
+                  className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-medium transition-all min-h-[34px] ${
+                    recipeFilter === f
+                      ? "bg-white text-foreground shadow-sm"
+                      : "text-muted-foreground hover:text-foreground"
+                  }`}
+                >
+                  {f === "all" && <BookOpen className="w-3.5 h-3.5" />}
+                  {f === "mine" && <ChefHat className="w-3.5 h-3.5" />}
+                  {f === "favorites" && <Star className="w-3.5 h-3.5" />}
+                  {FILTER_LABELS[f]}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          {/* Search + category filters (only shown in galerie/tabelle mode) */}
+          {viewMode !== "verwalten" && (
+            <div className="space-y-3">
+              {/* Search row */}
+              <div className="flex items-center gap-3 flex-wrap">
+                <div className="relative flex-1 min-w-[180px]">
+                  <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+                  <input
+                    type="text"
+                    placeholder="Rezept suchen…"
+                    value={search}
+                    onChange={(e) => setSearch(e.target.value)}
+                    className="w-full pl-10 pr-4 py-3 rounded-xl border border-border bg-white text-sm focus:outline-none focus:ring-2 focus:ring-[#4A7C59]/30 min-h-[48px]"
+                  />
+                </div>
+              </div>
+
+              {/* Filter button + quick category chips */}
+              <div className="flex items-center gap-2">
+                <FilterBottomSheet
+                  timeFilter={timeFilter}
+                  seasonFilter={seasonFilter}
+                  cookedFilter={cookedFilter}
+                  showVariants={showVariants}
+                  hasVariants={recipes.some((r) => r.parentRecipeId)}
+                  onApply={({ timeFilter: t, seasonFilter: s, cookedFilter: c, showVariants: sv }) => {
+                    setTimeFilter(t);
+                    setSeasonFilter(s);
+                    setCookedFilter(c);
+                    setShowVariants(sv);
+                  }}
+                />
+                <div className="flex gap-1.5 overflow-x-auto pb-0.5 no-scrollbar flex-1">
+                  {allCategories.map((cat) => (
+                    <button
+                      key={cat}
+                      onClick={() => setActiveCategory(cat)}
+                      className={`flex-shrink-0 px-3 py-1.5 rounded-full text-sm font-medium transition-colors min-h-[36px] ${
+                        activeCategory === cat
+                          ? "bg-[#3d6849] text-white"
+                          : "bg-white text-foreground border border-border hover:border-[#4A7C59]/40"
+                      }`}
+                    >
+                      {cat}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            </div>
+          )}
         </div>
       </div>
+
+      {/* Main content area */}
+      <div className="max-w-6xl mx-auto px-4 py-4">
 
       {viewMode === "verwalten" ? (
         <>
@@ -744,54 +806,6 @@ export default function MeineRezepte({ onNavigate: _onNavigate, initialOpenRecip
         </>
       ) : (
         <>
-          <div className="mb-6 space-y-3">
-            {/* Search row */}
-            <div className="flex items-center gap-3 flex-wrap">
-              <div className="relative flex-1 min-w-[180px]">
-                <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
-                <input
-                  type="text"
-                  placeholder="Rezept suchen…"
-                  value={search}
-                  onChange={(e) => setSearch(e.target.value)}
-                  className="w-full pl-10 pr-4 py-3 rounded-xl border border-border bg-white text-sm focus:outline-none focus:ring-2 focus:ring-[#4A7C59]/30 min-h-[48px]"
-                />
-              </div>
-            </div>
-
-            {/* Filter button + quick category chips */}
-            <div className="flex items-center gap-2">
-              <FilterBottomSheet
-                timeFilter={timeFilter}
-                seasonFilter={seasonFilter}
-                cookedFilter={cookedFilter}
-                showVariants={showVariants}
-                hasVariants={recipes.some((r) => r.parentRecipeId)}
-                onApply={({ timeFilter: t, seasonFilter: s, cookedFilter: c, showVariants: sv }) => {
-                  setTimeFilter(t);
-                  setSeasonFilter(s);
-                  setCookedFilter(c);
-                  setShowVariants(sv);
-                }}
-              />
-              <div className="flex gap-1.5 overflow-x-auto pb-0.5 no-scrollbar flex-1">
-                {allCategories.map((cat) => (
-                  <button
-                    key={cat}
-                    onClick={() => setActiveCategory(cat)}
-                    className={`flex-shrink-0 px-3 py-1.5 rounded-full text-sm font-medium transition-colors min-h-[36px] ${
-                      activeCategory === cat
-                        ? "bg-[#3d6849] text-white"
-                        : "bg-white text-foreground border border-border hover:border-[#4A7C59]/40"
-                    }`}
-                  >
-                    {cat}
-                  </button>
-                ))}
-              </div>
-            </div>
-          </div>
-
           {loading && (
             <div className="flex flex-col items-center py-20 gap-3 text-muted-foreground">
               <Loader2 className="w-8 h-8 animate-spin text-[#4A7C59]" />
@@ -1096,6 +1110,7 @@ export default function MeineRezepte({ onNavigate: _onNavigate, initialOpenRecip
           </div>
         </>
       )}
+      </div>
     </div>
   );
 }

@@ -3,7 +3,7 @@ import * as XLSX from "xlsx";
 import {
   Loader2, Trash2, Edit2, Download, Tag, RefreshCw,
   Upload, Check, AlertTriangle, Settings, Database, Sliders,
-  X, Plus, ChevronsUpDown, Users, CheckCircle, XCircle, Clock, FolderOpen, Copy
+  X, Plus, ChevronsUpDown, Users, CheckCircle, XCircle, Clock, FolderOpen, Copy, RotateCcw
 } from "lucide-react";
 import { useRecipes } from "@/hooks/useRecipes";
 import { useAdminGroups, type AdminGroup } from "@/hooks/useGroups";
@@ -11,6 +11,7 @@ import type { Recipe } from "@/types/recipe";
 import { SEASON_LABELS } from "@/types/recipe";
 import BulkImportTab from "@/components/BulkImportTab";
 import DuplicatesTab from "@/components/DuplicatesTab";
+import { authHeaders } from "@/lib/authFetch";
 
 const CATEGORY_EMOJIS: Record<string, string> = {
   Fisch: "🐟", Geflügel: "🍗", Fleisch: "🥩", Vegetarisch: "🌿", Pasta: "🍝",
@@ -22,6 +23,7 @@ const SECTION_TABS = [
   { id: "duplicates", label: "Duplikate", icon: Copy },
   { id: "backup", label: "Backup & Import", icon: Database },
   { id: "bulk-import", label: "Massen-Import", icon: FolderOpen },
+  { id: "trash", label: "Papierkorb", icon: Trash2 },
   { id: "settings", label: "App-Einstellungen", icon: Sliders },
 ] as const;
 type SectionTab = typeof SECTION_TABS[number]["id"];
@@ -694,6 +696,218 @@ function GroupsAdmin() {
   );
 }
 
+type TrashedRecipe = {
+  id: number;
+  title: string;
+  deletedAt: string;
+  daysLeft: number;
+  createdBy: number | null;
+  ownerDisplayName: string | null;
+};
+
+function TrashTab() {
+  const [items, setItems] = useState<TrashedRecipe[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [busy, setBusy] = useState<number | "empty" | null>(null);
+  const [confirmEmpty, setConfirmEmpty] = useState(false);
+
+  const fetchTrash = useCallback(async () => {
+    setLoading(true);
+    setError(null);
+    try {
+      const res = await fetch("/api/recipes/trash", { headers: authHeaders() });
+      if (!res.ok) throw new Error("Fehler beim Laden");
+      const data = await res.json();
+      setItems(data);
+    } catch {
+      setError("Papierkorb konnte nicht geladen werden.");
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  useEffect(() => { fetchTrash(); }, [fetchTrash]);
+
+  const restore = async (id: number) => {
+    setBusy(id);
+    try {
+      const res = await fetch(`/api/recipes/${id}/restore`, { method: "POST", headers: authHeaders() });
+      if (!res.ok) throw new Error();
+      toast("Rezept wiederhergestellt");
+      await fetchTrash();
+    } catch {
+      toast("Fehler beim Wiederherstellen", "err");
+    } finally {
+      setBusy(null);
+    }
+  };
+
+  const permanentDelete = async (id: number) => {
+    setBusy(id);
+    try {
+      const res = await fetch(`/api/recipes/${id}/permanent`, { method: "DELETE", headers: authHeaders() });
+      if (!res.ok) throw new Error();
+      toast("Rezept endgültig gelöscht");
+      await fetchTrash();
+    } catch {
+      toast("Fehler beim Löschen", "err");
+    } finally {
+      setBusy(null);
+    }
+  };
+
+  const emptyTrash = async () => {
+    setBusy("empty");
+    try {
+      const res = await fetch("/api/recipes/trash", { method: "DELETE", headers: authHeaders() });
+      if (!res.ok) throw new Error();
+      toast("Papierkorb geleert");
+      setConfirmEmpty(false);
+      await fetchTrash();
+    } catch {
+      toast("Fehler beim Leeren des Papierkorbs", "err");
+    } finally {
+      setBusy(null);
+    }
+  };
+
+  if (loading) {
+    return (
+      <div className="flex justify-center py-10">
+        <Loader2 className="w-6 h-6 animate-spin text-[#4A7C59]" />
+      </div>
+    );
+  }
+
+  if (error) {
+    return (
+      <div className="bg-white rounded-2xl border border-border shadow-sm p-8 text-center">
+        <AlertTriangle className="w-10 h-10 text-amber-500 mx-auto mb-3" />
+        <p className="font-serif text-base font-semibold mb-1">{error}</p>
+        <button onClick={fetchTrash} className="mt-4 px-4 py-2 bg-[#4A7C59] text-white rounded-xl text-sm font-semibold hover:bg-[#3d6849] transition-colors flex items-center gap-2 mx-auto">
+          <RefreshCw className="w-4 h-4" /> Erneut versuchen
+        </button>
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-6">
+      {confirmEmpty && (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/50 p-4">
+          <div className="bg-white rounded-2xl shadow-2xl p-6 max-w-sm w-full">
+            <div className="text-center mb-4">
+              <Trash2 className="w-12 h-12 text-red-500 mx-auto mb-2" />
+              <h3 className="font-serif text-lg font-semibold">Papierkorb leeren?</h3>
+              <p className="text-sm text-muted-foreground mt-1">
+                Alle {items.length} Rezept{items.length !== 1 ? "e" : ""} werden endgültig gelöscht. Diese Aktion kann nicht rückgängig gemacht werden.
+              </p>
+            </div>
+            <div className="flex gap-3">
+              <button onClick={() => setConfirmEmpty(false)}
+                className="flex-1 py-2 border border-border rounded-xl text-sm hover:bg-secondary transition-colors">
+                Abbrechen
+              </button>
+              <button onClick={emptyTrash} disabled={busy === "empty"}
+                className="flex-1 py-2 bg-red-600 text-white rounded-xl text-sm font-semibold hover:bg-red-700 transition-colors disabled:opacity-50 flex items-center justify-center gap-2">
+                {busy === "empty" ? <Loader2 className="w-4 h-4 animate-spin" /> : null}
+                Alles löschen
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      <div className="bg-white rounded-2xl border border-border shadow-sm p-6">
+        <div className="flex items-center justify-between mb-4 flex-wrap gap-3">
+          <div>
+            <h3 className="font-serif font-semibold text-lg">🗑️ Papierkorb</h3>
+            <p className="text-sm text-muted-foreground mt-0.5">
+              Gelöschte Rezepte werden 30 Tage aufbewahrt und können in diesem Zeitraum wiederhergestellt werden.
+            </p>
+          </div>
+          <div className="flex gap-2">
+            <button onClick={fetchTrash}
+              className="flex items-center gap-1.5 px-3 py-2 border border-border rounded-xl text-sm hover:bg-secondary transition-colors">
+              <RefreshCw className="w-3.5 h-3.5" /> Aktualisieren
+            </button>
+            {items.length > 0 && (
+              <button onClick={() => setConfirmEmpty(true)} disabled={busy !== null}
+                className="flex items-center gap-1.5 px-3 py-2 bg-red-600 text-white rounded-xl text-sm font-semibold hover:bg-red-700 transition-colors disabled:opacity-50">
+                <Trash2 className="w-3.5 h-3.5" /> Papierkorb leeren
+              </button>
+            )}
+          </div>
+        </div>
+
+        {items.length === 0 ? (
+          <div className="text-center py-10 text-muted-foreground">
+            <Trash2 className="w-10 h-10 mx-auto mb-3 opacity-30" />
+            <p className="text-sm">Der Papierkorb ist leer.</p>
+          </div>
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="border-b border-border">
+                  <th className="text-left py-2 px-3 font-semibold text-muted-foreground text-xs uppercase tracking-wide">Rezept</th>
+                  <th className="text-left py-2 px-3 font-semibold text-muted-foreground text-xs uppercase tracking-wide hidden sm:table-cell">Ersteller</th>
+                  <th className="text-left py-2 px-3 font-semibold text-muted-foreground text-xs uppercase tracking-wide hidden md:table-cell">Gelöscht am</th>
+                  <th className="text-left py-2 px-3 font-semibold text-muted-foreground text-xs uppercase tracking-wide">Verbleibend</th>
+                  <th className="text-right py-2 px-3 font-semibold text-muted-foreground text-xs uppercase tracking-wide">Aktionen</th>
+                </tr>
+              </thead>
+              <tbody>
+                {items.map((item) => (
+                  <tr key={item.id} className="border-b border-border/40 hover:bg-gray-50 transition-colors">
+                    <td className="py-3 px-3 font-medium">{item.title}</td>
+                    <td className="py-3 px-3 text-muted-foreground hidden sm:table-cell">
+                      {item.ownerDisplayName ?? "Unbekannt"}
+                    </td>
+                    <td className="py-3 px-3 text-muted-foreground hidden md:table-cell">
+                      {new Date(item.deletedAt).toLocaleDateString("de-DE", { day: "2-digit", month: "2-digit", year: "numeric" })}
+                    </td>
+                    <td className="py-3 px-3">
+                      <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium ${
+                        item.daysLeft <= 5 ? "bg-red-100 text-red-700" :
+                        item.daysLeft <= 10 ? "bg-amber-100 text-amber-700" :
+                        "bg-gray-100 text-gray-600"
+                      }`}>
+                        <Clock className="w-3 h-3" />
+                        {item.daysLeft} Tag{item.daysLeft !== 1 ? "e" : ""}
+                      </span>
+                    </td>
+                    <td className="py-3 px-3">
+                      <div className="flex items-center gap-2 justify-end">
+                        <button
+                          onClick={() => restore(item.id)}
+                          disabled={busy !== null}
+                          title="Wiederherstellen"
+                          className="flex items-center gap-1.5 px-3 py-1.5 bg-[#4A7C59] text-white rounded-lg text-xs font-medium hover:bg-[#3d6849] transition-colors disabled:opacity-50">
+                          {busy === item.id ? <Loader2 className="w-3 h-3 animate-spin" /> : <RotateCcw className="w-3 h-3" />}
+                          Wiederherstellen
+                        </button>
+                        <button
+                          onClick={() => permanentDelete(item.id)}
+                          disabled={busy !== null}
+                          title="Endgültig löschen"
+                          className="flex items-center gap-1.5 px-2 py-1.5 border border-red-200 text-red-600 rounded-lg text-xs font-medium hover:bg-red-50 transition-colors disabled:opacity-50">
+                          {busy === item.id ? <Loader2 className="w-3 h-3 animate-spin" /> : <Trash2 className="w-3 h-3" />}
+                        </button>
+                      </div>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
 function AppSettings() {
   const [defaultView, setDefaultView] = useLocalStorage<"kacheln" | "tabelle">("lk_defaultView", "kacheln");
   const [sortOrder, setSortOrder] = useLocalStorage<string>("lk_sortOrder", "alphabetisch");
@@ -957,6 +1171,8 @@ export default function Admin({ initialTab, navToken, onTabInitialized }: { init
       {section === "backup" && <BackupSectionWithData />}
 
       {section === "bulk-import" && <BulkImportTab onUploadingChange={setIsBulkUploading} />}
+
+      {section === "trash" && <TrashTab />}
 
       {section === "settings" && <AppSettings />}
     </div>

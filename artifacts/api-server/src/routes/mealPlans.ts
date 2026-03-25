@@ -1,7 +1,7 @@
 import { Router, type IRouter } from "express";
 import { db } from "@workspace/db";
 import { mealPlansTable, recipesTable, recipeIngredientsTable } from "@workspace/db/schema";
-import { eq, and, gte, lte } from "drizzle-orm";
+import { eq, and, gte, lte, isNull } from "drizzle-orm";
 import { z } from "zod/v4";
 import { authMiddleware } from "./auth";
 
@@ -32,7 +32,7 @@ router.get("/meal-plans", authMiddleware, async (req, res) => {
         .orderBy(mealPlansTable.date);
     }
 
-    const allRecipes = await db.select().from(recipesTable);
+    const allRecipes = await db.select().from(recipesTable).where(isNull(recipesTable.deletedAt));
     const allIngredients = await db.select().from(recipeIngredientsTable);
 
     const result = plans.map((plan) => {
@@ -103,7 +103,7 @@ router.get("/meal-plans/nutrition-summary", authMiddleware, async (req, res) => 
       ))
       .orderBy(mealPlansTable.date);
 
-    const allRecipes = await db.select().from(recipesTable);
+    const allRecipes = await db.select().from(recipesTable).where(isNull(recipesTable.deletedAt));
 
     let totalKcal = 0;
     let withKcal = 0;
@@ -180,7 +180,7 @@ router.get("/meal-plans/kcal-history", authMiddleware, async (req, res) => {
       });
     }
 
-    const allRecipes = await db.select().from(recipesTable);
+    const allRecipes = await db.select().from(recipesTable).where(isNull(recipesTable.deletedAt));
 
     const result = await Promise.all(
       weeks.map(async (week) => {

@@ -1,7 +1,7 @@
 import { Router, type IRouter } from "express";
 import { db } from "@workspace/db";
 import { recipesTable, recipeIngredientsTable, recipePhotosTable, recipeFavoritesTable, usersTable, groupMembersTable, groupsTable } from "@workspace/db/schema";
-import { eq, inArray, sql, desc, and } from "drizzle-orm";
+import { eq, inArray, sql, desc, and, isNull } from "drizzle-orm";
 import { z } from "zod/v4";
 import { seedRecipes } from "../db/seedRecipes";
 import { singleImageUploadMiddleware, UPLOADS_DIR } from "../lib/imageUpload";
@@ -9,6 +9,11 @@ import { authMiddleware } from "./auth";
 import path from "path";
 import fs from "fs";
 import { createHash } from "crypto";
+
+const ADMIN_EMAIL = "lucia.aldering@googlemail.com";
+function isAdmin(email: string) {
+  return email === ADMIN_EMAIL;
+}
 
 const recipeListCache = new Map<string, { etag: string; body: string }>();
 
@@ -125,6 +130,7 @@ async function getRecipesWithIngredients(currentUserId?: number, filter?: string
     FROM recipes r
     LEFT JOIN recipe_ingredients ri ON ri.recipe_id = r.id
     LEFT JOIN users u ON u.id = r.created_by
+    WHERE r.deleted_at IS NULL
     GROUP BY r.id, u.display_name, u.avatar_url
     ORDER BY r.id
   `);
@@ -205,7 +211,8 @@ router.get("/recipes/count", async (req, res) => {
   try {
     const [row] = await db
       .select({ count: sql<number>`count(*)` })
-      .from(recipesTable);
+      .from(recipesTable)
+      .where(isNull(recipesTable.deletedAt));
     res.json({ count: Number(row?.count ?? 0) });
   } catch (err) {
     req.log.error({ err }, "Failed to count recipes");
@@ -231,20 +238,23 @@ router.get("/recipes/search", async (req, res) => {
       .from(recipesTable)
       .leftJoin(recipeIngredientsTable, eq(recipeIngredientsTable.recipeId, recipesTable.id))
       .where(
-        sql`
-          ${recipesTable.title} ILIKE ${pattern}
-          OR COALESCE(${recipesTable.notes}, '') ILIKE ${pattern}
-          OR COALESCE(${recipesTable.category}, '') ILIKE ${pattern}
-          OR EXISTS (
-            SELECT 1 FROM ${recipeIngredientsTable} ri2
-            WHERE ri2.recipe_id = ${recipesTable.id}
-            AND ri2.name ILIKE ${pattern}
-          )
-          OR EXISTS (
-            SELECT 1 FROM unnest(ARRAY(SELECT jsonb_array_elements_text(${recipesTable.steps}))) AS step
-            WHERE step ILIKE ${pattern}
-          )
-        `
+        and(
+          isNull(recipesTable.deletedAt),
+          sql`
+            ${recipesTable.title} ILIKE ${pattern}
+            OR COALESCE(${recipesTable.notes}, '') ILIKE ${pattern}
+            OR COALESCE(${recipesTable.category}, '') ILIKE ${pattern}
+            OR EXISTS (
+              SELECT 1 FROM ${recipeIngredientsTable} ri2
+              WHERE ri2.recipe_id = ${recipesTable.id}
+              AND ri2.name ILIKE ${pattern}
+            )
+            OR EXISTS (
+              SELECT 1 FROM unnest(ARRAY(SELECT jsonb_array_elements_text(${recipesTable.steps}))) AS step
+              WHERE step ILIKE ${pattern}
+            )
+          `
+        )
       );
 
     if (matchingRecipeIds.length === 0) {
@@ -299,15 +309,86 @@ router.get("/recipes/search", async (req, res) => {
   }
 });
 
-router.get("/recipes/count", async (req, res) => {
+router.get("/recipes/trash", authMiddleware, async (req, res) => {
+  if (!isAdmin(req.authUser!.email)) {
+    res.status(403).json({ error: "forbidden", message: "Nur Admins können den Papierkorb einsehen" });
+    return;
+  }
   try {
-    const result = await db.execute(sql`SELECT COUNT(*)::int AS count FROM recipes`);
-    const count = (result.rows[0] as { count: number }).count;
-    res.set("Cache-Control", "no-store");
-    res.json({ count });
+    const rows = await db.execute(sql`
+      SELECT
+        r.id,
+        r.title,
+        r.deleted_at AS "deletedAt",
+        r.created_by AS "createdBy",
+        u.display_name AS "ownerDisplayName"
+      FROM recipes r
+      LEFT JOIN users u ON u.id = r.created_by
+      WHERE r.deleted_at IS NOT NULL
+      ORDER BY r.deleted_at DESC
+    `);
+    const rawRows = (rows as unknown as { rows: unknown[] }).rows ?? (rows as unknown as unknown[]);
+    const now = Date.now();
+    const result = (rawRows as Array<{ id: number; title: string; deletedAt: string | Date; createdBy: number | null; ownerDisplayName: string | null }>)
+      .map((r) => {
+        const deletedAt = new Date(r.deletedAt);
+        const daysLeft = Math.max(0, 30 - Math.floor((now - deletedAt.getTime()) / (1000 * 60 * 60 * 24)));
+        return {
+          id: r.id,
+          title: r.title,
+          deletedAt: deletedAt.toISOString(),
+          daysLeft,
+          createdBy: r.createdBy,
+          ownerDisplayName: r.ownerDisplayName,
+        };
+      });
+    res.json(result);
   } catch (err) {
-    req.log.error({ err }, "Failed to count recipes");
-    res.status(500).json({ error: "internal_error", message: "Failed to count recipes" });
+    req.log.error({ err }, "Failed to fetch trash");
+    res.status(500).json({ error: "internal_error", message: "Failed to fetch trash" });
+  }
+});
+
+router.delete("/recipes/trash", authMiddleware, async (req, res) => {
+  if (!isAdmin(req.authUser!.email)) {
+    res.status(403).json({ error: "forbidden", message: "Nur Admins können den Papierkorb leeren" });
+    return;
+  }
+  try {
+    const allTrashed = await db
+      .select({ id: recipesTable.id, sourceDocumentUrl: recipesTable.sourceDocumentUrl })
+      .from(recipesTable)
+      .where(sql`${recipesTable.deletedAt} IS NOT NULL`);
+
+    for (const recipe of allTrashed) {
+      if (recipe.sourceDocumentUrl) {
+        try {
+          const [otherRef] = await db
+            .select({ id: recipesTable.id })
+            .from(recipesTable)
+            .where(and(eq(recipesTable.sourceDocumentUrl, recipe.sourceDocumentUrl), isNull(recipesTable.deletedAt)))
+            .limit(1);
+
+          if (!otherRef) {
+            const { ObjectStorageService } = await import("../lib/objectStorage");
+            const storageService = new ObjectStorageService();
+            const storagePath = recipe.sourceDocumentUrl.replace(/^\/api\/storage/, "");
+            await storageService.deleteObject(storagePath);
+          }
+        } catch {
+        }
+      }
+    }
+
+    if (allTrashed.length > 0) {
+      const ids = allTrashed.map((r) => r.id);
+      await db.delete(recipesTable).where(inArray(recipesTable.id, ids));
+    }
+
+    res.json({ success: true, deleted: allTrashed.length });
+  } catch (err) {
+    req.log.error({ err }, "Failed to empty trash");
+    res.status(500).json({ error: "internal_error", message: "Failed to empty trash" });
   }
 });
 
@@ -370,7 +451,7 @@ router.get("/recipes/duplicates", authMiddleware, async (req, res) => {
       familyUserIds = [...new Set([currentUserId, ...memberUserIds])];
     }
 
-    const allRecipes = await db.select().from(recipesTable).orderBy(recipesTable.id);
+    const allRecipes = await db.select().from(recipesTable).where(isNull(recipesTable.deletedAt)).orderBy(recipesTable.id);
     const recipes = allRecipes.filter(
       (r) => r.createdBy == null || familyUserIds.includes(r.createdBy)
     );
@@ -521,7 +602,7 @@ router.put("/recipes/:id", authMiddleware, async (req, res) => {
       return;
     }
 
-    const [existing] = await db.select().from(recipesTable).where(eq(recipesTable.id, id));
+    const [existing] = await db.select().from(recipesTable).where(and(eq(recipesTable.id, id), isNull(recipesTable.deletedAt)));
     if (!existing) {
       res.status(404).json({ error: "not_found", message: "Recipe not found" });
       return;
@@ -602,7 +683,7 @@ router.patch("/recipes/:id", authMiddleware, async (req, res) => {
       return;
     }
 
-    const [existing] = await db.select().from(recipesTable).where(eq(recipesTable.id, id));
+    const [existing] = await db.select().from(recipesTable).where(and(eq(recipesTable.id, id), isNull(recipesTable.deletedAt)));
     if (!existing) {
       res.status(404).json({ error: "not_found", message: "Recipe not found" });
       return;
@@ -660,7 +741,7 @@ router.delete("/recipes/:id", authMiddleware, async (req, res) => {
       return;
     }
 
-    const [existing] = await db.select().from(recipesTable).where(eq(recipesTable.id, id));
+    const [existing] = await db.select().from(recipesTable).where(and(eq(recipesTable.id, id), isNull(recipesTable.deletedAt)));
     if (!existing) {
       res.status(404).json({ error: "not_found", message: "Recipe not found" });
       return;
@@ -668,6 +749,66 @@ router.delete("/recipes/:id", authMiddleware, async (req, res) => {
 
     if (existing.createdBy != null && existing.createdBy !== req.authUser!.id) {
       res.status(403).json({ error: "forbidden", message: "Du kannst nur deine eigenen Rezepte löschen" });
+      return;
+    }
+
+    await db
+      .update(recipesTable)
+      .set({ deletedAt: new Date() })
+      .where(eq(recipesTable.id, id));
+
+    res.json({ success: true, id });
+  } catch (err) {
+    req.log.error({ err }, "Failed to delete recipe");
+    res.status(500).json({ error: "internal_error", message: "Failed to delete recipe" });
+  }
+});
+
+router.post("/recipes/:id/restore", authMiddleware, async (req, res) => {
+  if (!isAdmin(req.authUser!.email)) {
+    res.status(403).json({ error: "forbidden", message: "Nur Admins können Rezepte wiederherstellen" });
+    return;
+  }
+  try {
+    const id = Number(req.params.id);
+    if (isNaN(id)) {
+      res.status(400).json({ error: "bad_request", message: "Invalid recipe id" });
+      return;
+    }
+
+    const [existing] = await db.select().from(recipesTable).where(eq(recipesTable.id, id));
+    if (!existing || existing.deletedAt == null) {
+      res.status(404).json({ error: "not_found", message: "Recipe not found in trash" });
+      return;
+    }
+
+    await db
+      .update(recipesTable)
+      .set({ deletedAt: null })
+      .where(eq(recipesTable.id, id));
+
+    res.json({ success: true, id });
+  } catch (err) {
+    req.log.error({ err }, "Failed to restore recipe");
+    res.status(500).json({ error: "internal_error", message: "Failed to restore recipe" });
+  }
+});
+
+router.delete("/recipes/:id/permanent", authMiddleware, async (req, res) => {
+  if (!isAdmin(req.authUser!.email)) {
+    res.status(403).json({ error: "forbidden", message: "Nur Admins können Rezepte endgültig löschen" });
+    return;
+  }
+  try {
+    const id = Number(req.params.id);
+    if (isNaN(id)) {
+      res.status(400).json({ error: "bad_request", message: "Invalid recipe id" });
+      return;
+    }
+
+    const [existing] = await db.select().from(recipesTable).where(eq(recipesTable.id, id));
+    if (!existing) {
+      res.status(404).json({ error: "not_found", message: "Recipe not found" });
       return;
     }
 
@@ -683,16 +824,15 @@ router.delete("/recipes/:id", authMiddleware, async (req, res) => {
       return;
     }
 
-    // Clean up source document from object storage (only if no other recipe references it)
     if (sourceDocumentUrl) {
       try {
-        const [otherRef] = await db
+        const [activeRef] = await db
           .select({ id: recipesTable.id })
           .from(recipesTable)
-          .where(eq(recipesTable.sourceDocumentUrl, sourceDocumentUrl))
+          .where(and(eq(recipesTable.sourceDocumentUrl, sourceDocumentUrl), isNull(recipesTable.deletedAt)))
           .limit(1);
 
-        if (!otherRef) {
+        if (!activeRef) {
           const { ObjectStorageService } = await import("../lib/objectStorage");
           const storageService = new ObjectStorageService();
           const storagePath = sourceDocumentUrl.replace(/^\/api\/storage/, "");
@@ -704,8 +844,8 @@ router.delete("/recipes/:id", authMiddleware, async (req, res) => {
 
     res.json({ success: true, id });
   } catch (err) {
-    req.log.error({ err }, "Failed to delete recipe");
-    res.status(500).json({ error: "internal_error", message: "Failed to delete recipe" });
+    req.log.error({ err }, "Failed to permanently delete recipe");
+    res.status(500).json({ error: "internal_error", message: "Failed to permanently delete recipe" });
   }
 });
 
@@ -719,7 +859,7 @@ router.post("/recipes/:id/favorite", authMiddleware, async (req, res) => {
 
     const userId = req.authUser!.id;
 
-    const [recipe] = await db.select().from(recipesTable).where(eq(recipesTable.id, recipeId));
+    const [recipe] = await db.select().from(recipesTable).where(and(eq(recipesTable.id, recipeId), isNull(recipesTable.deletedAt)));
     if (!recipe) {
       res.status(404).json({ error: "not_found", message: "Recipe not found" });
       return;
@@ -783,6 +923,7 @@ router.get("/ingredients", async (req, res) => {
     const rows = await db
       .selectDistinct({ name: recipeIngredientsTable.name, nameLower: sql<string>`lower(${recipeIngredientsTable.name})` })
       .from(recipeIngredientsTable)
+      .innerJoin(recipesTable, and(eq(recipesTable.id, recipeIngredientsTable.recipeId), isNull(recipesTable.deletedAt)))
       .orderBy(sql`lower(${recipeIngredientsTable.name})`);
     const seenLower = new Set<string>();
     const ingredients = rows

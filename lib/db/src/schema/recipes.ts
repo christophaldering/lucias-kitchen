@@ -26,6 +26,7 @@ export const recipesTable = pgTable("recipes", {
   parentRecipeId: integer("parent_recipe_id"),
   variantName: text("variant_name"),
   sourceDocumentUrl: text("source_document_url"),
+  deletedAt: timestamp("deleted_at"),
 });
 
 export const recipeIngredientsTable = pgTable("recipe_ingredients", {

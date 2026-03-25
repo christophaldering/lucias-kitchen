@@ -2,7 +2,7 @@ import { Router, type IRouter } from "express";
 import { openai } from "@workspace/integrations-openai-ai-server";
 import { db } from "@workspace/db";
 import { recipesTable, recipeIngredientsTable, mealPlansTable } from "@workspace/db/schema";
-import { and, gte, lte } from "drizzle-orm";
+import { and, gte, lte, isNull } from "drizzle-orm";
 import { z } from "zod/v4";
 
 const router: IRouter = Router();
@@ -19,7 +19,7 @@ router.post("/meal-plans/suggest", async (req, res) => {
     const parsed = suggestSchema.parse(req.body);
     const { startDate, days, mealTypes, wishText } = parsed;
 
-    const allRecipes = await db.select().from(recipesTable).orderBy(recipesTable.id);
+    const allRecipes = await db.select().from(recipesTable).where(isNull(recipesTable.deletedAt)).orderBy(recipesTable.id);
     if (allRecipes.length === 0) {
       res.status(400).json({ error: "no_recipes", message: "Keine Rezepte vorhanden" });
       return;

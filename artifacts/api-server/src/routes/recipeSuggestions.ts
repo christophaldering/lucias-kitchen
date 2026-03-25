@@ -8,7 +8,7 @@ import {
   groupMembersTable,
   groupsTable,
 } from "@workspace/db/schema";
-import { eq, and, or, ne } from "drizzle-orm";
+import { eq, and, or, ne, isNull } from "drizzle-orm";
 import { z } from "zod/v4";
 import { authMiddleware } from "./auth";
 
@@ -111,7 +111,7 @@ router.get("/recipe-suggestions/incoming", authMiddleware, async (req, res) => {
       })
       .from(recipeSuggestionsTable)
       .innerJoin(usersTable, eq(recipeSuggestionsTable.senderId, usersTable.id))
-      .innerJoin(recipesTable, eq(recipeSuggestionsTable.recipeId, recipesTable.id))
+      .innerJoin(recipesTable, and(eq(recipeSuggestionsTable.recipeId, recipesTable.id), isNull(recipesTable.deletedAt)))
       .where(eq(recipeSuggestionsTable.recipientId, userId))
       .orderBy(recipeSuggestionsTable.createdAt);
 
@@ -223,7 +223,7 @@ router.get("/recipe-suggestions/outgoing", authMiddleware, async (req, res) => {
       })
       .from(recipeSuggestionsTable)
       .innerJoin(usersTable, eq(recipeSuggestionsTable.recipientId, usersTable.id))
-      .innerJoin(recipesTable, eq(recipeSuggestionsTable.recipeId, recipesTable.id))
+      .innerJoin(recipesTable, and(eq(recipeSuggestionsTable.recipeId, recipesTable.id), isNull(recipesTable.deletedAt)))
       .where(eq(recipeSuggestionsTable.senderId, userId))
       .orderBy(recipeSuggestionsTable.createdAt);
 

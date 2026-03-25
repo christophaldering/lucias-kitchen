@@ -4,6 +4,7 @@ import { seedRecipes } from "./db/seedRecipes";
 import { seedUser } from "./db/seedUser";
 import { recoverProcessingSessions } from "./routes/bulkImport";
 import { warmupRecipeCache } from "./routes/recipes";
+import { startTrashCleanupJob } from "./lib/trashCleanup";
 
 const rawPort = process.env["PORT"];
 
@@ -47,6 +48,8 @@ const server = app.listen(port, async (err) => {
 
   warmupRecipeCache(1).catch(() => {});
   warmupRecipeCache(undefined).catch(() => {});
+
+  startTrashCleanupJob();
 });
 
 if (devProxy) {

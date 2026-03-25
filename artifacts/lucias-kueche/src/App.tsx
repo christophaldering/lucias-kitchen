@@ -1,6 +1,6 @@
 import { useState, useRef, useEffect } from "react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { Utensils, CalendarDays, BarChart3, Settings, LogOut, ChevronDown, User, BookOpen, Lightbulb, House } from "lucide-react";
+import { Utensils, CalendarDays, BarChart3, Settings, LogOut, ChevronDown, User, BookOpen, Lightbulb, House, ArrowLeft } from "lucide-react";
 import MeineRezepte from "@/pages/MeineRezepte";
 import Wochenplan from "@/pages/Wochenplan";
 import Statistiken from "@/pages/Statistiken";
@@ -38,7 +38,7 @@ function getGreeting(name: string): string {
   return `Guten ${time}, ${first}!`;
 }
 
-function AvatarDropdown({ onNavigate }: { onNavigate: (tab: Tab) => void }) {
+function AvatarDropdown({ onNavigate }: { onNavigate: (tab: Tab, savePrev?: boolean) => void }) {
   const { user, logout } = useAuth();
   const [open, setOpen] = useState(false);
   const dropdownRef = useRef<HTMLDivElement>(null);
@@ -89,14 +89,14 @@ function AvatarDropdown({ onNavigate }: { onNavigate: (tab: Tab) => void }) {
           </div>
           <div className="py-1">
             <button
-              onClick={() => { onNavigate("profil"); setOpen(false); }}
+              onClick={() => { onNavigate("profil", true); setOpen(false); }}
               className="flex items-center gap-3 w-full px-4 py-3 text-sm text-foreground hover:bg-[#4A7C59]/5 transition-colors min-h-[48px]"
             >
               <User className="w-4 h-4 text-muted-foreground" />
               Mein Profil
             </button>
             <button
-              onClick={() => { onNavigate("admin"); setOpen(false); }}
+              onClick={() => { onNavigate("admin", true); setOpen(false); }}
               className="flex items-center gap-3 w-full px-4 py-3 text-sm text-foreground hover:bg-[#4A7C59]/5 transition-colors min-h-[48px]"
             >
               <Settings className="w-4 h-4 text-muted-foreground" />
@@ -177,6 +177,7 @@ function BottomNav({ activeTab, onTabChange, unreadCount }: { activeTab: Tab; on
 function AppShell() {
   const { user, loading } = useAuth();
   const [activeTab, setActiveTab] = useState<Tab>("rezepte");
+  const [previousTab, setPreviousTab] = useState<Tab>("rezepte");
   const [openRecipeId, setOpenRecipeId] = useState<number | null>(null);
   const [adminInitialTab, setAdminInitialTab] = useState<string | null>(null);
   const [adminNavToken, setAdminNavToken] = useState(0);
@@ -188,6 +189,13 @@ function AppShell() {
   const { suggestions: incomingSuggestions } = useIncomingSuggestions();
   const pendingSuggestionsCount = incomingSuggestions.filter((s) => s.status === "pending").length;
   const unreadCount = notificationUnreadCount + pendingSuggestionsCount;
+
+  function navigateTo(tab: Tab, savePrev?: boolean) {
+    if (savePrev) {
+      setPreviousTab(activeTab);
+    }
+    setActiveTab(tab);
+  }
 
   function handleOpenRecipeFromNotification(recipeId: number) {
     setActiveTab("rezepte");
@@ -238,17 +246,28 @@ function AppShell() {
       >
         <div className="max-w-6xl mx-auto px-4">
           <div className="flex items-center justify-between py-2">
-            <button
-              onClick={() => setActiveTab("rezepte")}
-              className="flex items-center gap-2 group"
-            >
-              <h1 className="font-script text-3xl leading-none text-white group-hover:text-green-100 transition-colors">
-                Lucias Küche 🍳
-              </h1>
-            </button>
+            <div className="flex items-center gap-2">
+              {(activeTab === "profil" || activeTab === "admin") && (
+                <button
+                  onClick={() => setActiveTab(previousTab)}
+                  className="flex items-center justify-center w-9 h-9 rounded-full hover:bg-white/10 transition-colors text-green-200 hover:text-white"
+                  aria-label="Zurück"
+                >
+                  <ArrowLeft className="w-5 h-5" />
+                </button>
+              )}
+              <button
+                onClick={() => setActiveTab("rezepte")}
+                className="flex items-center gap-2 group"
+              >
+                <h1 className="font-script text-3xl leading-none text-white group-hover:text-green-100 transition-colors">
+                  Lucias Küche 🍳
+                </h1>
+              </button>
+            </div>
             <div className="flex items-center gap-1">
               <NotificationBell onOpenRecipe={handleOpenRecipeFromNotification} onNavigate={(tab) => setActiveTab(tab as Tab)} onBulkImportDone={handleBulkImportDone} />
-              <AvatarDropdown onNavigate={(tab) => setActiveTab(tab)} />
+              <AvatarDropdown onNavigate={(tab, savePrev) => navigateTo(tab, savePrev)} />
             </div>
           </div>
         </div>
@@ -264,7 +283,7 @@ function AppShell() {
         {activeTab === "meine-kueche" && <MeineKueche onOpenRecipe={(recipeId) => { setActiveTab("rezepte"); setOpenRecipeId(recipeId); }} />}
       </main>
 
-      <BottomNav activeTab={activeTab} onTabChange={setActiveTab} unreadCount={unreadCount} />
+      <BottomNav activeTab={activeTab} onTabChange={(tab) => { setPreviousTab(activeTab); setActiveTab(tab); }} unreadCount={unreadCount} />
       <BulkImportProgressBar onNavigateToImport={() => {
         setActiveTab("admin");
         setAdminInitialTab("bulk-import");

@@ -17,6 +17,12 @@ localPort = 18160
 [services.development]
 run = "pnpm --filter @workspace/lucias-kueche run dev"
 
+[services.production]
+serve = "static"
+
+[services.production.build]
+args = ["pnpm", "--filter", "@workspace/lucias-kueche", "run", "build"]
+
 [services.env]
 PORT = "18160"
 BASE_PATH = "/"

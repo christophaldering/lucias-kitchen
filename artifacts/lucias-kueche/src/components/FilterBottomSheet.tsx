@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState } from "react";
 import { SlidersHorizontal, X, RotateCcw, Check } from "lucide-react";
 import type { Season } from "@/types/recipe";
 import { SEASON_LABELS, SEASON_ICONS } from "@/types/recipe";
@@ -29,19 +29,6 @@ export function FilterBottomSheet({
 }: FilterBottomSheetProps) {
   const [open, setOpen] = useState(false);
 
-  const [draft, setDraft] = useState<FilterState>({
-    timeFilter,
-    seasonFilter,
-    cookedFilter,
-    showVariants,
-  });
-
-  useEffect(() => {
-    if (open) {
-      setDraft({ timeFilter, seasonFilter, cookedFilter, showVariants });
-    }
-  }, [open, timeFilter, seasonFilter, cookedFilter, showVariants]);
-
   const activeCount = [
     timeFilter !== "Alle",
     seasonFilter !== "Alle",
@@ -49,25 +36,13 @@ export function FilterBottomSheet({
     showVariants,
   ].filter(Boolean).length;
 
-  const draftActiveCount = [
-    draft.timeFilter !== "Alle",
-    draft.seasonFilter !== "Alle",
-    draft.cookedFilter !== "Alle",
-    draft.showVariants,
-  ].filter(Boolean).length;
-
   function handleReset() {
-    setDraft({
+    onApply({
       timeFilter: "Alle",
       seasonFilter: "Alle",
       cookedFilter: "Alle",
       showVariants: false,
     });
-  }
-
-  function handleApply() {
-    onApply(draft);
-    setOpen(false);
   }
 
   return (
@@ -116,8 +91,10 @@ export function FilterBottomSheet({
                   { value: "Unter 30 Min", label: "Unter 30 Min" },
                   { value: "Unter 1 Std", label: "Unter 1 Std" },
                 ]}
-                value={draft.timeFilter}
-                onChange={(v) => setDraft((d) => ({ ...d, timeFilter: v }))}
+                value={timeFilter}
+                onChange={(v) =>
+                  onApply({ timeFilter: v, seasonFilter, cookedFilter, showVariants })
+                }
               />
 
               <div className="border-b border-border" />
@@ -131,8 +108,10 @@ export function FilterBottomSheet({
                   { value: "autumn", label: `${SEASON_ICONS["autumn"]} ${SEASON_LABELS["autumn"]}` },
                   { value: "winter", label: `${SEASON_ICONS["winter"]} ${SEASON_LABELS["winter"]}` },
                 ]}
-                value={draft.seasonFilter}
-                onChange={(v) => setDraft((d) => ({ ...d, seasonFilter: v as Season | "Alle" }))}
+                value={seasonFilter}
+                onChange={(v) =>
+                  onApply({ timeFilter, seasonFilter: v as Season | "Alle", cookedFilter, showVariants })
+                }
               />
 
               <div className="border-b border-border" />
@@ -144,12 +123,14 @@ export function FilterBottomSheet({
                   { value: "gekocht", label: "✅ Schon gekocht" },
                   { value: "nicht_ausprobiert", label: "🆕 Noch nicht probiert" },
                 ]}
-                value={draft.cookedFilter}
+                value={cookedFilter}
                 onChange={(v) =>
-                  setDraft((d) => ({
-                    ...d,
+                  onApply({
+                    timeFilter,
+                    seasonFilter,
                     cookedFilter: v as "Alle" | "gekocht" | "nicht_ausprobiert",
-                  }))
+                    showVariants,
+                  })
                 }
               />
 
@@ -161,14 +142,16 @@ export function FilterBottomSheet({
                       Varianten
                     </p>
                     <button
-                      onClick={() => setDraft((d) => ({ ...d, showVariants: !d.showVariants }))}
+                      onClick={() =>
+                        onApply({ timeFilter, seasonFilter, cookedFilter, showVariants: !showVariants })
+                      }
                       className={`flex items-center gap-2 px-4 py-2.5 rounded-full border text-sm font-medium transition-colors ${
-                        draft.showVariants
+                        showVariants
                           ? "bg-[#4A7C59] text-white border-[#4A7C59]"
                           : "bg-muted text-foreground border-border hover:border-[#4A7C59]/40"
                       }`}
                     >
-                      {draft.showVariants && <Check className="w-3.5 h-3.5 flex-shrink-0" />}
+                      {showVariants && <Check className="w-3.5 h-3.5 flex-shrink-0" />}
                       🔀 Varianten anzeigen
                     </button>
                   </div>
@@ -179,17 +162,11 @@ export function FilterBottomSheet({
             <div className="flex gap-3 px-5 py-4 border-t border-border flex-shrink-0">
               <button
                 onClick={handleReset}
-                disabled={draftActiveCount === 0}
+                disabled={activeCount === 0}
                 className="flex items-center gap-1.5 px-4 py-3 rounded-xl text-sm font-medium text-muted-foreground hover:text-foreground hover:bg-muted transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
               >
                 <RotateCcw className="w-3.5 h-3.5" />
                 Zurücksetzen
-              </button>
-              <button
-                onClick={handleApply}
-                className="flex-1 py-3 rounded-xl bg-[#4A7C59] text-white text-sm font-semibold hover:bg-[#3a6347] transition-colors"
-              >
-                Anwenden
               </button>
             </div>
           </div>
@@ -227,7 +204,13 @@ function FilterSection({
           return (
             <button
               key={opt.value}
-              onClick={() => onChange(opt.value)}
+              onClick={() => {
+                if (active && !isAll) {
+                  onChange("Alle");
+                } else {
+                  onChange(opt.value);
+                }
+              }}
               className={`flex items-center gap-1.5 px-4 py-2 rounded-full text-sm font-medium border transition-colors ${
                 active
                   ? "bg-[#4A7C59] text-white border-[#4A7C59]"

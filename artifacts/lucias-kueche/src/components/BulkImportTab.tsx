@@ -367,6 +367,7 @@ function ReviewDashboard({
     try {
       const res = await authFetch(`${API_BASE}/bulk-import/${sessionId}/status`, {
         headers: authHeaders(),
+        skipUnauthorizedHandler: true,
       });
       if (!res.ok) return;
       const json = await res.json() as BulkImportStatus;
@@ -379,6 +380,7 @@ function ReviewDashboard({
     try {
       const res = await authFetch(`${API_BASE}/bulk-import/${sessionId}/results`, {
         headers: authHeaders(),
+        skipUnauthorizedHandler: true,
       });
       if (!res.ok) {
         setLoadError(`Fehler ${res.status}: Session konnte nicht geladen werden.`);
@@ -788,6 +790,7 @@ export default function BulkImportTab() {
         try {
           const res = await authFetch(`${API_BASE}/bulk-import/active`, {
             headers: authHeaders(),
+            skipUnauthorizedHandler: true,
           });
           if (!res.ok) return;
           const data = await res.json();

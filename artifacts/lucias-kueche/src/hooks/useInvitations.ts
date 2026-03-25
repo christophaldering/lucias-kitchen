@@ -184,7 +184,10 @@ export function useNotifications() {
   const fetchNotifications = useCallback(async () => {
     setLoading(true);
     try {
-      const res = await authFetch(`${API_BASE}/notifications`, { headers: authHeaders() });
+      const res = await authFetch(`${API_BASE}/notifications`, {
+        headers: authHeaders(),
+        skipUnauthorizedHandler: true,
+      });
       if (res.ok) {
         const data = await res.json();
         setNotifications(data);

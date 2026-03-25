@@ -36,14 +36,24 @@ export function useRecipes(filter: RecipeFilter = "all") {
   const fetchRecipes = useCallback(async (f?: RecipeFilter) => {
     setLoading(true);
     setError(null);
-    try {
-      const activeFilter = f ?? filter;
-      const url = activeFilter === "all" ? `${API_BASE}/recipes` : `${API_BASE}/recipes?filter=${activeFilter}`;
+    const activeFilter = f ?? filter;
+    const url = activeFilter === "all" ? `${API_BASE}/recipes` : `${API_BASE}/recipes?filter=${activeFilter}`;
+    const attempt = async (): Promise<Response> => {
       const res = await authFetch(url, { headers: authHeaders() });
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      return res;
+    };
+    try {
+      let res: Response;
+      try {
+        res = await attempt();
+      } catch {
+        await new Promise((resolve) => setTimeout(resolve, 1500));
+        res = await attempt();
+      }
       const data = await res.json();
       setRecipes(data);
-    } catch (err) {
+    } catch {
       setError("Rezepte konnten nicht geladen werden.");
     } finally {
       setLoading(false);

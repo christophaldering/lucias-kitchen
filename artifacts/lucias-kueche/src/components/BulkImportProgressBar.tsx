@@ -46,6 +46,7 @@ export function BulkImportProgressBar({ onNavigateToImport }: BulkImportProgress
     try {
       const res = await authFetch(`${API_BASE}/bulk-import/${sessionId}/status`, {
         headers: authHeaders(),
+        skipUnauthorizedHandler: true,
       });
       if (!res.ok) {
         stopPolling();
@@ -85,6 +86,7 @@ export function BulkImportProgressBar({ onNavigateToImport }: BulkImportProgress
     try {
       const res = await authFetch(`${API_BASE}/bulk-import/active`, {
         headers: authHeaders(),
+        skipUnauthorizedHandler: true,
       });
       if (!res.ok) return;
       const data = await res.json() as ActiveSession | null;

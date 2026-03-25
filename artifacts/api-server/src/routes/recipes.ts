@@ -34,7 +34,7 @@ export async function warmupRecipeCache(userId?: number) {
 const router: IRouter = Router();
 
 router.use((req, _res, next) => {
-  if (req.method !== "GET" && req.method !== "HEAD") {
+  if (req.method !== "GET" && req.method !== "HEAD" && req.path.startsWith("/recipes")) {
     invalidateRecipeListCache();
   }
   next();

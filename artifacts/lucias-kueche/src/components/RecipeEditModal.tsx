@@ -366,7 +366,7 @@ export default function RecipeEditModal({ recipe, onClose, onSave, knownCategori
                   type="button"
                   onClick={() => cameraInputRef.current?.click()}
                   disabled={uploadingImage}
-                  className="flex items-center gap-2 px-4 py-2 border border-border rounded-xl text-sm font-medium hover:bg-secondary transition-colors disabled:opacity-50"
+                  className="md:hidden flex items-center gap-2 px-4 py-2 border border-border rounded-xl text-sm font-medium hover:bg-secondary transition-colors disabled:opacity-50"
                 >
                   <Camera className="w-4 h-4 text-[#C1693A]" />
                   Foto aufnehmen

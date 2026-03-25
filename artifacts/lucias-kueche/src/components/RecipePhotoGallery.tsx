@@ -113,7 +113,7 @@ export default function RecipePhotoGallery({ recipeId }: Props) {
             type="button"
             onClick={() => cameraInputRef.current?.click()}
             disabled={uploading}
-            className="flex items-center gap-1.5 px-3 py-1.5 border border-border rounded-xl text-xs font-medium hover:bg-secondary transition-colors disabled:opacity-50"
+            className="md:hidden flex items-center gap-1.5 px-3 py-1.5 border border-border rounded-xl text-xs font-medium hover:bg-secondary transition-colors disabled:opacity-50"
             title="Foto aufnehmen"
           >
             <Camera className="w-3.5 h-3.5 text-[#C1693A]" />

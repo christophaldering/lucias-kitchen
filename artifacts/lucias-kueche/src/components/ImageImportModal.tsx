@@ -316,7 +316,7 @@ export default function ImageImportModal({ onClose, onAdd }: Props) {
 
               <button
                 onClick={() => cameraRef.current?.click()}
-                className="w-full flex items-center justify-center gap-2 py-2.5 border border-[#4A7C59]/40 text-[#4A7C59] rounded-xl text-sm font-semibold hover:bg-[#4A7C59]/8 transition-colors"
+                className="md:hidden w-full flex items-center justify-center gap-2 py-2.5 border border-[#4A7C59]/40 text-[#4A7C59] rounded-xl text-sm font-semibold hover:bg-[#4A7C59]/8 transition-colors"
               >
                 <Camera className="w-4 h-4" />
                 Foto aufnehmen (Kamera)
@@ -403,7 +403,7 @@ export default function ImageImportModal({ onClose, onAdd }: Props) {
                       </button>
                       <button
                         onClick={() => addCameraRef.current?.click()}
-                        className="w-20 h-9 border border-dashed border-[#4A7C59]/50 text-[#4A7C59] rounded-xl flex items-center justify-center gap-1 text-xs font-medium hover:bg-[#4A7C59]/5 transition-colors"
+                        className="md:hidden w-20 h-9 border border-dashed border-[#4A7C59]/50 text-[#4A7C59] rounded-xl flex items-center justify-center gap-1 text-xs font-medium hover:bg-[#4A7C59]/5 transition-colors"
                         title="Weiteres Foto mit Kamera"
                       >
                         <Camera className="w-3.5 h-3.5" />

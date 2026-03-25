@@ -24,9 +24,10 @@ interface StatusResponse extends ActiveSession {
 
 interface BulkImportProgressBarProps {
   onNavigateToImport: () => void;
+  onImportDone?: () => void;
 }
 
-export function BulkImportProgressBar({ onNavigateToImport }: BulkImportProgressBarProps) {
+export function BulkImportProgressBar({ onNavigateToImport, onImportDone }: BulkImportProgressBarProps) {
   const [session, setSession] = useState<StatusResponse | null>(null);
   const [dismissed, setDismissed] = useState(false);
   const [completionState, setCompletionState] = useState<"none" | "success" | "failed">("none");
@@ -59,6 +60,7 @@ export function BulkImportProgressBar({ onNavigateToImport }: BulkImportProgress
         stopPolling();
         completionStateRef.current = "success";
         setCompletionState("success");
+        onImportDone?.();
         completionTimerRef.current = setTimeout(() => {
           completionStateRef.current = "none";
           setSession(null);

@@ -173,6 +173,7 @@ function AppShell() {
   const [adminInitialTab, setAdminInitialTab] = useState<string | null>(null);
   const [adminNavToken, setAdminNavToken] = useState(0);
   const [recipesInitialSortOrder, setRecipesInitialSortOrder] = useState<string | null>(null);
+  const [recipesRefreshToken, setRecipesRefreshToken] = useState(0);
   const { data: notifications = [] } = useNotifications();
   const notificationUnreadCount = notifications.filter((n) => !n.readAt).length;
   const { suggestions: incomingSuggestions } = useIncomingSuggestions();
@@ -238,7 +239,7 @@ function AppShell() {
       </header>
 
       <main className="min-h-screen pb-24" style={{ minHeight: "calc(100vh - 56px)" }}>
-        {activeTab === "rezepte" && <MeineRezepte onNavigate={(tab) => setActiveTab(tab as Tab)} initialOpenRecipeId={openRecipeId} onRecipeOpened={() => setOpenRecipeId(null)} initialSortOrder={recipesInitialSortOrder} onSortOrderApplied={() => setRecipesInitialSortOrder(null)} />}
+        {activeTab === "rezepte" && <MeineRezepte onNavigate={(tab) => setActiveTab(tab as Tab)} initialOpenRecipeId={openRecipeId} onRecipeOpened={() => setOpenRecipeId(null)} initialSortOrder={recipesInitialSortOrder} onSortOrderApplied={() => setRecipesInitialSortOrder(null)} refreshToken={recipesRefreshToken} />}
         {activeTab === "was-koche-ich" && <WasKocheIch />}
         {activeTab === "wochenplan" && <Wochenplan onNavigate={(tab) => setActiveTab(tab as Tab)} />}
         {activeTab === "statistiken" && <Statistiken />}
@@ -252,7 +253,7 @@ function AppShell() {
         setActiveTab("admin");
         setAdminInitialTab("bulk-import");
         setAdminNavToken((t) => t + 1);
-      }} />
+      }} onImportDone={() => setRecipesRefreshToken((t) => t + 1)} />
     </>
   );
 }

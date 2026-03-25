@@ -374,6 +374,7 @@ interface MeineRezepteProps {
   onRecipeOpened?: () => void;
   initialSortOrder?: string | null;
   onSortOrderApplied?: () => void;
+  refreshToken?: number;
 }
 
 const FILTER_LABELS: Record<RecipeFilter, string> = {
@@ -382,7 +383,7 @@ const FILTER_LABELS: Record<RecipeFilter, string> = {
   favorites: "Gemerkt",
 };
 
-export default function MeineRezepte({ onNavigate: _onNavigate, initialOpenRecipeId, onRecipeOpened, initialSortOrder, onSortOrderApplied }: MeineRezepteProps) {
+export default function MeineRezepte({ onNavigate: _onNavigate, initialOpenRecipeId, onRecipeOpened, initialSortOrder, onSortOrderApplied, refreshToken }: MeineRezepteProps) {
   const [recipeFilter, setRecipeFilter] = useState<RecipeFilter>("all");
   const { recipes, loading, error, addRecipes, refetch, patchRecipeSilent, deleteRecipeSilent, deleteRecipe, updateRecipe, toggleFavorite } = useRecipes(recipeFilter);
 
@@ -462,6 +463,14 @@ export default function MeineRezepte({ onNavigate: _onNavigate, initialOpenRecip
     setSortOrderOverride(initialSortOrder);
     onSortOrderApplied?.();
   }, [initialSortOrder]);
+
+  const refreshTokenRef = useRef(refreshToken);
+  useEffect(() => {
+    if (refreshToken === undefined) return;
+    if (refreshTokenRef.current === refreshToken) return;
+    refreshTokenRef.current = refreshToken;
+    refetch();
+  }, [refreshToken, refetch]);
 
   const toggleSelect = (id: number) => setManagedSelected((prev) => {
     const next = new Set(prev);

@@ -1,6 +1,6 @@
 import { useState } from "react";
 import type { Recipe } from "@/types/recipe";
-import { X, Clock, ChefHat, CalendarPlus, Users, Flame, BookOpen, Check, Printer, UtensilsCrossed, Minus, Plus, Star, ChevronDown, Copy, Share2, Trash2 } from "lucide-react";
+import { X, Clock, ChefHat, CalendarPlus, Users, Flame, BookOpen, Check, Printer, UtensilsCrossed, Minus, Plus, Star, ChevronDown, Copy, Share2, Trash2, Loader2 } from "lucide-react";
 import { SEASON_ICONS, SEASON_LABELS } from "@/types/recipe";
 import type { Season } from "@/types/recipe";
 import { addMealPlanEntry } from "@/hooks/useMealPlans";
@@ -11,6 +11,23 @@ import CookingLogModal from "@/components/CookingLogModal";
 import RecipeSuggestModal from "@/components/RecipeSuggestModal";
 import { useCookingLog } from "@/hooks/useCookingLog";
 import { RecipeComments } from "@/components/RecipeComments";
+import { authFetch, authHeaders } from "@/lib/authFetch";
+import { useAuth } from "@/contexts/AuthContext";
+
+const API_BASE = "/api";
+
+const LOCATION_LABELS: Record<string, string> = {
+  fridge: "🧊 Kühlschrank",
+  freezer: "❄️ Gefrierschrank",
+  pantry: "🫙 Speisekammer",
+};
+
+interface PantryItem {
+  id: number;
+  ingredientName: string;
+  storageLocation: string;
+  isDefault: number;
+}
 
 interface Props {
   recipe: Recipe;
@@ -157,6 +174,7 @@ function formatDate(dateStr: string): string {
 export default function RecipeModal({ recipe, onClose, onAddToWeek, onToggleFavorite, onRecipeUpdated, onDeleteRecipe, allRecipes, onOpenRecipe, onCreateVariant }: Props) {
   const emoji = CATEGORY_EMOJIS[recipe.category] ?? "🍽️";
   const today = toIsoDate(new Date());
+  const { token } = useAuth();
 
   const [showDatePicker, setShowDatePicker] = useState(false);
   const [selectedDate, setSelectedDate] = useState(today);
@@ -170,6 +188,54 @@ export default function RecipeModal({ recipe, onClose, onAddToWeek, onToggleFavo
   const [showSuggestModal, setShowSuggestModal] = useState(false);
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [deleting, setDeleting] = useState(false);
+
+  // Stock reduction modal
+  const [stockReductionLoading, setStockReductionLoading] = useState(false);
+  const [showStockReductionModal, setShowStockReductionModal] = useState(false);
+  const [stockMatches, setStockMatches] = useState<PantryItem[]>([]);
+  const [stockChecked, setStockChecked] = useState<Set<number>>(new Set());
+
+  const handleTodayCookedClick = async () => {
+    if (!token) {
+      setShowCookingLogModal(true);
+      return;
+    }
+    setStockReductionLoading(true);
+    try {
+      const res = await authFetch(`${API_BASE}/pantry`, { headers: authHeaders() });
+      if (!res.ok) throw new Error("fetch failed");
+      const data = await res.json();
+      const pantryItems: PantryItem[] = (data.items ?? []).filter((i: PantryItem) => i.isDefault === 0);
+      const recipeIngredientNames = recipe.ingredients.map((i) => i.name.toLowerCase());
+      const matches = pantryItems.filter((pi) =>
+        recipeIngredientNames.some((rn) => rn.includes(pi.ingredientName.toLowerCase()) || pi.ingredientName.toLowerCase().includes(rn))
+      );
+      if (matches.length === 0) {
+        setShowCookingLogModal(true);
+      } else {
+        setStockMatches(matches);
+        setStockChecked(new Set(matches.map((m) => m.id)));
+        setShowStockReductionModal(true);
+      }
+    } catch {
+      setShowCookingLogModal(true);
+    } finally {
+      setStockReductionLoading(false);
+    }
+  };
+
+  const handleStockReductionConfirm = async () => {
+    await Promise.all(
+      Array.from(stockChecked).map((id) =>
+        authFetch(`${API_BASE}/pantry/by-id/${id}`, {
+          method: "DELETE",
+          headers: { ...authHeaders() },
+        })
+      )
+    );
+    setShowStockReductionModal(false);
+    setShowCookingLogModal(true);
+  };
 
   const { entries: logEntries, refetch: refetchLog } = useCookingLog(recipe.id, showAllLogEntries ? undefined : 3);
 
@@ -603,10 +669,11 @@ export default function RecipeModal({ recipe, onClose, onAddToWeek, onToggleFavo
               )}
 
               <button
-                onClick={() => setShowCookingLogModal(true)}
-                className="flex items-center gap-2 px-4 py-2.5 bg-[#4A7C59] text-white rounded-xl text-sm font-semibold hover:bg-[#3d6849] transition-colors"
+                onClick={handleTodayCookedClick}
+                disabled={stockReductionLoading}
+                className="flex items-center gap-2 px-4 py-2.5 bg-[#4A7C59] text-white rounded-xl text-sm font-semibold hover:bg-[#3d6849] disabled:opacity-70 transition-colors"
               >
-                <UtensilsCrossed className="w-4 h-4" />
+                {stockReductionLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : <UtensilsCrossed className="w-4 h-4" />}
                 Heute gekocht
               </button>
 
@@ -698,6 +765,51 @@ export default function RecipeModal({ recipe, onClose, onAddToWeek, onToggleFavo
       </div>
     </div>
     <RecipePrintView recipe={recipe} />
+
+    {showStockReductionModal && (
+      <div className="fixed inset-0 z-[60] flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm">
+        <div className="bg-white rounded-2xl shadow-2xl w-full max-w-sm">
+          <div className="bg-[#4A7C59] text-white px-5 py-4 rounded-t-2xl">
+            <h3 className="font-semibold text-sm">🥫 Aus dem Vorrat entfernen?</h3>
+            <p className="text-xs text-green-200 mt-0.5">Diese Zutaten hast du wahrscheinlich verbraucht</p>
+          </div>
+          <div className="p-4 space-y-2 max-h-60 overflow-y-auto">
+            {stockMatches.map((item) => (
+              <label key={item.id} className="flex items-center gap-2 px-3 py-2 rounded-xl bg-[#fdfaf6] border border-border cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={stockChecked.has(item.id)}
+                  onChange={(e) => {
+                    setStockChecked((prev) => {
+                      const next = new Set(prev);
+                      if (e.target.checked) next.add(item.id); else next.delete(item.id);
+                      return next;
+                    });
+                  }}
+                  className="accent-[#4A7C59]"
+                />
+                <span className="text-sm text-foreground flex-1">{item.ingredientName}</span>
+                <span className="text-xs text-muted-foreground">{LOCATION_LABELS[item.storageLocation] ?? item.storageLocation}</span>
+              </label>
+            ))}
+          </div>
+          <div className="flex gap-2 p-4 pt-2">
+            <button
+              onClick={handleStockReductionConfirm}
+              className="flex-1 px-4 py-2.5 bg-[#4A7C59] text-white rounded-xl text-sm font-medium hover:bg-[#3d6849] transition-colors"
+            >
+              Entfernen
+            </button>
+            <button
+              onClick={() => { setShowStockReductionModal(false); setShowCookingLogModal(true); }}
+              className="px-4 py-2.5 border border-border text-sm rounded-xl text-muted-foreground hover:bg-secondary transition-colors"
+            >
+              Überspringen
+            </button>
+          </div>
+        </div>
+      </div>
+    )}
 
     {showCookingLogModal && (
       <CookingLogModal

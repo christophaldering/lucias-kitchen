@@ -7,6 +7,8 @@ export const userPantryTable = pgTable("user_pantry", {
   ingredientName: text("ingredient_name").notNull(),
   expiryPriority: text("expiry_priority").default("good"),
   isDefault: integer("is_default").notNull().default(0),
+  storageLocation: text("storage_location").notNull().default("fridge"),
+  expiryDate: text("expiry_date"),
   createdAt: timestamp("created_at").defaultNow().notNull(),
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
 });

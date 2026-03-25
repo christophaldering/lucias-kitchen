@@ -2,7 +2,7 @@ import { useState, useEffect, useRef, useCallback } from "react";
 import {
   Lightbulb, Camera, X, Plus, Loader2, ChefHat, Clock,
   CheckCircle2, AlertCircle, UploadCloud, RotateCcw,
-  MessageCircle, Send, RefreshCw, Package, AlertTriangle,
+  MessageCircle, Send, Package, AlertTriangle,
   ChevronDown, ChevronUp, Trash2,
 } from "lucide-react";
 import type { Recipe } from "@/types/recipe";
@@ -39,13 +39,64 @@ const CATEGORY_EMOJIS: Record<string, string> = {
 };
 
 type ExpiryPriority = "today" | "week" | "good";
+type StorageLocation = "fridge" | "freezer" | "pantry";
 
 interface PantryItem {
   id?: number;
   ingredientName: string;
   expiryPriority: ExpiryPriority;
   isDefault: number;
+  storageLocation: StorageLocation;
+  expiryDate?: string | null;
 }
+
+const LOCATION_LABELS: Record<StorageLocation, string> = {
+  fridge: "🧊 Kühlschrank",
+  freezer: "❄️ Gefrierschrank",
+  pantry: "🫙 Speisekammer",
+};
+
+const CATEGORY_KEYWORDS: Record<string, string[]> = {
+  "🥦 Gemüse": ["möhre", "karotte", "zucchini", "paprika", "brokkoli", "spinat", "tomate", "zwiebel", "lauch", "sellerie", "gurke", "salat", "erbsen", "bohnen", "blumenkohl", "kohl", "rübe", "fenchel", "spargel", "artischocke", "avocado", "kürbis", "pilz", "champignon", "grünkohl", "chinakohl", "pak choi", "mangold", "rucola"],
+  "🥩 Fleisch & Fisch": ["hähnchen", "hühnchen", "rind", "schwein", "lamm", "pute", "lachs", "thunfisch", "garnele", "scampi", "forelle", "hecht", "hackfleisch", "wurst", "schinken", "speck", "steak", "filet", "schnitzel", "fisch", "meeresfrüchte", "tintenfish", "seelachs"],
+  "🥛 Milch & Käse": ["milch", "sahne", "butter", "käse", "joghurt", "quark", "frischkäse", "mozzarella", "parmesan", "feta", "ricotta", "crème fraîche", "schmand", "kefir"],
+  "🌾 Getreide & Teig": ["mehl", "nudeln", "pasta", "reis", "brot", "brötchen", "haferflocken", "grieß", "couscous", "quinoa", "linsen", "kichererbsen", "penne", "spaghetti", "lasagne", "tagliatelle", "spätzle", "knödel"],
+  "🫙 Gewürze & Öle": ["salz", "pfeffer", "öl", "olivenöl", "essig", "senf", "ketchup", "soja", "knoblauch", "ingwer", "chili", "paprikapulver", "kurkuma", "oregano", "basilikum", "thymian", "rosmarin", "lorbeer", "zimt", "muskat", "currypulver", "majoran", "dill", "petersilie", "schnittlauch"],
+};
+
+function getCategoryForIngredient(name: string): string {
+  const lower = name.toLowerCase();
+  for (const [cat, keywords] of Object.entries(CATEGORY_KEYWORDS)) {
+    if (keywords.some((kw) => lower.includes(kw))) return cat;
+  }
+  return "🍳 Sonstiges";
+}
+
+function getEffectivePriority(item: PantryItem): ExpiryPriority {
+  if (item.expiryDate) {
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    const expiry = new Date(item.expiryDate);
+    expiry.setHours(0, 0, 0, 0);
+    const daysLeft = Math.ceil((expiry.getTime() - today.getTime()) / (1000 * 60 * 60 * 24));
+    if (daysLeft <= 2) return "today";
+    if (daysLeft <= 7) return "week";
+    return "good";
+  }
+  return (item.expiryPriority as ExpiryPriority) ?? "good";
+}
+
+const PRIORITY_COLORS: Record<ExpiryPriority, string> = {
+  today: "bg-red-100 text-red-700 border-red-300",
+  week: "bg-amber-100 text-amber-700 border-amber-300",
+  good: "bg-[#f5ede0] text-[#7a4a2a] border-[#e8d5c0]",
+};
+
+const PRIORITY_INDICATOR: Record<ExpiryPriority, string> = {
+  today: "🔴",
+  week: "🟡",
+  good: "🟢",
+};
 
 interface ChatMessage {
   role: "user" | "assistant";
@@ -189,13 +240,24 @@ export default function WasKocheIch() {
   const [chatActive, setChatActive] = useState(false);
   const chatEndRef = useRef<HTMLDivElement>(null);
 
+  // === Storage Location Tabs ===
+  const [activeLocation, setActiveLocation] = useState<StorageLocation>("fridge");
+  const [activeCategory, setActiveCategory] = useState("all");
+  const [openChipEditor, setOpenChipEditor] = useState<number | null>(null);
+  const [defaultSectionOpen, setDefaultSectionOpen] = useState(false);
+
+  // === Photo Scan Modal ===
+  const [photoScanResult, setPhotoScanResult] = useState<{
+    toAdd: string[];
+    toRemove: PantryItem[];
+    toAddChecked: Set<string>;
+    toRemoveChecked: Set<number>;
+  } | null>(null);
+
   // === Concept B: Fridge Scan ===
   const [fridgeLoading, setFridgeLoading] = useState(false);
   const [fridgeError, setFridgeError] = useState<string | null>(null);
-  const [fridgeOverlay, setFridgeOverlay] = useState<{ name: string; confident: boolean; status: "pending" | "accepted" | "rejected" }[]>([]);
-  const [showFridgeOverlay, setShowFridgeOverlay] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
-  const [animatedCount, setAnimatedCount] = useState(0);
 
   // Track which ingredients come from pantry defaults (shown with gray/subtle style)
   const [pantryDefaultIngredients, setPantryDefaultIngredients] = useState<Set<string>>(new Set());
@@ -230,7 +292,11 @@ export default function WasKocheIch() {
     authFetch(`${API_BASE}/pantry`, { headers: authHeaders() })
       .then((r) => r.json())
       .then((data) => {
-        const items: PantryItem[] = data.items ?? [];
+        const rawItems = data.items ?? [];
+        const items: PantryItem[] = rawItems.map((i: PantryItem) => ({
+          ...i,
+          storageLocation: (i.storageLocation ?? "fridge") as StorageLocation,
+        }));
         setPantryItems(items);
 
         // Apply pantry defaults to selectedIngredients as baseline (gray/subtle style)
@@ -249,6 +315,20 @@ export default function WasKocheIch() {
           });
         }
 
+        // Add all non-default items to selectedIngredients
+        const nonDefaults = items.filter((i) => i.isDefault === 0);
+        if (nonDefaults.length > 0) {
+          setSelectedIngredients((prev) => {
+            const next = new Set(prev);
+            nonDefaults.forEach((i) => next.add(i.ingredientName));
+            return next;
+          });
+          setAllIngredients((prev) => {
+            const combined = new Set([...prev, ...nonDefaults.map((i) => i.ingredientName)]);
+            return Array.from(combined).sort((a, b) => a.localeCompare(b, "de"));
+          });
+        }
+
         // Restore persisted expiry priorities and add those ingredients to selectedIngredients
         const priorities: Record<string, ExpiryPriority> = {};
         const expiryIngredients: string[] = [];
@@ -260,11 +340,6 @@ export default function WasKocheIch() {
         });
         if (Object.keys(priorities).length > 0) {
           setIngredientPriorities(priorities);
-          setSelectedIngredients((prev) => {
-            const next = new Set(prev);
-            expiryIngredients.forEach((name) => next.add(name));
-            return next;
-          });
           setAllIngredients((prev) => {
             const combined = new Set([...prev, ...expiryIngredients]);
             return Array.from(combined).sort((a, b) => a.localeCompare(b, "de"));
@@ -306,21 +381,6 @@ export default function WasKocheIch() {
     chatEndRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [chatMessages]);
 
-  // === Fridge overlay animation ===
-  useEffect(() => {
-    if (fridgeOverlay.length === 0) return;
-    setAnimatedCount(0);
-    const timer = setInterval(() => {
-      setAnimatedCount((prev) => {
-        if (prev >= fridgeOverlay.length) {
-          clearInterval(timer);
-          return prev;
-        }
-        return prev + 1;
-      });
-    }, 120);
-    return () => clearInterval(timer);
-  }, [fridgeOverlay]);
 
   const toggleIngredient = (name: string) => {
     setSelectedIngredients((prev) => {
@@ -334,7 +394,7 @@ export default function WasKocheIch() {
     });
   };
 
-  const addIngredient = () => {
+  const addIngredient = async () => {
     const trimmed = ingredientSearch.trim();
     if (!trimmed) return;
     setSelectedIngredients((prev) => new Set([...prev, trimmed]));
@@ -342,13 +402,36 @@ export default function WasKocheIch() {
       setAllIngredients((prev) => [...prev, trimmed].sort((a, b) => a.localeCompare(b, "de")));
     }
     setIngredientSearch("");
+    if (token) {
+      try {
+        const res = await authFetch(`${API_BASE}/pantry`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json", ...authHeaders() },
+          body: JSON.stringify({
+            ingredientName: trimmed,
+            expiryPriority: "good",
+            isDefault: 0,
+            storageLocation: activeLocation,
+          }),
+        });
+        if (res.ok) {
+          const data = await res.json();
+          setPantryItems((prev) => {
+            const exists = prev.some((i) => i.id === data.item?.id);
+            if (exists) return prev;
+            return [...prev, { ...data.item, storageLocation: data.item?.storageLocation ?? activeLocation }];
+          });
+        }
+      } catch {
+      }
+    }
   };
 
-  // === Fridge upload ===
+  // === Photo upload for location tabs ===
   const handleFridgeUpload = useCallback(async (file: File) => {
     setFridgeLoading(true);
     setFridgeError(null);
-    setShowFridgeOverlay(false);
+    setPhotoScanResult(null);
     try {
       const base64 = await new Promise<string>((resolve, reject) => {
         const reader = new FileReader();
@@ -357,37 +440,38 @@ export default function WasKocheIch() {
         reader.readAsDataURL(file);
       });
       const mimeType = file.type || "image/jpeg";
+      const location = activeLocation;
       const res = await authFetch(`${API_BASE}/extract-fridge`, {
         method: "POST",
         headers: { "Content-Type": "application/json", ...authHeaders() },
-        body: JSON.stringify({ image: base64, mimeType }),
+        body: JSON.stringify({ image: base64, mimeType, location }),
       });
       if (!res.ok) throw new Error("Analyse fehlgeschlagen");
       const data = await res.json();
-      const detected: string[] = data.ingredients ?? [];
+      const detected: string[] = (data.ingredients ?? []).map((n: string) =>
+        n.replace(/\?$/, "").replace(/^evtl\.\s*/i, "").trim()
+      ).filter(Boolean);
 
-      // Parse confident vs uncertain (items ending with ? or "evtl.")
-      const overlayItems = detected.map((name) => {
-        const uncertain = name.endsWith("?") || name.toLowerCase().startsWith("evtl.");
-        return {
-          name: name.replace(/\?$/, "").replace(/^evtl\.\s*/i, "").trim(),
-          confident: !uncertain,
-          status: "pending" as const,
-        };
-      });
+      // Build toAdd and toRemove sets
+      const locationItems = pantryItems.filter((i) => i.storageLocation === location && i.isDefault === 0);
+      const locationNames = new Set(locationItems.map((i) => i.ingredientName.toLowerCase()));
+      const detectedLower = new Set(detected.map((n) => n.toLowerCase()));
 
-      setFridgeOverlay(overlayItems);
-      setShowFridgeOverlay(true);
-      setAllIngredients((prev) => {
-        const combined = new Set([...prev, ...overlayItems.map((i) => i.name)]);
-        return Array.from(combined).sort((a, b) => a.localeCompare(b, "de"));
+      const toAdd = detected.filter((n) => !locationNames.has(n.toLowerCase()));
+      const toRemove = locationItems.filter((i) => !detectedLower.has(i.ingredientName.toLowerCase()));
+
+      setPhotoScanResult({
+        toAdd,
+        toRemove,
+        toAddChecked: new Set(toAdd),
+        toRemoveChecked: new Set(),
       });
     } catch {
       setFridgeError("Das Foto konnte nicht analysiert werden. Bitte versuche es erneut.");
     } finally {
       setFridgeLoading(false);
     }
-  }, []);
+  }, [activeLocation, pantryItems]);
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -395,30 +479,98 @@ export default function WasKocheIch() {
     e.target.value = "";
   };
 
-  const confirmFridgeItem = (index: number, accept: boolean) => {
-    setFridgeOverlay((prev) => {
-      const next = [...prev];
-      next[index] = { ...next[index], status: accept ? "accepted" : "rejected" };
-      return next;
-    });
-    if (accept) {
-      setSelectedIngredients((prev) => new Set([...prev, fridgeOverlay[index].name]));
-    } else {
+
+  // === Photo scan modal confirm ===
+  const handlePhotoScanConfirm = async () => {
+    if (!photoScanResult) return;
+    const location = activeLocation;
+    const toAddItems = photoScanResult.toAdd.filter((n) => photoScanResult.toAddChecked.has(n));
+    const toRemoveIds = Array.from(photoScanResult.toRemoveChecked);
+
+    try {
+      await Promise.all([
+        ...toAddItems.map((name) =>
+          authFetch(`${API_BASE}/pantry`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json", ...authHeaders() },
+            body: JSON.stringify({ ingredientName: name, expiryPriority: "good", isDefault: 0, storageLocation: location }),
+          }).then((r) => r.ok ? r.json() : null)
+        ),
+        ...toRemoveIds.map((id) =>
+          authFetch(`${API_BASE}/pantry/by-id/${id}`, {
+            method: "DELETE",
+            headers: { ...authHeaders() },
+          })
+        ),
+      ]);
+
+      // Reload pantry
+      const r = await authFetch(`${API_BASE}/pantry`, { headers: authHeaders() });
+      const data = await r.json();
+      const items: PantryItem[] = (data.items ?? []).map((i: PantryItem) => ({
+        ...i,
+        storageLocation: (i.storageLocation ?? "fridge") as StorageLocation,
+      }));
+      const updatedNames = new Set(items.map((i) => i.ingredientName));
+      setPantryItems(items);
       setSelectedIngredients((prev) => {
         const next = new Set(prev);
-        next.delete(fridgeOverlay[index].name);
+        toAddItems.forEach((n) => next.add(n));
+        // Only remove from selectedIngredients if no remaining pantry item has this name
+        toRemoveIds.forEach((id) => {
+          const removed = photoScanResult.toRemove.find((i) => i.id === id);
+          if (removed && !updatedNames.has(removed.ingredientName)) {
+            next.delete(removed.ingredientName);
+          }
+        });
         return next;
       });
+    } catch {
+    } finally {
+      setPhotoScanResult(null);
     }
   };
 
-  const acceptAllFridge = () => {
-    setFridgeOverlay((prev) => prev.map((i) => ({ ...i, status: "accepted" as const })));
-    setSelectedIngredients((prev) => {
-      const next = new Set(prev);
-      fridgeOverlay.forEach((i) => next.add(i.name));
-      return next;
+  // === Delete pantry item by id ===
+  const deletePantryItemById = async (id: number) => {
+    const item = pantryItems.find((i) => i.id === id);
+    await authFetch(`${API_BASE}/pantry/by-id/${id}`, {
+      method: "DELETE",
+      headers: { ...authHeaders() },
     });
+    const remaining = pantryItems.filter((i) => i.id !== id);
+    setPantryItems(remaining);
+    if (item) {
+      const stillExists = remaining.some(
+        (i) => i.ingredientName.toLowerCase() === item.ingredientName.toLowerCase()
+      );
+      if (!stillExists) {
+        setSelectedIngredients((prev) => {
+          const next = new Set(prev);
+          next.delete(item.ingredientName);
+          return next;
+        });
+      }
+    }
+  };
+
+  // === Update pantry item (priority/date) ===
+  const updatePantryItem = async (id: number, updates: Partial<Pick<PantryItem, "expiryPriority" | "expiryDate">>) => {
+    const item = pantryItems.find((i) => i.id === id);
+    if (!item) return;
+    const updated = { ...item, ...updates };
+    setPantryItems((prev) => prev.map((i) => (i.id === id ? updated : i)));
+    authFetch(`${API_BASE}/pantry`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", ...authHeaders() },
+      body: JSON.stringify({
+        ingredientName: item.ingredientName,
+        expiryPriority: updated.expiryPriority,
+        isDefault: item.isDefault,
+        storageLocation: item.storageLocation,
+        expiryDate: updated.expiryDate ?? null,
+      }),
+    }).catch(() => {});
   };
 
   // === Mood cycling ===
@@ -463,6 +615,7 @@ export default function WasKocheIch() {
           ingredientName: ingredient,
           expiryPriority: effectivePriority,
           isDefault: existingPantryItem ? existingPantryItem.isDefault : 0,
+          storageLocation: existingPantryItem?.storageLocation ?? activeLocation,
         }),
       }).catch(() => {});
     }
@@ -753,12 +906,7 @@ export default function WasKocheIch() {
     return ing.toLowerCase().includes(ingredientSearch.trim().toLowerCase());
   });
 
-  const searchIsExact = allIngredients.some(
-    (i) => i.toLowerCase() === ingredientSearch.trim().toLowerCase()
-  );
   const canAdd = ingredientSearch.trim().length > 0;
-
-  const defaultPantryIngredients = pantryItems.filter((i) => i.isDefault === 1).map((i) => i.ingredientName);
 
   return (
     <div className="max-w-2xl mx-auto px-4 py-6 space-y-8">
@@ -887,280 +1035,353 @@ export default function WasKocheIch() {
         )}
       </section>
 
-      {/* Section: Ingredients */}
+      {/* === Lagerort-Tabs: Das habe ich zuhause === */}
       <section className="bg-white rounded-2xl border border-border p-5" style={{ boxShadow: "0 2px 12px rgba(120,70,30,0.07)" }}>
-        <h2 className="font-serif font-semibold text-base text-foreground mb-4">🥦 Das habe ich zuhause</h2>
+        <div className="flex items-center justify-between mb-4">
+          <h2 className="font-serif font-semibold text-base text-foreground">🥦 Das habe ich zuhause</h2>
+        </div>
 
-        {/* Pantry defaults hint */}
-        {defaultPantryIngredients.length > 0 && (
-          <div className="mb-3 flex flex-wrap gap-1.5">
-            {defaultPantryIngredients.map((ing) => (
-              <span
-                key={ing}
-                className="px-2.5 py-1 rounded-full text-xs font-medium bg-[#f0f4f1] text-[#4A7C59]/60 border border-[#4A7C59]/10"
-                title="Standard-Vorrat"
-              >
-                {ing}
-              </span>
-            ))}
-            <span className="text-xs text-muted-foreground self-center italic">Standard-Vorrat (immer da)</span>
-          </div>
-        )}
+        {/* Tab bar */}
+        <div className="flex gap-1 mb-4 bg-[#f5ede0] rounded-xl p-1">
+          {(["fridge", "freezer", "pantry"] as StorageLocation[]).map((loc) => (
+            <button
+              key={loc}
+              onClick={() => { setActiveLocation(loc); setActiveCategory("all"); setOpenChipEditor(null); }}
+              className={`flex-1 px-2 py-2 rounded-lg text-xs font-medium transition-colors ${
+                activeLocation === loc
+                  ? "bg-white text-foreground shadow-sm"
+                  : "text-muted-foreground hover:text-foreground"
+              }`}
+            >
+              {LOCATION_LABELS[loc]}
+            </button>
+          ))}
+        </div>
 
-        {loadingIngredients ? (
+        {/* Category filter bar */}
+        <div className="flex gap-1.5 overflow-x-auto pb-2 mb-3 no-scrollbar">
+          {["all", "🥦 Gemüse", "🥩 Fleisch & Fisch", "🥛 Milch & Käse", "🌾 Getreide & Teig", "🫙 Gewürze & Öle", "🍳 Sonstiges"].map((cat) => (
+            <button
+              key={cat}
+              onClick={() => setActiveCategory(cat)}
+              className={`flex-shrink-0 px-3 py-1 rounded-full text-xs font-medium transition-colors border ${
+                activeCategory === cat
+                  ? "bg-[#4A7C59] text-white border-[#4A7C59]"
+                  : "bg-white text-muted-foreground border-border hover:border-[#4A7C59]/30"
+              }`}
+            >
+              {cat === "all" ? "Alle" : cat}
+            </button>
+          ))}
+        </div>
+
+        {/* Ingredients list for active location */}
+        {pantryLoading ? (
           <div className="flex items-center gap-2 text-muted-foreground text-sm py-3">
             <Loader2 className="w-4 h-4 animate-spin" />
-            Zutaten werden geladen…
+            Vorrat wird geladen…
           </div>
         ) : (
           <>
-            {selectedIngredients.size > 0 && (
-              <div className="mb-3">
-                <p className="text-xs font-medium text-[#4A7C59] mb-2">
-                  Ausgewählt:
-                  {pantryDefaultIngredients.size > 0 && (
-                    <span className="text-gray-400 font-normal ml-1">(★ = Standard-Vorrat, automatisch vorausgewählt)</span>
-                  )}
-                </p>
-                <div className="flex flex-wrap gap-2">
-                  {Array.from(selectedIngredients).map((ing) => {
-                    const priority = wasteModeActive ? ingredientPriorities[ing] : undefined;
-                    const isDefault = pantryDefaultIngredients.has(ing);
-                    return (
-                      <div key={ing} className="flex items-center gap-0">
-                        <button
-                          onClick={() => toggleIngredient(ing)}
-                          title={isDefault ? "Aus deinem Standard-Vorrat" : undefined}
-                          className={`flex items-center gap-1.5 px-3 py-1.5 rounded-l-full text-sm font-medium transition-all ${
-                            priority === "today"
-                              ? "bg-red-500 text-white"
-                              : priority === "week"
-                              ? "bg-amber-400 text-white"
-                              : isDefault
-                              ? "bg-gray-300 text-gray-600 border border-gray-400"
-                              : "bg-[#4A7C59] text-white"
-                          }`}
-                        >
-                          {isDefault && <span className="text-xs opacity-60">★</span>}
-                          {ing}
-                          <X className="w-3 h-3" />
-                        </button>
-                        {wasteModeActive && (
-                          <div className="flex rounded-r-full overflow-hidden border-l border-white/30">
+            {(() => {
+              const locationItems = pantryItems.filter(
+                (i) => i.storageLocation === activeLocation && i.isDefault === 0
+              );
+              const defaultItems = pantryItems.filter(
+                (i) => i.storageLocation === activeLocation && i.isDefault === 1
+              );
+              const filtered = locationItems.filter((item) => {
+                if (ingredientSearch.trim()) {
+                  return item.ingredientName.toLowerCase().includes(ingredientSearch.trim().toLowerCase());
+                }
+                if (activeCategory === "all") return true;
+                return getCategoryForIngredient(item.ingredientName) === activeCategory;
+              });
+
+              return (
+                <>
+                  {/* Chip list */}
+                  {filtered.length === 0 && locationItems.length > 0 && ingredientSearch.trim() ? (
+                    <p className="text-xs text-muted-foreground py-2 italic">
+                      Keine Treffer für „{ingredientSearch.trim()}"
+                    </p>
+                  ) : filtered.length === 0 && !ingredientSearch.trim() && activeCategory === "all" ? (
+                    <p className="text-xs text-muted-foreground py-2 italic">
+                      Noch nichts hier – füge Zutaten über das Suchfeld oder per Foto hinzu.
+                    </p>
+                  ) : null}
+
+                  {filtered.length > 0 && (
+                    <div className="flex flex-wrap gap-1.5 pb-1">
+                      {filtered.map((item) => {
+                        const effectivePriority = getEffectivePriority(item);
+                        const isEditorOpen = openChipEditor === item.id;
+                        const wasteOverride = wasteModeActive ? ingredientPriorities[item.ingredientName] : undefined;
+                        const displayPriority = wasteOverride ?? effectivePriority;
+                        return (
+                          <div key={item.id ?? item.ingredientName} className="relative">
                             <button
-                              onClick={() => setPriority(ing, "today")}
-                              className={`px-1.5 py-1.5 text-xs transition-colors ${priority === "today" ? "bg-red-600 text-white" : "bg-red-400/80 text-white hover:bg-red-500"}`}
-                              title="Heute weg"
-                            >🔴</button>
-                            <button
-                              onClick={() => setPriority(ing, "week")}
-                              className={`px-1.5 py-1.5 text-xs transition-colors ${priority === "week" ? "bg-amber-500 text-white" : "bg-amber-300/80 text-white hover:bg-amber-400"}`}
-                              title="Diese Woche"
-                            >🟡</button>
-                            <button
-                              onClick={() => setPriority(ing, "good")}
-                              className={`px-1.5 py-1.5 text-xs rounded-r-full transition-colors ${priority === "good" ? "bg-green-500 text-white" : "bg-green-300/80 text-white hover:bg-green-400"}`}
-                              title="Noch gut"
-                            >🟢</button>
+                              onClick={() => setOpenChipEditor(isEditorOpen ? null : (item.id ?? null))}
+                              className={`flex items-center gap-1 min-h-[36px] px-3 py-1.5 rounded-full text-xs font-medium border transition-colors ${PRIORITY_COLORS[displayPriority]}`}
+                            >
+                              <span>{PRIORITY_INDICATOR[displayPriority]}</span>
+                              <span>{item.ingredientName}</span>
+                              {item.expiryDate && (
+                                <span className="opacity-70 text-[10px]">
+                                  {new Date(item.expiryDate).toLocaleDateString("de-DE", { day: "2-digit", month: "2-digit" })}
+                                </span>
+                              )}
+                            </button>
+                            {isEditorOpen && (
+                              <div className="absolute left-0 top-full mt-1 z-30 bg-white rounded-xl border border-border shadow-lg p-3 w-56">
+                                <p className="text-xs font-semibold text-foreground mb-2">{item.ingredientName}</p>
+                                <div className="flex gap-1 mb-2">
+                                  {(["good", "week", "today"] as ExpiryPriority[]).map((p) => (
+                                    <button
+                                      key={p}
+                                      onClick={() => {
+                                        updatePantryItem(item.id!, { expiryPriority: p });
+                                        setIngredientPriorities((prev) => ({ ...prev, [item.ingredientName]: p }));
+                                      }}
+                                      className={`flex-1 px-1.5 py-1 rounded-lg text-xs font-medium border transition-colors ${
+                                        (item.expiryPriority ?? "good") === p
+                                          ? "bg-[#4A7C59] text-white border-[#4A7C59]"
+                                          : "bg-white text-muted-foreground border-border hover:border-[#4A7C59]/30"
+                                      }`}
+                                    >
+                                      {p === "good" ? "🟢 Gut" : p === "week" ? "🟡 Woche" : "🔴 Heute!"}
+                                    </button>
+                                  ))}
+                                </div>
+                                <input
+                                  type="date"
+                                  value={item.expiryDate ?? ""}
+                                  onChange={(e) => updatePantryItem(item.id!, { expiryDate: e.target.value || null })}
+                                  className="w-full px-2 py-1.5 rounded-lg border border-border text-xs bg-[#fdfaf6] focus:outline-none focus:ring-1 focus:ring-[#4A7C59]/30 mb-2"
+                                />
+                                <button
+                                  onClick={() => {
+                                    if (item.id) deletePantryItemById(item.id);
+                                    setOpenChipEditor(null);
+                                  }}
+                                  className="w-full px-2 py-1.5 rounded-lg bg-red-50 text-red-600 border border-red-200 text-xs font-medium hover:bg-red-100 transition-colors"
+                                >
+                                  Entfernen
+                                </button>
+                              </div>
+                            )}
                           </div>
-                        )}
-                      </div>
-                    );
-                  })}
-                </div>
-                {wasteModeActive && (
-                  <p className="text-xs text-muted-foreground mt-2">🔴 Heute · 🟡 Diese Woche · 🟢 Noch gut – Dringende Zutaten bekommen mehr Gewicht in den Vorschlägen</p>
-                )}
-              </div>
-            )}
+                        );
+                      })}
+                    </div>
+                  )}
 
-            <div className="flex gap-2 mb-3">
-              <input
-                type="text"
-                value={ingredientSearch}
-                onChange={(e) => setIngredientSearch(e.target.value)}
-                onKeyDown={(e) => {
-                  if (e.key === "Enter") {
-                    if (canAdd && !searchIsExact) {
-                      addIngredient();
-                    } else if (filteredIngredients.length === 1) {
-                      toggleIngredient(filteredIngredients[0]);
-                      setIngredientSearch("");
-                    }
-                  }
-                }}
-                placeholder="Zutat suchen oder hinzufügen…"
-                className="flex-1 px-3 py-2 rounded-xl border border-border bg-[#fdfaf6] text-sm focus:outline-none focus:ring-2 focus:ring-[#4A7C59]/30"
-              />
-              <button
-                onClick={addIngredient}
-                disabled={!canAdd}
-                className="flex items-center gap-1 px-3 py-2 rounded-xl bg-[#4A7C59] text-white text-sm font-medium hover:bg-[#2d5240] disabled:opacity-40 transition-colors"
-              >
-                <Plus className="w-4 h-4" />
-              </button>
-            </div>
-
-            {selectedIngredients.size === 0 && !ingredientSearch.trim() && (
-              <p className="text-xs text-muted-foreground mb-2 italic">
-                Wähle aus, was du zuhause hast – oder tippe eine Zutat ein.
-              </p>
-            )}
-
-            {filteredIngredients.length === 0 && ingredientSearch.trim() ? (
-              <p className="text-xs text-muted-foreground py-2">
-                Keine Treffer – drücke Enter oder + um „{ingredientSearch.trim()}" hinzuzufügen.
-              </p>
-            ) : filteredIngredients.length === 0 && !ingredientSearch.trim() && allIngredients.length > 0 ? null : (
-              <div className="flex flex-wrap gap-1.5 max-h-52 overflow-y-auto pb-1">
-                {filteredIngredients.map((ing) => (
-                  <button
-                    key={ing}
-                    onClick={() => {
-                      toggleIngredient(ing);
-                      setIngredientSearch("");
-                    }}
-                    className="px-3 py-1.5 rounded-full text-xs font-medium bg-[#f5ede0] text-[#7a4a2a] border border-[#e8d5c0] hover:bg-[#4A7C59]/10 hover:border-[#4A7C59]/30 transition-colors"
-                  >
-                    {ing}
-                  </button>
-                ))}
-              </div>
-            )}
+                  {/* Standard-Vorrat section */}
+                  {defaultItems.length > 0 && (
+                    <div className="mt-3 border-t border-border pt-3">
+                      <button
+                        onClick={() => setDefaultSectionOpen((v) => !v)}
+                        className="flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground mb-2 font-medium"
+                      >
+                        <span>★ Standard-Vorrat – immer da</span>
+                        <ChevronDown className={`w-3 h-3 transition-transform ${defaultSectionOpen ? "rotate-180" : ""}`} />
+                      </button>
+                      {defaultSectionOpen && (
+                        <div className="flex flex-wrap gap-1.5">
+                          {defaultItems.map((item) => (
+                            <span
+                              key={item.id ?? item.ingredientName}
+                              className="px-2.5 py-1 min-h-[36px] flex items-center rounded-full text-xs font-medium bg-[#f0f4f1] text-[#4A7C59]/70 border border-[#4A7C59]/10"
+                            >
+                              ★ {item.ingredientName}
+                            </span>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  )}
+                </>
+              );
+            })()}
           </>
         )}
-      </section>
 
-      {/* === Concept B: Fridge Photo === */}
-      <section className="bg-white rounded-2xl border border-border p-5" style={{ boxShadow: "0 2px 12px rgba(120,70,30,0.07)" }}>
-        <h2 className="font-serif font-semibold text-base text-foreground mb-3">📷 Kühlschrank fotografieren</h2>
-        <p className="text-xs text-muted-foreground mb-4">Mach ein Foto deines Kühlschranks – die KI erkennt automatisch die Zutaten.</p>
-
-        <input
-          ref={fileInputRef}
-          type="file"
-          accept="image/*"
-          capture="environment"
-          className="hidden"
-          onChange={handleFileChange}
-        />
-
-        <div className="flex gap-2 flex-wrap">
-          <button
-            onClick={() => {
-              if (fileInputRef.current) {
-                fileInputRef.current.removeAttribute("capture");
-                fileInputRef.current.setAttribute("capture", "environment");
-                fileInputRef.current.click();
+        {/* Search + Add */}
+        <div className="flex gap-2 mt-3">
+          <input
+            type="text"
+            value={ingredientSearch}
+            onChange={(e) => setIngredientSearch(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === "Enter") {
+                if (canAdd) {
+                  addIngredient();
+                }
               }
             }}
-            className="flex items-center gap-2 px-4 py-2.5 bg-[#6b5ca5] text-white rounded-xl text-sm font-medium hover:bg-[#5a4c8e] transition-colors"
-          >
-            <Camera className="w-4 h-4" />
-            Foto aufnehmen
-          </button>
+            placeholder={`Zutat zu ${LOCATION_LABELS[activeLocation]} hinzufügen…`}
+            className="flex-1 px-3 py-2 rounded-xl border border-border bg-[#fdfaf6] text-sm focus:outline-none focus:ring-2 focus:ring-[#4A7C59]/30"
+          />
           <button
-            onClick={() => {
-              if (fileInputRef.current) {
-                fileInputRef.current.removeAttribute("capture");
-                fileInputRef.current.click();
-              }
-            }}
-            className="flex items-center gap-2 px-4 py-2.5 bg-white border border-border text-foreground rounded-xl text-sm font-medium hover:bg-[#f5ede0] transition-colors"
+            onClick={addIngredient}
+            disabled={!canAdd}
+            className="flex items-center gap-1 px-3 py-2 rounded-xl bg-[#4A7C59] text-white text-sm font-medium hover:bg-[#2d5240] disabled:opacity-40 transition-colors"
           >
-            <UploadCloud className="w-4 h-4" />
-            Bild hochladen
+            <Plus className="w-4 h-4" />
           </button>
         </div>
-
-        {fridgeLoading && (
-          <div className="mt-4 flex items-center gap-2 text-sm text-muted-foreground">
-            <Loader2 className="w-4 h-4 animate-spin text-[#6b5ca5]" />
-            Foto wird analysiert…
-          </div>
+        {ingredientSearch.trim() && filteredIngredients.length === 0 && (
+          <p className="text-xs text-muted-foreground mt-1">
+            Drücke Enter oder + um „{ingredientSearch.trim()}" zu {LOCATION_LABELS[activeLocation]} hinzuzufügen.
+          </p>
         )}
 
-        {fridgeError && (
-          <div className="mt-4 flex items-center gap-2 text-sm text-red-600 bg-red-50 rounded-xl px-3 py-2">
-            <AlertCircle className="w-4 h-4 flex-shrink-0" />
-            {fridgeError}
-          </div>
+        {wasteModeActive && (
+          <p className="text-xs text-muted-foreground mt-2">🔴 Heute · 🟡 Diese Woche · 🟢 Noch gut – Tippe auf eine Zutat um den Status zu ändern</p>
         )}
 
-        {/* Concept B: Animated overlay */}
-        {showFridgeOverlay && fridgeOverlay.length > 0 && !fridgeLoading && (
-          <div className="mt-4">
-            <div className="flex items-center justify-between mb-2">
-              <p className="text-xs font-medium text-[#6b5ca5]">
-                ✨ {fridgeOverlay.length} Zutaten erkannt – bestätigen oder verwerfen:
-              </p>
-              <div className="flex gap-2">
+        {/* Photo upload area */}
+        <div className="mt-4 pt-4 border-t border-border">
+          <p className="text-xs text-muted-foreground mb-2">📷 Foto des {LOCATION_LABELS[activeLocation].replace(/^.*? /, "")} analysieren:</p>
+          <input
+            ref={fileInputRef}
+            type="file"
+            accept="image/*"
+            capture="environment"
+            className="hidden"
+            onChange={handleFileChange}
+          />
+          <div className="flex gap-2 flex-wrap">
+            <button
+              onClick={() => {
+                if (fileInputRef.current) {
+                  fileInputRef.current.removeAttribute("capture");
+                  fileInputRef.current.setAttribute("capture", "environment");
+                  fileInputRef.current.click();
+                }
+              }}
+              disabled={fridgeLoading}
+              className="flex items-center gap-2 px-3 py-2 bg-[#6b5ca5] text-white rounded-xl text-xs font-medium hover:bg-[#5a4c8e] disabled:opacity-50 transition-colors"
+            >
+              <Camera className="w-3.5 h-3.5" />
+              Foto aufnehmen
+            </button>
+            <button
+              onClick={() => {
+                if (fileInputRef.current) {
+                  fileInputRef.current.removeAttribute("capture");
+                  fileInputRef.current.click();
+                }
+              }}
+              disabled={fridgeLoading}
+              className="flex items-center gap-2 px-3 py-2 bg-white border border-border text-foreground rounded-xl text-xs font-medium hover:bg-[#f5ede0] disabled:opacity-50 transition-colors"
+            >
+              <UploadCloud className="w-3.5 h-3.5" />
+              Bild hochladen
+            </button>
+          </div>
+          {fridgeLoading && (
+            <div className="mt-2 flex items-center gap-2 text-xs text-muted-foreground">
+              <Loader2 className="w-3.5 h-3.5 animate-spin text-[#6b5ca5]" />
+              Foto wird analysiert…
+            </div>
+          )}
+          {fridgeError && (
+            <div className="mt-2 flex items-center gap-2 text-xs text-red-600 bg-red-50 rounded-xl px-3 py-2">
+              <AlertCircle className="w-3.5 h-3.5 flex-shrink-0" />
+              {fridgeError}
+            </div>
+          )}
+        </div>
+      </section>
+
+      {/* Photo Scan Confirmation Modal */}
+      {photoScanResult && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm">
+          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md max-h-[85vh] overflow-y-auto">
+            <div className="sticky top-0 bg-[#6b5ca5] text-white px-5 py-4 rounded-t-2xl flex items-center justify-between">
+              <h3 className="font-semibold text-sm">📷 Foto-Ergebnis – {LOCATION_LABELS[activeLocation]}</h3>
+              <button onClick={() => setPhotoScanResult(null)} className="p-1 hover:bg-white/20 rounded-lg transition-colors">
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+            <div className="p-5 space-y-4">
+              {photoScanResult.toAdd.length === 0 && photoScanResult.toRemove.length === 0 && (
+                <p className="text-sm text-muted-foreground text-center py-4">
+                  Keine neuen Zutaten erkannt und alle vorhandenen sichtbar.
+                </p>
+              )}
+
+              {photoScanResult.toAdd.length > 0 && (
+                <div>
+                  <p className="text-xs font-semibold text-[#4A7C59] mb-2">Neu erkannt 🆕</p>
+                  <div className="space-y-1">
+                    {photoScanResult.toAdd.map((name) => (
+                      <label key={name} className="flex items-center gap-2 px-3 py-2 rounded-xl bg-green-50 border border-green-200 cursor-pointer">
+                        <input
+                          type="checkbox"
+                          checked={photoScanResult.toAddChecked.has(name)}
+                          onChange={(e) => {
+                            setPhotoScanResult((prev) => {
+                              if (!prev) return prev;
+                              const next = new Set(prev.toAddChecked);
+                              if (e.target.checked) next.add(name); else next.delete(name);
+                              return { ...prev, toAddChecked: next };
+                            });
+                          }}
+                          className="accent-[#4A7C59]"
+                        />
+                        <span className="text-sm text-foreground">{name}</span>
+                      </label>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {photoScanResult.toRemove.length > 0 && (
+                <div>
+                  <p className="text-xs font-semibold text-red-600 mb-2">Nicht mehr sichtbar 👀</p>
+                  <div className="space-y-1">
+                    {photoScanResult.toRemove.map((item) => (
+                      <label key={item.id} className="flex items-center gap-2 px-3 py-2 rounded-xl bg-red-50 border border-red-200 cursor-pointer">
+                        <input
+                          type="checkbox"
+                          checked={photoScanResult.toRemoveChecked.has(item.id!)}
+                          onChange={(e) => {
+                            setPhotoScanResult((prev) => {
+                              if (!prev) return prev;
+                              const next = new Set(prev.toRemoveChecked);
+                              if (e.target.checked) next.add(item.id!); else next.delete(item.id!);
+                              return { ...prev, toRemoveChecked: next };
+                            });
+                          }}
+                          className="accent-red-500"
+                        />
+                        <span className="text-sm text-foreground">{item.ingredientName}</span>
+                      </label>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              <div className="flex gap-2 pt-2">
                 <button
-                  onClick={acceptAllFridge}
-                  className="text-xs font-medium text-[#6b5ca5] hover:underline"
+                  onClick={handlePhotoScanConfirm}
+                  className="flex-1 px-4 py-2.5 bg-[#6b5ca5] text-white rounded-xl text-sm font-medium hover:bg-[#5a4c8e] transition-colors"
                 >
-                  Alle bestätigen ✓
+                  Übernehmen
                 </button>
                 <button
-                  onClick={() => {
-                    if (fileInputRef.current) {
-                      fileInputRef.current.removeAttribute("capture");
-                      fileInputRef.current.click();
-                    }
-                  }}
-                  className="flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground"
+                  onClick={() => setPhotoScanResult(null)}
+                  className="px-4 py-2.5 border border-border text-sm rounded-xl text-muted-foreground hover:bg-secondary transition-colors"
                 >
-                  <RefreshCw className="w-3 h-3" />
-                  Nochmal
+                  Abbrechen
                 </button>
               </div>
             </div>
-            <div className="flex flex-wrap gap-2">
-              {fridgeOverlay.map((item, i) => {
-                const visible = i < animatedCount;
-                return (
-                  <div
-                    key={`${item.name}-${i}`}
-                    className={`flex items-center gap-1 rounded-full border text-xs font-medium px-2.5 py-1.5 transition-all duration-300 ${
-                      visible ? "opacity-100 translate-y-0" : "opacity-0 translate-y-2"
-                    } ${
-                      item.status === "accepted"
-                        ? "bg-[#6b5ca5] text-white border-[#6b5ca5]"
-                        : item.status === "rejected"
-                        ? "bg-gray-100 text-gray-400 border-gray-200 line-through"
-                        : item.confident
-                        ? "bg-[#f0edf8] text-[#6b5ca5] border-[#d5cdf0]"
-                        : "bg-amber-50 text-amber-700 border-amber-200"
-                    }`}
-                    style={{ transform: visible ? "translateY(0)" : "translateY(8px)" }}
-                  >
-                    {!item.confident && item.status === "pending" && (
-                      <span className="text-amber-500 font-bold">?</span>
-                    )}
-                    <span>{item.name}</span>
-                    {item.status === "pending" && (
-                      <>
-                        <button
-                          onClick={() => confirmFridgeItem(i, true)}
-                          className="ml-1 w-5 h-5 rounded-full bg-green-500 text-white flex items-center justify-center hover:bg-green-600 transition-colors text-xs font-bold"
-                          title="Bestätigen"
-                        >✓</button>
-                        <button
-                          onClick={() => confirmFridgeItem(i, false)}
-                          className="w-5 h-5 rounded-full bg-red-400 text-white flex items-center justify-center hover:bg-red-500 transition-colors text-xs font-bold"
-                          title="Verwerfen"
-                        >✗</button>
-                      </>
-                    )}
-                    {item.status === "accepted" && <span className="text-green-300 text-xs">✓</span>}
-                    {item.status === "rejected" && <span className="text-red-300 text-xs">✗</span>}
-                  </div>
-                );
-              })}
-            </div>
           </div>
-        )}
-      </section>
+        </div>
+      )}
 
       {/* Section 3: Mood Filter */}
       <section className="bg-white rounded-2xl border border-border p-5" style={{ boxShadow: "0 2px 12px rgba(120,70,30,0.07)" }}>

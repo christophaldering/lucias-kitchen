@@ -27,6 +27,8 @@ router.post("/pantry", authMiddleware, async (req, res) => {
       ingredientName: z.string().min(1),
       expiryPriority: z.enum(["today", "week", "good"]).default("good"),
       isDefault: z.number().int().min(0).max(1).default(0),
+      storageLocation: z.enum(["fridge", "freezer", "pantry"]).default("fridge"),
+      expiryDate: z.string().nullable().optional(),
     });
     const data = schema.parse(req.body);
     const userId = req.authUser!.id;
@@ -37,7 +39,8 @@ router.post("/pantry", authMiddleware, async (req, res) => {
       .where(
         and(
           eq(userPantryTable.userId, userId),
-          eq(userPantryTable.ingredientName, data.ingredientName)
+          eq(userPantryTable.ingredientName, data.ingredientName),
+          eq(userPantryTable.storageLocation, data.storageLocation)
         )
       );
 
@@ -47,6 +50,7 @@ router.post("/pantry", authMiddleware, async (req, res) => {
         .set({
           expiryPriority: data.expiryPriority,
           isDefault: data.isDefault,
+          expiryDate: data.expiryDate ?? null,
           updatedAt: new Date(),
         })
         .where(eq(userPantryTable.id, existing[0].id))
@@ -55,7 +59,7 @@ router.post("/pantry", authMiddleware, async (req, res) => {
     } else {
       const [item] = await db
         .insert(userPantryTable)
-        .values({ userId, ...data })
+        .values({ userId, ...data, expiryDate: data.expiryDate ?? null })
         .returning();
       res.json({ item });
     }
@@ -72,16 +76,24 @@ router.post("/pantry/batch", authMiddleware, async (req, res) => {
         ingredientName: z.string().min(1),
         expiryPriority: z.enum(["today", "week", "good"]).default("good"),
         isDefault: z.number().int().min(0).max(1).default(0),
+        storageLocation: z.enum(["fridge", "freezer", "pantry"]).default("fridge"),
+        expiryDate: z.string().nullable().optional(),
       })),
+      location: z.enum(["fridge", "freezer", "pantry"]),
     });
-    const { items } = schema.parse(req.body);
+    const { items, location } = schema.parse(req.body);
     const userId = req.authUser!.id;
 
-    await db.delete(userPantryTable).where(eq(userPantryTable.userId, userId));
+    await db.delete(userPantryTable).where(
+      and(
+        eq(userPantryTable.userId, userId),
+        eq(userPantryTable.storageLocation, location)
+      )
+    );
 
     if (items.length > 0) {
       await db.insert(userPantryTable).values(
-        items.map((item) => ({ userId, ...item }))
+        items.map((item) => ({ userId, ...item, expiryDate: item.expiryDate ?? null }))
       );
     }
 
@@ -89,6 +101,29 @@ router.post("/pantry/batch", authMiddleware, async (req, res) => {
     res.json({ items: saved });
   } catch (err) {
     req.log.error({ err }, "Failed to batch save pantry");
+    res.status(500).json({ error: "internal_error" });
+  }
+});
+
+router.delete("/pantry/by-id/:id", authMiddleware, async (req, res) => {
+  try {
+    const userId = req.authUser!.id;
+    const id = parseInt(req.params.id, 10);
+    if (isNaN(id)) {
+      res.status(400).json({ error: "bad_request", message: "Invalid id" });
+      return;
+    }
+    await db
+      .delete(userPantryTable)
+      .where(
+        and(
+          eq(userPantryTable.userId, userId),
+          eq(userPantryTable.id, id)
+        )
+      );
+    res.json({ ok: true });
+  } catch (err) {
+    req.log.error({ err }, "Failed to delete pantry item by id");
     res.status(500).json({ error: "internal_error" });
   }
 });

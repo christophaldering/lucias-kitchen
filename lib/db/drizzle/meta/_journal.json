@@ -57,6 +57,13 @@
       "when": 1742825000000,
       "tag": "0008_bulk_import_archive",
       "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "7",
+      "when": 1742900000000,
+      "tag": "0009_pantry_storage_location",
+      "breakpoints": true
     }
   ]
 }

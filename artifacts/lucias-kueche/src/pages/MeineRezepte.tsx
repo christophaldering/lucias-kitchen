@@ -371,6 +371,8 @@ interface MeineRezepteProps {
   onNavigate?: (tab: string) => void;
   initialOpenRecipeId?: number | null;
   onRecipeOpened?: () => void;
+  initialSortOrder?: string | null;
+  onSortOrderApplied?: () => void;
 }
 
 const FILTER_LABELS: Record<RecipeFilter, string> = {
@@ -379,7 +381,7 @@ const FILTER_LABELS: Record<RecipeFilter, string> = {
   favorites: "Gemerkte",
 };
 
-export default function MeineRezepte({ onNavigate: _onNavigate, initialOpenRecipeId, onRecipeOpened }: MeineRezepteProps) {
+export default function MeineRezepte({ onNavigate: _onNavigate, initialOpenRecipeId, onRecipeOpened, initialSortOrder, onSortOrderApplied }: MeineRezepteProps) {
   const [recipeFilter, setRecipeFilter] = useState<RecipeFilter>("all");
   const { recipes, loading, error, addRecipes, refetch, patchRecipeSilent, deleteRecipeSilent, updateRecipe, toggleFavorite } = useRecipes(recipeFilter);
 
@@ -395,6 +397,8 @@ export default function MeineRezepte({ onNavigate: _onNavigate, initialOpenRecip
     return "galerie";
   })();
   const savedSortOrder = useLocalStorage<string>("lk_sortOrder", "alphabetisch");
+  const [sortOrderOverride, setSortOrderOverride] = useState<string | null>(null);
+  const activeSortOrder = sortOrderOverride ?? savedSortOrder;
   const showNotes = useLocalStorage<boolean>("lk_showNotes", true);
   const showCookCount = useLocalStorage<boolean>("lk_showCookCount", true);
 
@@ -433,15 +437,30 @@ export default function MeineRezepte({ onNavigate: _onNavigate, initialOpenRecip
   const recipeIds = useMemo(() => recipes.map((r) => r.id), [recipes]);
   const { data: commentStats = {} } = useCommentStats(recipeIds);
 
+  const openedForIdRef = useRef<number | null>(null);
+  const hasRecipes = recipes.length > 0;
+
   useEffect(() => {
-    if (initialOpenRecipeId && recipes.length > 0) {
-      const recipe = recipes.find((r) => r.id === initialOpenRecipeId);
-      if (recipe) {
-        setSelectedId(recipe.id);
-        onRecipeOpened?.();
-      }
+    if (!initialOpenRecipeId) {
+      openedForIdRef.current = null;
+      return;
     }
-  }, [initialOpenRecipeId, recipes]);
+    if (openedForIdRef.current === initialOpenRecipeId) return;
+    if (!hasRecipes) return;
+    const recipe = recipes.find((r) => r.id === initialOpenRecipeId);
+    if (recipe) {
+      openedForIdRef.current = initialOpenRecipeId;
+      setSelectedId(recipe.id);
+      onRecipeOpened?.();
+    }
+  }, [initialOpenRecipeId, hasRecipes]);
+
+  useEffect(() => {
+    if (!initialSortOrder) return;
+    setRecipeFilter("all");
+    setSortOrderOverride(initialSortOrder);
+    onSortOrderApplied?.();
+  }, [initialSortOrder]);
 
   const toggleSelect = (id: number) => setManagedSelected((prev) => {
     const next = new Set(prev);
@@ -514,7 +533,7 @@ export default function MeineRezepte({ onNavigate: _onNavigate, initialOpenRecip
 
   const sorted = useMemo(() => {
     const base = [...recipes];
-    switch (savedSortOrder) {
+    switch (activeSortOrder) {
       case "alphabetisch":
         return base.sort((a, b) => a.title.localeCompare(b.title, "de"));
       case "kategorie":
@@ -533,15 +552,21 @@ export default function MeineRezepte({ onNavigate: _onNavigate, initialOpenRecip
         });
       case "haeufig_gekocht":
         return base.sort((a, b) => (b.cookedCount ?? 0) - (a.cookedCount ?? 0));
+      case "neueste":
+        return base.sort((a, b) => {
+          const ca = a.createdAt ?? "";
+          const cb = b.createdAt ?? "";
+          return cb.localeCompare(ca);
+        });
       default:
         return base;
     }
-  }, [recipes, savedSortOrder]);
+  }, [recipes, activeSortOrder]);
 
   const baseList = useMemo(() => {
     if (searchResults !== null) {
       const sorted2 = [...searchResults];
-      switch (savedSortOrder) {
+      switch (activeSortOrder) {
         case "alphabetisch":
           sorted2.sort((a, b) => a.title.localeCompare(b.title, "de"));
           break;
@@ -565,11 +590,18 @@ export default function MeineRezepte({ onNavigate: _onNavigate, initialOpenRecip
         case "haeufig_gekocht":
           sorted2.sort((a, b) => (b.cookedCount ?? 0) - (a.cookedCount ?? 0));
           break;
+        case "neueste":
+          sorted2.sort((a, b) => {
+            const ca = a.createdAt ?? "";
+            const cb = b.createdAt ?? "";
+            return cb.localeCompare(ca);
+          });
+          break;
       }
       return sorted2;
     }
     return sorted;
-  }, [searchResults, sorted, savedSortOrder]);
+  }, [searchResults, sorted, activeSortOrder]);
 
   const filtered = useMemo(() => baseList.filter((r) => {
     const matchesCat = activeCategory === "Alle" || r.category === activeCategory;

@@ -13,7 +13,7 @@ import MeineKueche from "@/pages/MeineKueche";
 import { AuthProvider, useAuth } from "@/contexts/AuthContext";
 import { NotificationBell } from "@/components/NotificationBell";
 import { BulkImportProgressBar } from "@/components/BulkImportProgressBar";
-import { useNotifications } from "@/hooks/useInvitations";
+import { useNotifications } from "@/hooks/useNotifications";
 import { useIncomingSuggestions } from "@/hooks/useRecipeSuggestions";
 
 const queryClient = new QueryClient();
@@ -171,14 +171,21 @@ function AppShell() {
   const [activeTab, setActiveTab] = useState<Tab>("rezepte");
   const [openRecipeId, setOpenRecipeId] = useState<number | null>(null);
   const [adminInitialTab, setAdminInitialTab] = useState<string | null>(null);
-  const { unreadCount: invitationUnreadCount } = useNotifications();
+  const [recipesInitialSortOrder, setRecipesInitialSortOrder] = useState<string | null>(null);
+  const { data: notifications = [] } = useNotifications();
+  const notificationUnreadCount = notifications.filter((n) => !n.readAt).length;
   const { suggestions: incomingSuggestions } = useIncomingSuggestions();
   const pendingSuggestionsCount = incomingSuggestions.filter((s) => s.status === "pending").length;
-  const unreadCount = invitationUnreadCount + pendingSuggestionsCount;
+  const unreadCount = notificationUnreadCount + pendingSuggestionsCount;
 
   function handleOpenRecipeFromNotification(recipeId: number) {
     setActiveTab("rezepte");
     setOpenRecipeId(recipeId);
+  }
+
+  function handleBulkImportDone() {
+    setActiveTab("rezepte");
+    setRecipesInitialSortOrder("neueste");
   }
 
   if (loading) {
@@ -222,7 +229,7 @@ function AppShell() {
               </h1>
             </button>
             <div className="flex items-center gap-1">
-              <NotificationBell onOpenRecipe={handleOpenRecipeFromNotification} onNavigate={(tab) => setActiveTab(tab as Tab)} />
+              <NotificationBell onOpenRecipe={handleOpenRecipeFromNotification} onNavigate={(tab) => setActiveTab(tab as Tab)} onBulkImportDone={handleBulkImportDone} />
               <AvatarDropdown onNavigate={(tab) => setActiveTab(tab)} />
             </div>
           </div>
@@ -230,7 +237,7 @@ function AppShell() {
       </header>
 
       <main className="min-h-screen pb-24" style={{ minHeight: "calc(100vh - 56px)" }}>
-        {activeTab === "rezepte" && <MeineRezepte onNavigate={(tab) => setActiveTab(tab as Tab)} initialOpenRecipeId={openRecipeId} onRecipeOpened={() => setOpenRecipeId(null)} />}
+        {activeTab === "rezepte" && <MeineRezepte onNavigate={(tab) => setActiveTab(tab as Tab)} initialOpenRecipeId={openRecipeId} onRecipeOpened={() => setOpenRecipeId(null)} initialSortOrder={recipesInitialSortOrder} onSortOrderApplied={() => setRecipesInitialSortOrder(null)} />}
         {activeTab === "was-koche-ich" && <WasKocheIch />}
         {activeTab === "wochenplan" && <Wochenplan onNavigate={(tab) => setActiveTab(tab as Tab)} />}
         {activeTab === "statistiken" && <Statistiken />}

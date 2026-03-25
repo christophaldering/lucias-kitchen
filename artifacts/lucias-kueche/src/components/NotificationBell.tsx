@@ -51,12 +51,14 @@ function NotificationItem({
   onRead,
   onOpenRecipe,
   onNavigate,
+  onBulkImportDone,
   onClose,
 }: {
   notification: AppNotification;
   onRead: (id: number) => void;
   onOpenRecipe: (recipeId: number) => void;
   onNavigate: (tab: string) => void;
+  onBulkImportDone?: () => void;
   onClose: () => void;
 }) {
   const isUnread = !notification.readAt;
@@ -71,7 +73,11 @@ function NotificationItem({
     if (type === "comment" && payload.recipeId) {
       onOpenRecipe(payload.recipeId);
     } else if (type === "bulk_import_done") {
-      onNavigate("rezepte");
+      if (onBulkImportDone) {
+        onBulkImportDone();
+      } else {
+        onNavigate("rezepte");
+      }
     } else if (type === "invitation" || type === "decision" || type === "cancellation") {
       onNavigate("meine-kueche");
     }
@@ -103,9 +109,10 @@ function NotificationItem({
 interface NotificationBellProps {
   onOpenRecipe?: (recipeId: number) => void;
   onNavigate?: (tab: string) => void;
+  onBulkImportDone?: () => void;
 }
 
-export function NotificationBell({ onOpenRecipe, onNavigate }: NotificationBellProps) {
+export function NotificationBell({ onOpenRecipe, onNavigate, onBulkImportDone }: NotificationBellProps) {
   const [open, setOpen] = useState(false);
   const panelRef = useRef<HTMLDivElement>(null);
   const { data: notifications = [] } = useNotifications();
@@ -186,6 +193,7 @@ export function NotificationBell({ onOpenRecipe, onNavigate }: NotificationBellP
                   onRead={(id) => markRead.mutate(id)}
                   onOpenRecipe={handleOpenRecipe}
                   onNavigate={handleNavigate}
+                  onBulkImportDone={onBulkImportDone ? () => { setOpen(false); onBulkImportDone(); } : undefined}
                   onClose={() => setOpen(false)}
                 />
               ))

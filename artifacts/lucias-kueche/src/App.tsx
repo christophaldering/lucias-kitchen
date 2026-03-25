@@ -243,7 +243,6 @@ function AppShell() {
       <BulkImportProgressBar onNavigateToImport={() => {
         setActiveTab("admin");
         setAdminInitialTab("bulk-import");
-        setTimeout(() => setAdminInitialTab(null), 0);
       }} />
     </>
   );

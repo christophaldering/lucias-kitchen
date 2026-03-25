@@ -1,4 +1,5 @@
 import { useState, useRef, useEffect } from "react";
+import * as XLSX from "xlsx";
 import {
   Loader2, Trash2, Edit2, Download, Tag, RefreshCw,
   Upload, Check, AlertTriangle, Settings, Database, Sliders,
@@ -7,6 +8,7 @@ import {
 import { useRecipes } from "@/hooks/useRecipes";
 import { useAdminGroups, type AdminGroup } from "@/hooks/useGroups";
 import type { Recipe } from "@/types/recipe";
+import { SEASON_LABELS } from "@/types/recipe";
 import BulkImportTab from "@/components/BulkImportTab";
 import DuplicatesTab from "@/components/DuplicatesTab";
 
@@ -317,6 +319,38 @@ function BackupSection({
     toast("Export erfolgreich");
   };
 
+  const doExportExcel = () => {
+    const recipesSheet = recipes.map((r) => ({
+      Name: r.title,
+      Beschreibung: r.notes ?? "",
+      Kategorie: r.category ?? "",
+      Portionen: r.servings ?? "",
+      Vorbereitungszeit: r.prepTime ?? "",
+      Gesamtzeit: r.totalTime ?? "",
+      Tags: Array.isArray(r.seasons) ? r.seasons.map((s) => SEASON_LABELS[s] ?? s).join(", ") : "",
+    }));
+
+    const ingredientsSheet: { Rezept: string; Zutat: string; Menge: string; Einheit: string }[] = [];
+    for (const r of recipes) {
+      if (Array.isArray(r.ingredients)) {
+        for (const ing of r.ingredients) {
+          ingredientsSheet.push({
+            Rezept: r.title,
+            Zutat: ing.name ?? "",
+            Menge: ing.amount ?? "",
+            Einheit: ing.unit ?? "",
+          });
+        }
+      }
+    }
+
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(recipesSheet), "Rezepte");
+    XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(ingredientsSheet), "Zutaten");
+    XLSX.writeFile(wb, "lucias-rezepte.xlsx");
+    toast("Excel-Export erfolgreich");
+  };
+
   const handleImportFile = (file: File) => {
     const reader = new FileReader();
     reader.onload = () => {
@@ -420,10 +454,16 @@ function BackupSection({
           <p className="text-sm text-muted-foreground mb-4">
             {recipes.length} Rezepte als JSON-Datei herunterladen (vollständige Sicherung inkl. Zutaten und Schritte).
           </p>
-          <button onClick={doExport}
-            className="flex items-center gap-2 px-4 py-2.5 bg-[#4A7C59] text-white rounded-xl text-sm font-semibold hover:bg-[#3d6849] transition-colors">
-            <Download className="w-4 h-4" /> Alle exportieren (.json)
-          </button>
+          <div className="flex flex-wrap gap-2">
+            <button onClick={doExport}
+              className="flex items-center gap-2 px-4 py-2.5 bg-[#4A7C59] text-white rounded-xl text-sm font-semibold hover:bg-[#3d6849] transition-colors">
+              <Download className="w-4 h-4" /> Alle exportieren (.json)
+            </button>
+            <button onClick={doExportExcel}
+              className="flex items-center gap-2 px-4 py-2.5 bg-[#4A7C59] text-white rounded-xl text-sm font-semibold hover:bg-[#3d6849] transition-colors">
+              <Download className="w-4 h-4" /> Alle exportieren (.xlsx)
+            </button>
+          </div>
         </div>
 
         <div className="bg-white rounded-2xl border border-border shadow-sm p-6">

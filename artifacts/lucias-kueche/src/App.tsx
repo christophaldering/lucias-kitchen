@@ -16,7 +16,15 @@ import { BulkImportProgressBar } from "@/components/BulkImportProgressBar";
 import { useNotifications } from "@/hooks/useNotifications";
 import { useIncomingSuggestions } from "@/hooks/useRecipeSuggestions";
 
-const queryClient = new QueryClient();
+const queryClient = new QueryClient({
+  defaultOptions: {
+    queries: {
+      staleTime: 30_000,
+      retry: 1,
+      refetchOnWindowFocus: true,
+    },
+  },
+});
 
 type Tab = "rezepte" | "wochenplan" | "statistiken" | "admin" | "profil" | "was-koche-ich" | "meine-kueche";
 

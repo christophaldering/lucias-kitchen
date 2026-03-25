@@ -3,7 +3,8 @@ import {
   Users, ChefHat, Share2, Plus, Clock, CheckCircle, XCircle, ChevronRight,
   CalendarDays, Bell, BookmarkPlus, X, Loader2, Send, Inbox, ExternalLink, UserPlus
 } from "lucide-react";
-import { useInvitations, useNotifications } from "@/hooks/useInvitations";
+import { useInvitations } from "@/hooks/useInvitations";
+import { useNotifications, useMarkNotificationRead, useMarkAllNotificationsRead } from "@/hooks/useNotifications";
 import { useRecipes } from "@/hooks/useRecipes";
 import { useGroups, type Group } from "@/hooks/useGroups";
 import { useIncomingSuggestions, useOutgoingSuggestions } from "@/hooks/useRecipeSuggestions";
@@ -802,7 +803,10 @@ function SuggestionCard({
 
 function KocheinladungenSection({ user }: { user: ReturnType<typeof useAuth>["user"] }) {
   const { invitations, loading, submitWish, updateRsvp, updateInvitation, cancelInvitation, remindGuests, refetch } = useInvitations();
-  const { notifications, unreadCount, markRead, markAllRead } = useNotifications();
+  const { data: notifications = [] } = useNotifications();
+  const markReadMutation = useMarkNotificationRead();
+  const markAllReadMutation = useMarkAllNotificationsRead();
+  const unreadCount = notifications.filter((n) => !n.readAt).length;
   const { recipes } = useRecipes();
 
   const [subTab, setSubTab] = useState<"invitations" | "notifications">("invitations");
@@ -949,7 +953,7 @@ function KocheinladungenSection({ user }: { user: ReturnType<typeof useAuth>["us
         <div>
           {unreadCount > 0 && (
             <button
-              onClick={markAllRead}
+              onClick={() => markAllReadMutation.mutate()}
               className="mb-3 text-xs text-[#4A7C59] hover:underline"
             >
               Alle als gelesen markieren
@@ -965,7 +969,7 @@ function KocheinladungenSection({ user }: { user: ReturnType<typeof useAuth>["us
               {notifications.map((n) => (
                 <button
                   key={n.id}
-                  onClick={() => markRead(n.id)}
+                  onClick={() => markReadMutation.mutate(n.id)}
                   className={`w-full text-left p-4 rounded-xl border transition-colors ${
                     n.readAt === null
                       ? "bg-[#4A7C59]/5 border-[#4A7C59]/20"

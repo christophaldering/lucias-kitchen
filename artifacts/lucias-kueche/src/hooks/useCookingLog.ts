@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from "react";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { authFetch, authHeaders } from "@/lib/authFetch";
 
 export interface CookingLogEntry {
@@ -16,16 +16,12 @@ export interface CookingLogEntry {
 
 const API_BASE = "/api";
 
-
 export function useCookingLog(recipeId?: number, limit?: number) {
-  const [entries, setEntries] = useState<CookingLogEntry[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
+  const queryClient = useQueryClient();
 
-  const fetchEntries = useCallback(async () => {
-    setLoading(true);
-    setError(null);
-    try {
+  const query = useQuery<CookingLogEntry[], Error>({
+    queryKey: ["cooking-log", recipeId, limit],
+    queryFn: async () => {
       const params = new URLSearchParams();
       if (recipeId !== undefined) params.set("recipeId", String(recipeId));
       if (limit !== undefined) params.set("limit", String(limit));
@@ -33,20 +29,20 @@ export function useCookingLog(recipeId?: number, limit?: number) {
         headers: authHeaders(),
       });
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
-      const data = await res.json();
-      setEntries(data);
-    } catch {
-      setError("Tagebuch konnte nicht geladen werden.");
-    } finally {
-      setLoading(false);
-    }
-  }, [recipeId, limit]);
+      return res.json();
+    },
+    staleTime: 30_000,
+  });
 
-  useEffect(() => {
-    fetchEntries();
-  }, [fetchEntries]);
+  const entries = query.data ?? [];
+  const loading = query.isLoading;
+  const error = query.isError ? "Tagebuch konnte nicht geladen werden." : null;
 
-  return { entries, loading, error, refetch: fetchEntries };
+  async function refetch() {
+    await queryClient.invalidateQueries({ queryKey: ["cooking-log"] });
+  }
+
+  return { entries, loading, error, refetch };
 }
 
 export async function createCookingLogEntry(payload: {

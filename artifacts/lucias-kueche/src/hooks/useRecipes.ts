@@ -1,14 +1,7 @@
-import { useState, useEffect, useCallback, useRef } from "react";
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import type { Recipe, IngredientInput, Season, RecipePhoto } from "@/types/recipe";
 import { authFetch, authHeaders } from "@/lib/authFetch";
 import { useAuth } from "@/contexts/AuthContext";
-
-class UnauthorizedError extends Error {
-  constructor() {
-    super("HTTP 401");
-    this.name = "UnauthorizedError";
-  }
-}
 
 export interface RecipeUpdatePayload {
   title: string;
@@ -38,127 +31,172 @@ export type RecipeFilter = "all" | "mine" | "favorites";
 
 export function useRecipes(filter: RecipeFilter = "all") {
   const { authReady } = useAuth();
-  const [recipes, setRecipes] = useState<Recipe[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
-  const filterRef = useRef(filter);
-  filterRef.current = filter;
+  const queryClient = useQueryClient();
 
-  const fetchRecipes = useCallback(async (f?: RecipeFilter) => {
-    setLoading(true);
-    setError(null);
-    const activeFilter = f ?? filterRef.current;
-    const url = activeFilter === "all" ? `${API_BASE}/recipes` : `${API_BASE}/recipes?filter=${activeFilter}`;
-    const attempt = async (): Promise<Response> => {
-      const res = await authFetch(url, { headers: authHeaders() });
-      if (res.status === 401) throw new UnauthorizedError();
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
-      return res;
-    };
-    try {
+  const url = filter === "all" ? `${API_BASE}/recipes` : `${API_BASE}/recipes?filter=${filter}`;
+
+  const query = useQuery<Recipe[], Error>({
+    queryKey: ["recipes", filter],
+    queryFn: async () => {
+      const attempt = async (): Promise<Response> => {
+        const res = await authFetch(url, { headers: authHeaders() });
+        if (res.status === 401) {
+          const err = new Error("HTTP 401");
+          (err as Error & { isUnauthorized: boolean }).isUnauthorized = true;
+          throw err;
+        }
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        return res;
+      };
       let res: Response;
       try {
         res = await attempt();
       } catch (e) {
-        if (e instanceof UnauthorizedError) throw e;
+        if (e instanceof Error && (e as Error & { isUnauthorized?: boolean }).isUnauthorized) throw e;
         await new Promise((resolve) => setTimeout(resolve, 1500));
         res = await attempt();
       }
-      const data = await res.json();
-      setRecipes(data);
-    } catch (e) {
-      if (!(e instanceof UnauthorizedError)) {
-        const errMsg = e instanceof Error ? e.message : String(e);
-        console.error("[useRecipes] fetchRecipes failed:", errMsg, e);
-        setError("Rezepte konnten nicht geladen werden.");
+      return res.json();
+    },
+    enabled: authReady,
+    staleTime: 30_000,
+    retry: (failureCount, error) => {
+      if (error instanceof Error && (error as Error & { isUnauthorized?: boolean }).isUnauthorized) return false;
+      return failureCount < 2;
+    },
+  });
+
+  const addRecipesMutation = useMutation({
+    mutationFn: async (newRecipes: Partial<Recipe>[]) => {
+      const res = await authFetch(`${API_BASE}/recipes`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", ...authHeaders() },
+        body: JSON.stringify(newRecipes),
+      });
+      if (!res.ok) {
+        const errBody = await res.json().catch(() => ({}));
+        throw new Error(JSON.stringify(errBody));
       }
-    } finally {
-      setLoading(false);
-    }
-  }, []);
+    },
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["recipes"] }),
+  });
 
-  useEffect(() => {
-    if (!authReady) return;
-    fetchRecipes(filter);
-  }, [authReady, filter, fetchRecipes]);
+  const updateRecipeMutation = useMutation({
+    mutationFn: async ({ id, data }: { id: number; data: RecipeUpdatePayload }) => {
+      const res = await authFetch(`${API_BASE}/recipes/${id}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json", ...authHeaders() },
+        body: JSON.stringify(data),
+      });
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    },
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["recipes"] }),
+  });
 
-  const addRecipes = useCallback(async (newRecipes: Partial<Recipe>[]) => {
-    const res = await authFetch(`${API_BASE}/recipes`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json", ...authHeaders() },
-      body: JSON.stringify(newRecipes),
-    });
-    if (!res.ok) {
-      const errBody = await res.json().catch(() => ({}));
-      throw new Error(JSON.stringify(errBody));
-    }
-    await fetchRecipes();
-  }, [fetchRecipes]);
+  const patchRecipeMutation = useMutation({
+    mutationFn: async ({ id, patch }: { id: number; patch: Record<string, unknown> }) => {
+      const res = await authFetch(`${API_BASE}/recipes/${id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json", ...authHeaders() },
+        body: JSON.stringify(patch),
+      });
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    },
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["recipes"] }),
+  });
 
-  const updateRecipe = useCallback(async (id: number, data: RecipeUpdatePayload) => {
-    const res = await authFetch(`${API_BASE}/recipes/${id}`, {
-      method: "PUT",
-      headers: { "Content-Type": "application/json", ...authHeaders() },
-      body: JSON.stringify(data),
-    });
-    if (!res.ok) throw new Error(`HTTP ${res.status}`);
-    await fetchRecipes();
-  }, [fetchRecipes]);
+  const deleteRecipeMutation = useMutation({
+    mutationFn: async (id: number) => {
+      const res = await authFetch(`${API_BASE}/recipes/${id}`, {
+        method: "DELETE",
+        headers: authHeaders(),
+      });
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    },
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["recipes"] }),
+  });
 
-  const patchRecipeSilent = useCallback(async (id: number, patch: Record<string, unknown>) => {
+  const deleteAllRecipesMutation = useMutation({
+    mutationFn: async () => {
+      const res = await authFetch(`${API_BASE}/recipes`, { method: "DELETE", headers: authHeaders() });
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    },
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["recipes"] }),
+  });
+
+  const restoreDemoMutation = useMutation({
+    mutationFn: async () => {
+      const res = await authFetch(`${API_BASE}/recipes/seed`, { method: "POST", headers: authHeaders() });
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    },
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["recipes"] }),
+  });
+
+  const toggleFavoriteMutation = useMutation({
+    mutationFn: async ({ recipeId, isFavorite }: { recipeId: number; isFavorite: boolean }) => {
+      const method = isFavorite ? "DELETE" : "POST";
+      const res = await authFetch(`${API_BASE}/recipes/${recipeId}/favorite`, {
+        method,
+        headers: authHeaders(),
+      });
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    },
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["recipes"] }),
+  });
+
+  const recipes = query.data ?? [];
+  const loading = query.isLoading;
+  const isUnauthorizedError = query.isError && query.error instanceof Error && (query.error as Error & { isUnauthorized?: boolean }).isUnauthorized;
+  const error = query.isError && !isUnauthorizedError ? "Rezepte konnten nicht geladen werden." : null;
+
+  async function fetchRecipes() {
+    await queryClient.invalidateQueries({ queryKey: ["recipes"] });
+  }
+
+  async function addRecipes(newRecipes: Partial<Recipe>[]) {
+    return addRecipesMutation.mutateAsync(newRecipes);
+  }
+
+  async function updateRecipe(id: number, data: RecipeUpdatePayload) {
+    return updateRecipeMutation.mutateAsync({ id, data });
+  }
+
+  async function patchRecipeSilent(id: number, patch: Record<string, unknown>) {
     const res = await authFetch(`${API_BASE}/recipes/${id}`, {
       method: "PATCH",
       headers: { "Content-Type": "application/json", ...authHeaders() },
       body: JSON.stringify(patch),
     });
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
-  }, []);
+  }
 
-  const patchRecipe = useCallback(async (id: number, patch: Record<string, unknown>) => {
-    await patchRecipeSilent(id, patch);
-    await fetchRecipes();
-  }, [fetchRecipes, patchRecipeSilent]);
+  async function patchRecipe(id: number, patch: Record<string, unknown>) {
+    return patchRecipeMutation.mutateAsync({ id, patch });
+  }
 
-  const deleteRecipeSilent = useCallback(async (id: number) => {
+  async function deleteRecipeSilent(id: number) {
     const res = await authFetch(`${API_BASE}/recipes/${id}`, {
       method: "DELETE",
       headers: authHeaders(),
     });
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
-  }, []);
+  }
 
-  const deleteRecipe = useCallback(async (id: number) => {
-    await deleteRecipeSilent(id);
-    await fetchRecipes();
-  }, [fetchRecipes, deleteRecipeSilent]);
+  async function deleteRecipe(id: number) {
+    return deleteRecipeMutation.mutateAsync(id);
+  }
 
-  const deleteAllRecipes = useCallback(async () => {
-    const res = await authFetch(`${API_BASE}/recipes`, { method: "DELETE", headers: authHeaders() });
-    if (!res.ok) throw new Error(`HTTP ${res.status}`);
-    await fetchRecipes();
-  }, [fetchRecipes]);
+  async function deleteAllRecipes() {
+    return deleteAllRecipesMutation.mutateAsync();
+  }
 
-  const restoreDemo = useCallback(async () => {
-    const res = await authFetch(`${API_BASE}/recipes/seed`, { method: "POST", headers: authHeaders() });
-    if (!res.ok) throw new Error(`HTTP ${res.status}`);
-    await fetchRecipes();
-  }, [fetchRecipes]);
+  async function restoreDemo() {
+    return restoreDemoMutation.mutateAsync();
+  }
 
-  const toggleFavorite = useCallback(async (recipeId: number, isFavorite: boolean) => {
-    const method = isFavorite ? "DELETE" : "POST";
-    const res = await authFetch(`${API_BASE}/recipes/${recipeId}/favorite`, {
-      method,
-      headers: authHeaders(),
-    });
-    if (!res.ok) throw new Error(`HTTP ${res.status}`);
-    setRecipes((prev) => {
-      const updated = prev.map((r) => r.id === recipeId ? { ...r, isFavorite: !isFavorite } : r);
-      if (filter === "favorites" && isFavorite) {
-        return updated.filter((r) => r.id !== recipeId);
-      }
-      return updated;
-    });
-  }, [filter]);
+  async function toggleFavorite(recipeId: number, isFavorite: boolean) {
+    return toggleFavoriteMutation.mutateAsync({ recipeId, isFavorite });
+  }
 
   return {
     recipes,

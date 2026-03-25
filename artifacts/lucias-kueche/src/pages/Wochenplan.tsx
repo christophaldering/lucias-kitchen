@@ -7,10 +7,11 @@ import AiWeekSuggestModal, { type SuggestionEntry } from "@/components/AiWeekSug
 import CreateInvitationDialog from "@/components/CreateInvitationDialog";
 import RespondInvitationDialog from "@/components/RespondInvitationDialog";
 import type { Recipe } from "@/types/recipe";
-import { X, ShoppingCart, Copy, Check, Loader2, ChevronLeft, ChevronRight, CalendarDays, Plus, Flame, Wand2, Mail } from "lucide-react";
+import { X, ShoppingCart, Copy, Check, Loader2, ChevronLeft, ChevronRight, CalendarDays, Plus, Flame, Wand2, Mail, Printer } from "lucide-react";
 import { useInvitations } from "@/hooks/useInvitations";
 import { useAuth } from "@/contexts/AuthContext";
 import type { MealInvitation } from "@/hooks/useInvitations";
+import ShoppingListPrintView, { type PrintOptions } from "@/components/ShoppingListPrintView";
 
 type IngCategory = "Gemüse" | "Fleisch & Fisch" | "Milchprodukte" | "Vorrat" | "Sonstiges";
 
@@ -129,6 +130,13 @@ export default function Wochenplan({ onNavigate }: WochenplanProps = {}) {
   const [checked, setChecked] = useState<Set<string>>(new Set());
   const [copied, setCopied] = useState(false);
   const [modalRecipe, setModalRecipe] = useState<Recipe | null>(null);
+  const [showPrintDialog, setShowPrintDialog] = useState(false);
+  const [printOptions, setPrintOptions] = useState<PrintOptions>({
+    showDateRange: true,
+    showChecked: false,
+    showRecipeSources: true,
+  });
+  const [isPrinting, setIsPrinting] = useState(false);
 
   const [showAiModal, setShowAiModal] = useState(false);
   const [inviteDate, setInviteDate] = useState<string | null>(null);
@@ -205,6 +213,44 @@ export default function Wochenplan({ onNavigate }: WochenplanProps = {}) {
     ),
     [allShoppingItems]
   );
+
+  const recipeSources = useMemo(() => {
+    const result: Partial<Record<IngCategory, string[]>> = {};
+    for (const p of shoppingPlans) {
+      if (!p.recipe) continue;
+      for (const ing of p.recipe.ingredients ?? []) {
+        const cat = categorizeIngredient(ing.name);
+        if (!result[cat]) result[cat] = [];
+        if (!result[cat]!.includes(p.recipe.title)) {
+          result[cat]!.push(p.recipe.title);
+        }
+      }
+    }
+    return result;
+  }, [shoppingPlans]);
+
+  const dateRangeLabel = useMemo(() => {
+    const fmt = (s: string) => {
+      const [y, m, d] = s.split("-");
+      return `${d}.${m}.${y}`;
+    };
+    if (shoppingRange === "this_week") {
+      return `Diese Woche (${fmt(shoppingFrom)} – ${fmt(shoppingTo)})`;
+    }
+    if (shoppingRange === "next_7") {
+      return `Nächste 7 Tage (${fmt(shoppingFrom)} – ${fmt(shoppingTo)})`;
+    }
+    return `${fmt(shoppingFrom)} – ${fmt(shoppingTo)}`;
+  }, [shoppingRange, shoppingFrom, shoppingTo]);
+
+  const handlePrint = () => {
+    setShowPrintDialog(false);
+    setIsPrinting(true);
+    setTimeout(() => {
+      window.print();
+      setTimeout(() => setIsPrinting(false), 500);
+    }, 120);
+  };
 
   const handleSetRecipe = async (dateStr: string, recipeId: number) => {
     try {
@@ -650,16 +696,26 @@ export default function Wochenplan({ onNavigate }: WochenplanProps = {}) {
             Einkaufsliste
           </h3>
           {allShoppingItems.length > 0 && (
-            <button
-              onClick={handleCopy}
-              className="flex items-center gap-2 px-4 py-2 rounded-xl bg-[#4A7C59] text-white text-sm font-medium hover:bg-[#3d6849] transition-colors"
-            >
-              {copied ? (
-                <><Check className="w-4 h-4" /> Kopiert!</>
-              ) : (
-                <><Copy className="w-4 h-4" /> Liste kopieren</>
-              )}
-            </button>
+            <div className="flex items-center gap-2">
+              <button
+                onClick={handleCopy}
+                className="flex items-center gap-2 px-4 py-2 rounded-xl bg-[#4A7C59] text-white text-sm font-medium hover:bg-[#3d6849] transition-colors"
+              >
+                {copied ? (
+                  <><Check className="w-4 h-4" /> Kopiert!</>
+                ) : (
+                  <><Copy className="w-4 h-4" /> Liste kopieren</>
+                )}
+              </button>
+              <button
+                onClick={() => setShowPrintDialog(true)}
+                className="flex items-center gap-2 px-4 py-2 rounded-xl bg-[#C1693A] text-white text-sm font-medium hover:bg-[#a8572f] transition-colors"
+                title="Einkaufsliste drucken"
+              >
+                <Printer className="w-4 h-4" />
+                Drucken
+              </button>
+            </div>
           )}
         </div>
 
@@ -808,6 +864,84 @@ export default function Wochenplan({ onNavigate }: WochenplanProps = {}) {
             const label = rsvp === "coming" ? "Zusage" : rsvp === "not_coming" ? "Absage" : "Status";
             showToast(`${label} gespeichert`);
           }}
+        />
+      )}
+
+      {/* Print Options Dialog */}
+      {showPrintDialog && (
+        <div
+          className="fixed inset-0 z-[200] flex items-center justify-center"
+          style={{ background: "rgba(0,0,0,0.45)" }}
+          onClick={(e) => { if (e.target === e.currentTarget) setShowPrintDialog(false); }}
+        >
+          <div className="bg-white dark:bg-[#1c1c1c] rounded-2xl shadow-2xl w-full max-w-sm mx-4 p-6 flex flex-col gap-5">
+            <div className="flex items-center justify-between">
+              <h2 className="text-lg font-semibold text-foreground flex items-center gap-2">
+                <Printer className="w-5 h-5 text-[#C1693A]" />
+                Druckoptionen
+              </h2>
+              <button
+                onClick={() => setShowPrintDialog(false)}
+                className="text-muted-foreground hover:text-foreground transition-colors"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <div className="flex flex-col gap-3">
+              {([
+                { key: "showDateRange", label: "Zeitraum anzeigen" },
+                { key: "showChecked", label: "Abgehakte Artikel einblenden" },
+                { key: "showRecipeSources", label: "Quell-Rezepte als Fußnote anzeigen" },
+              ] as { key: keyof PrintOptions; label: string }[]).map(({ key, label }) => (
+                <label key={key} className="flex items-center gap-3 cursor-pointer group">
+                  <div
+                    className={`relative w-10 h-5 rounded-full transition-colors flex-shrink-0 ${
+                      printOptions[key] ? "bg-[#4A7C59]" : "bg-gray-300 dark:bg-gray-600"
+                    }`}
+                    onClick={() =>
+                      setPrintOptions((prev) => ({ ...prev, [key]: !prev[key] }))
+                    }
+                  >
+                    <span
+                      className={`absolute top-0.5 left-0.5 w-4 h-4 rounded-full bg-white shadow transition-transform ${
+                        printOptions[key] ? "translate-x-5" : "translate-x-0"
+                      }`}
+                    />
+                  </div>
+                  <span className="text-sm text-foreground">{label}</span>
+                </label>
+              ))}
+            </div>
+
+            <div className="flex gap-3 pt-1">
+              <button
+                onClick={() => setShowPrintDialog(false)}
+                className="flex-1 px-4 py-2 rounded-xl border border-border text-sm font-medium text-foreground hover:bg-secondary transition-colors"
+              >
+                Abbrechen
+              </button>
+              <button
+                onClick={handlePrint}
+                className="flex-1 px-4 py-2 rounded-xl bg-[#C1693A] text-white text-sm font-medium hover:bg-[#a8572f] transition-colors flex items-center justify-center gap-2"
+              >
+                <Printer className="w-4 h-4" />
+                Drucken
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Shopping List Print View */}
+      {isPrinting && (
+        <ShoppingListPrintView
+          grouped={grouped}
+          catOrder={catOrder}
+          checked={checked}
+          options={printOptions}
+          dateRangeLabel={dateRangeLabel}
+          recipeSources={recipeSources}
         />
       )}
     </div>

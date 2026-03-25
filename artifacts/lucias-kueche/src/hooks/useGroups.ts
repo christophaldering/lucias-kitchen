@@ -113,6 +113,15 @@ export function useGroups() {
     if (!res.ok) throw new Error("Mitglied konnte nicht entfernt werden");
   }, []);
 
+  const remindMember = useCallback(async (groupId: number, memberId: number): Promise<{ notified: boolean; reason?: string }> => {
+    const res = await authFetch(`${API_BASE}/groups/${groupId}/members/${memberId}/remind`, {
+      method: "POST",
+      headers: authHeaders(),
+    });
+    if (!res.ok) throw new Error("Erinnerung konnte nicht gesendet werden");
+    return res.json();
+  }, []);
+
   const renameGroup = useCallback(async (groupId: number, name: string) => {
     const res = await authFetch(`${API_BASE}/groups/${groupId}`, {
       method: "PUT",
@@ -143,7 +152,7 @@ export function useGroups() {
     return data;
   }, [fetchGroups]);
 
-  return { groups, loading, error, fetchGroups, createGroup, joinGroup, inviteMember, getMembers, removeMember, familyInvite, renameGroup };
+  return { groups, loading, error, fetchGroups, createGroup, joinGroup, inviteMember, getMembers, removeMember, remindMember, familyInvite, renameGroup };
 }
 
 export function useAdminGroups() {

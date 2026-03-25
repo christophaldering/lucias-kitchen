@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from "react";
-import { X, Loader2, UserPlus, Trash2, Users, Pencil, Check } from "lucide-react";
+import { X, Loader2, UserPlus, Trash2, Users, Pencil, Check, Bell } from "lucide-react";
 import { useGroups, type Group, type GroupMember } from "@/hooks/useGroups";
 
 function toast(msg: string, type: "ok" | "err" = "ok") {
@@ -19,11 +19,13 @@ interface Props {
 }
 
 export default function GroupMembersModal({ group, onClose, isOwner }: Props) {
-  const { getMembers, inviteMember, removeMember, renameGroup } = useGroups();
+  const { getMembers, inviteMember, removeMember, remindMember, renameGroup } = useGroups();
   const [members, setMembers] = useState<GroupMember[]>([]);
   const [loadingMembers, setLoadingMembers] = useState(true);
   const [inviteInput, setInviteInput] = useState("");
   const [inviting, setBusy] = useState(false);
+  const [remindingIds, setRemindingIds] = useState<Set<number>>(new Set());
+  const [remindedIds, setRemindedIds] = useState<Set<number>>(new Set());
 
   const isAlreadyMember = inviteInput.trim().length > 0 && members.some((m) => {
     const needle = inviteInput.trim().toLowerCase();
@@ -90,6 +92,35 @@ export default function GroupMembersModal({ group, onClose, isOwner }: Props) {
       await loadMembers();
     } catch {
       toast("Fehler beim Entfernen", "err");
+    }
+  };
+
+  const handleRemind = async (member: GroupMember) => {
+    if (remindingIds.has(member.id) || remindedIds.has(member.id)) return;
+    setRemindingIds((prev) => new Set(prev).add(member.id));
+    try {
+      const result = await remindMember(group.id, member.id);
+      if (result.notified) {
+        toast(`Erinnerung an „${member.displayName ?? member.invitedEmail ?? "Eingeladene Person"}" gesendet`);
+      } else {
+        toast("Diese Person hat noch kein Konto – keine Benachrichtigung möglich.");
+      }
+      setRemindedIds((prev) => new Set(prev).add(member.id));
+      setTimeout(() => {
+        setRemindedIds((prev) => {
+          const next = new Set(prev);
+          next.delete(member.id);
+          return next;
+        });
+      }, 3000);
+    } catch {
+      toast("Erinnerung konnte nicht gesendet werden", "err");
+    } finally {
+      setRemindingIds((prev) => {
+        const next = new Set(prev);
+        next.delete(member.id);
+        return next;
+      });
     }
   };
 
@@ -260,6 +291,22 @@ export default function GroupMembersModal({ group, onClose, isOwner }: Props) {
                         <span className="text-xs px-2 py-0.5 rounded-full bg-amber-100 text-amber-700 font-medium">Eingeladen</span>
                       ) : (
                         <span className="text-xs px-2 py-0.5 rounded-full bg-blue-100 text-blue-700 font-medium">Mitglied</span>
+                      )}
+                      {isOwner && m.role !== "owner" && m.memberStatus === "invited" && (
+                        <button
+                          onClick={() => handleRemind(m)}
+                          disabled={remindingIds.has(m.id) || remindedIds.has(m.id)}
+                          className="p-1.5 rounded-lg hover:bg-amber-50 text-muted-foreground hover:text-amber-600 transition-colors disabled:opacity-50"
+                          title="Erneut anstoßen"
+                        >
+                          {remindingIds.has(m.id) ? (
+                            <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                          ) : remindedIds.has(m.id) ? (
+                            <Check className="w-3.5 h-3.5 text-[#4A7C59]" />
+                          ) : (
+                            <Bell className="w-3.5 h-3.5" />
+                          )}
+                        </button>
                       )}
                       {isOwner && m.role !== "owner" && (
                         <button

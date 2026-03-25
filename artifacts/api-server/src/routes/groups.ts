@@ -1,6 +1,6 @@
 import { Router, type IRouter } from "express";
 import { db } from "@workspace/db";
-import { groupsTable, groupMembersTable, usersTable } from "@workspace/db/schema";
+import { groupsTable, groupMembersTable, usersTable, notificationsTable } from "@workspace/db/schema";
 import { eq, and, or } from "drizzle-orm";
 import { z } from "zod/v4";
 import { authMiddleware } from "./auth";
@@ -585,6 +585,79 @@ router.put("/groups/:id/join", authMiddleware, async (req, res) => {
     res.json(updated);
   } catch (err) {
     req.log.error({ err }, "Failed to join group");
+    res.status(500).json({ error: "internal_error" });
+  }
+});
+
+router.post("/groups/:id/members/:memberId/remind", authMiddleware, async (req, res) => {
+  try {
+    const groupId = Number(req.params["id"]);
+    const memberId = Number(req.params["memberId"]);
+    const userId = req.authUser!.id;
+
+    if (isNaN(groupId) || isNaN(memberId)) {
+      res.status(400).json({ error: "invalid_id" });
+      return;
+    }
+
+    const myMembership = await db
+      .select()
+      .from(groupMembersTable)
+      .where(and(eq(groupMembersTable.groupId, groupId), eq(groupMembersTable.userId, userId)))
+      .then((r) => r[0]);
+
+    if (!myMembership || myMembership.role !== "owner") {
+      res.status(403).json({ error: "not_owner" });
+      return;
+    }
+
+    const targetMember = await db
+      .select()
+      .from(groupMembersTable)
+      .where(and(eq(groupMembersTable.groupId, groupId), eq(groupMembersTable.id, memberId)))
+      .then((r) => r[0]);
+
+    if (!targetMember) {
+      res.status(404).json({ error: "not_found" });
+      return;
+    }
+
+    if (targetMember.memberStatus !== "invited") {
+      res.status(400).json({ error: "not_invited", message: "Mitglied hat die Einladung bereits angenommen" });
+      return;
+    }
+
+    if (!targetMember.userId) {
+      res.json({ notified: false, reason: "email_only" });
+      return;
+    }
+
+    const group = await db
+      .select()
+      .from(groupsTable)
+      .where(eq(groupsTable.id, groupId))
+      .then((r) => r[0]);
+
+    const sender = await db
+      .select()
+      .from(usersTable)
+      .where(eq(usersTable.id, userId))
+      .then((r) => r[0]);
+
+    await db.insert(notificationsTable).values({
+      userId: targetMember.userId,
+      type: "group_invite_reminder",
+      payload: {
+        groupId,
+        groupName: group?.name ?? "",
+        inviterName: sender?.displayName ?? sender?.email ?? "",
+        inviterId: userId,
+      },
+    });
+
+    res.json({ notified: true });
+  } catch (err) {
+    req.log.error({ err }, "Failed to send invite reminder");
     res.status(500).json({ error: "internal_error" });
   }
 });

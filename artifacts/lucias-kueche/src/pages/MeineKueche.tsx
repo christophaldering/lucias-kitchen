@@ -1,4 +1,4 @@
-import { useState, type ReactNode } from "react";
+import { useState, useEffect, type ReactNode } from "react";
 import {
   Users, ChefHat, Share2, Plus, Clock, CheckCircle, XCircle, ChevronRight,
   CalendarDays, Bell, BookmarkPlus, X, Loader2, Send, Inbox, ExternalLink, UserPlus
@@ -38,7 +38,7 @@ const MODE_LABEL: Record<string, string> = {
   choice: "Auswahl",
 };
 
-type SectionTab = "gruppen" | "empfehlungen" | "einladungen";
+type SectionTab = "gruppen" | "empfehlungen" | "einladungen" | "gesendet";
 
 interface Props {
   onOpenRecipe?: (recipeId: number) => void;
@@ -71,11 +71,18 @@ export default function MeineKueche({ onOpenRecipe }: Props) {
           icon={<ChefHat className="w-4 h-4" />}
           label="Kocheinladungen"
         />
+        <SectionButton
+          active={activeSection === "gesendet"}
+          onClick={() => setActiveSection("gesendet")}
+          icon={<Send className="w-4 h-4" />}
+          label="Gesendet"
+        />
       </div>
 
       {activeSection === "gruppen" && <GruppenSection />}
       {activeSection === "empfehlungen" && <EmpfehlungenSection onOpenRecipe={onOpenRecipe} />}
       {activeSection === "einladungen" && <KocheinladungenSection user={user} />}
+      {activeSection === "gesendet" && <GesendetSection user={user} onOpenRecipe={onOpenRecipe} />}
     </div>
   );
 }
@@ -460,6 +467,218 @@ function EmpfehlungenSection({ onOpenRecipe }: { onOpenRecipe?: (recipeId: numbe
             </div>
           )}
         </div>
+      )}
+    </div>
+  );
+}
+
+function GesendetSection({
+  user,
+  onOpenRecipe,
+}: {
+  user: ReturnType<typeof useAuth>["user"];
+  onOpenRecipe?: (recipeId: number) => void;
+}) {
+  const { groups, loading: groupsLoading, getMembers } = useGroups();
+  const { invitations, loading: invLoading, updateInvitation, cancelInvitation, refetch } = useInvitations();
+  const { recipes } = useRecipes();
+  const { suggestions: outgoing, loading: outgoingLoading } = useOutgoingSuggestions();
+
+  const [managingInvitation, setManagingInvitation] = useState<MealInvitation | null>(null);
+  const [selectedGroup, setSelectedGroup] = useState<Group | null>(null);
+
+  const [pendingInvites, setPendingInvites] = useState<
+    Array<{ groupId: number; groupName: string; email: string; displayName: string | null; memberStatus: string }>
+  >([]);
+  const [invitesLoading, setInvitesLoading] = useState(true);
+
+  const ownedGroups = groups.filter((g) => g.status === "approved" && g.myRole === "owner");
+
+  useEffect(() => {
+    if (groupsLoading) return;
+    if (ownedGroups.length === 0) {
+      setPendingInvites([]);
+      setInvitesLoading(false);
+      return;
+    }
+    let cancelled = false;
+    setInvitesLoading(true);
+    Promise.all(
+      ownedGroups.map(async (g) => {
+        const members = await getMembers(g.id);
+        return members
+          .filter((m) => m.memberStatus === "invited" && m.role !== "owner")
+          .map((m) => ({
+            groupId: g.id,
+            groupName: g.name,
+            email: m.invitedEmail ?? m.email ?? "",
+            displayName: m.displayName,
+            memberStatus: m.memberStatus,
+          }));
+      })
+    ).then((results) => {
+      if (!cancelled) {
+        setPendingInvites(results.flat());
+        setInvitesLoading(false);
+      }
+    }).catch(() => {
+      if (!cancelled) setInvitesLoading(false);
+    });
+    return () => { cancelled = true; };
+  }, [groups, groupsLoading]);
+
+  const asHost = invitations.filter((inv) => inv.isHost);
+
+  return (
+    <div className="space-y-6">
+      {selectedGroup && (
+        <GroupMembersModal
+          group={selectedGroup}
+          isOwner={selectedGroup.myRole === "owner"}
+          onClose={() => setSelectedGroup(null)}
+        />
+      )}
+
+      {/* Gruppen-Einladungen */}
+      <section>
+        <div className="flex items-center gap-2 mb-3">
+          <Users className="w-4 h-4 text-[#4A7C59]" />
+          <h2 className="font-semibold text-gray-900 text-sm">Gruppen-Einladungen</h2>
+          <span className="ml-auto text-xs text-gray-400">{pendingInvites.length} ausstehend</span>
+        </div>
+        {invitesLoading ? (
+          <div className="flex justify-center py-6">
+            <Loader2 className="w-5 h-5 animate-spin text-[#4A7C59]" />
+          </div>
+        ) : pendingInvites.length === 0 ? (
+          <div className="text-center py-8 bg-gray-50 rounded-2xl">
+            <Users className="w-8 h-8 text-gray-300 mx-auto mb-2" />
+            <p className="text-sm text-gray-500">Noch keine ausstehenden Gruppeneinladungen</p>
+            <p className="text-xs text-gray-400 mt-1">Lade Personen über eine deiner Gruppen ein</p>
+          </div>
+        ) : (
+          <div className="space-y-2">
+            {pendingInvites.map((inv, idx) => {
+              const group = ownedGroups.find((g) => g.id === inv.groupId) ?? null;
+              return (
+                <button
+                  key={`${inv.groupId}-${inv.email}-${idx}`}
+                  onClick={() => group && setSelectedGroup(group)}
+                  className="w-full flex items-center gap-3 p-3 rounded-xl bg-amber-50 border border-amber-200 hover:border-amber-400 hover:bg-amber-100 transition-colors text-left"
+                >
+                  <div className="w-9 h-9 rounded-full bg-amber-200 flex items-center justify-center flex-shrink-0">
+                    <span className="text-amber-700 text-xs font-bold">
+                      {(inv.displayName ?? inv.email).charAt(0).toUpperCase()}
+                    </span>
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <p className="text-sm font-medium truncate">{inv.displayName ?? inv.email}</p>
+                    <p className="text-xs text-muted-foreground truncate">{inv.email}</p>
+                    <p className="text-xs text-amber-700 flex items-center gap-1 mt-0.5">
+                      <Users className="w-3 h-3" />
+                      {inv.groupName}
+                    </p>
+                  </div>
+                  <div className="flex items-center gap-1.5 flex-shrink-0">
+                    <span className="text-xs px-2 py-0.5 rounded-full bg-amber-100 text-amber-700 font-medium">
+                      <Clock className="w-3 h-3 inline mr-0.5" />
+                      Ausstehend
+                    </span>
+                    <ChevronRight className="w-4 h-4 text-amber-600" />
+                  </div>
+                </button>
+              );
+            })}
+          </div>
+        )}
+      </section>
+
+      {/* Kocheinladungen */}
+      <section>
+        <div className="flex items-center gap-2 mb-3">
+          <ChefHat className="w-4 h-4 text-[#4A7C59]" />
+          <h2 className="font-semibold text-gray-900 text-sm">Kocheinladungen</h2>
+          <span className="ml-auto text-xs text-gray-400">{asHost.length} Einladungen</span>
+        </div>
+        {invLoading ? (
+          <div className="flex justify-center py-6">
+            <Loader2 className="w-5 h-5 animate-spin text-[#4A7C59]" />
+          </div>
+        ) : asHost.length === 0 ? (
+          <div className="text-center py-8 bg-gray-50 rounded-2xl">
+            <ChefHat className="w-8 h-8 text-gray-300 mx-auto mb-2" />
+            <p className="text-sm text-gray-500">Du hast noch keine Kocheinladungen erstellt</p>
+            <p className="text-xs text-gray-400 mt-1">Erstelle eine über den Wochenplan</p>
+          </div>
+        ) : (
+          <div className="space-y-3">
+            {asHost.map((inv) => (
+              <InvitationCard
+                key={inv.id}
+                invitation={inv}
+                isHost
+                onClick={() => setManagingInvitation(inv)}
+              />
+            ))}
+          </div>
+        )}
+      </section>
+
+      {/* Rezept-Empfehlungen */}
+      <section>
+        <div className="flex items-center gap-2 mb-3">
+          <Share2 className="w-4 h-4 text-[#4A7C59]" />
+          <h2 className="font-semibold text-gray-900 text-sm">Rezept-Empfehlungen</h2>
+          <span className="ml-auto text-xs text-gray-400">{outgoing.length} gesendet</span>
+        </div>
+        {outgoingLoading ? (
+          <div className="flex justify-center py-6">
+            <Loader2 className="w-5 h-5 animate-spin text-[#4A7C59]" />
+          </div>
+        ) : outgoing.length === 0 ? (
+          <div className="text-center py-8 bg-gray-50 rounded-2xl">
+            <Send className="w-8 h-8 text-gray-300 mx-auto mb-2" />
+            <p className="text-sm text-gray-500">Du hast noch keine Rezepte empfohlen</p>
+            <p className="text-xs text-gray-400 mt-1">Öffne ein Rezept und klicke auf „Vorschlagen"</p>
+          </div>
+        ) : (
+          <div className="space-y-3">
+            {outgoing.map((s) => (
+              <SuggestionCard
+                key={s.id}
+                type="outgoing"
+                recipeId={s.recipeId}
+                recipeTitle={s.recipeTitle}
+                recipeImageUrl={s.recipeImageUrl}
+                recipeCategory={s.recipeCategory}
+                personName={s.recipientName}
+                personAvatarUrl={s.recipientAvatarUrl}
+                personLabel="an"
+                message={s.message}
+                createdAt={s.createdAt}
+                status={s.status}
+                onOpenRecipe={onOpenRecipe}
+              />
+            ))}
+          </div>
+        )}
+      </section>
+
+      {managingInvitation && (
+        <InvitationHostDialog
+          invitation={managingInvitation}
+          recipes={recipes}
+          onClose={() => setManagingInvitation(null)}
+          onDecide={async (finalRecipeId) => {
+            await updateInvitation(managingInvitation.id, { status: "decided", finalRecipeId });
+            toast("Rezept bestätigt! Alle wurden benachrichtigt.");
+            refetch();
+          }}
+          onCancel={async () => {
+            await cancelInvitation(managingInvitation.id);
+            toast("Einladung abgesagt");
+          }}
+        />
       )}
     </div>
   );

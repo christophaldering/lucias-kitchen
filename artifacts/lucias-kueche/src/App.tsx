@@ -174,6 +174,7 @@ function AppShell() {
   const [adminNavToken, setAdminNavToken] = useState(0);
   const [recipesInitialSortOrder, setRecipesInitialSortOrder] = useState<string | null>(null);
   const [recipesRefreshToken, setRecipesRefreshToken] = useState(0);
+  const [sessionOnboardingDone, setSessionOnboardingDone] = useState(false);
   const { data: notifications = [] } = useNotifications();
   const notificationUnreadCount = notifications.filter((n) => !n.readAt).length;
   const { suggestions: incomingSuggestions } = useIncomingSuggestions();
@@ -207,8 +208,15 @@ function AppShell() {
     return <Login />;
   }
 
-  if (!user.onboardingCompleted) {
-    return <Onboarding onNavigate={(tab) => setActiveTab(tab as Tab)} />;
+  if (!sessionOnboardingDone) {
+    return (
+      <Onboarding
+        onNavigate={(tab) => {
+          setSessionOnboardingDone(true);
+          setActiveTab(tab as Tab);
+        }}
+      />
+    );
   }
 
   return (

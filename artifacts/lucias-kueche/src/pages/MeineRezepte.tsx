@@ -16,6 +16,7 @@ import RecipeEditModal from "@/components/RecipeEditModal";
 import type { RecipeUpdatePayload } from "@/hooks/useRecipes";
 import { useCommentStats } from "@/components/RecipeComments";
 import { authFetch, authHeaders } from "@/lib/authFetch";
+import { FilterBottomSheet } from "@/components/FilterBottomSheet";
 
 const API_BASE = "/api";
 
@@ -376,9 +377,9 @@ interface MeineRezepteProps {
 }
 
 const FILTER_LABELS: Record<RecipeFilter, string> = {
-  all: "Alle Rezepte",
-  mine: "Meine Rezepte",
-  favorites: "Gemerkte",
+  all: "Alle",
+  mine: "Meine",
+  favorites: "Gemerkt",
 };
 
 export default function MeineRezepte({ onNavigate: _onNavigate, initialOpenRecipeId, onRecipeOpened, initialSortOrder, onSortOrderApplied }: MeineRezepteProps) {
@@ -697,19 +698,21 @@ export default function MeineRezepte({ onNavigate: _onNavigate, initialOpenRecip
           </span>
         )}
 
-        {/* Recipe ownership filter toggle */}
-        <div className="flex gap-1 bg-white border border-border rounded-xl p-1 ml-auto">
+        {/* Ownership segmented control */}
+        <div className="flex gap-0.5 bg-muted border border-border rounded-xl p-1 ml-auto">
           {(["all", "mine", "favorites"] as RecipeFilter[]).map((f) => (
             <button
               key={f}
               onClick={() => setRecipeFilter(f)}
-              className={`flex items-center gap-1.5 px-3 py-2 rounded-lg text-sm font-medium transition-colors min-h-[40px] ${
-                recipeFilter === f ? "bg-[#C1693A] text-white" : "text-muted-foreground hover:text-foreground"
+              className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-medium transition-all min-h-[34px] ${
+                recipeFilter === f
+                  ? "bg-white text-foreground shadow-sm"
+                  : "text-muted-foreground hover:text-foreground"
               }`}
             >
-              {f === "all" && <BookOpen className="w-4 h-4" />}
-              {f === "mine" && <ChefHat className="w-4 h-4" />}
-              {f === "favorites" && <Star className="w-4 h-4" />}
+              {f === "all" && <BookOpen className="w-3.5 h-3.5" />}
+              {f === "mine" && <ChefHat className="w-3.5 h-3.5" />}
+              {f === "favorites" && <Star className="w-3.5 h-3.5" />}
               {FILTER_LABELS[f]}
             </button>
           ))}
@@ -770,90 +773,36 @@ export default function MeineRezepte({ onNavigate: _onNavigate, initialOpenRecip
               </div>
             </div>
 
-            {/* Combined filter chips — single scrollable row */}
-            <div className="flex gap-2 overflow-x-auto pb-1 no-scrollbar">
-              {allCategories.map((cat) => (
-                <button
-                  key={cat}
-                  onClick={() => setActiveCategory(cat)}
-                  className={`flex-shrink-0 px-3 py-1.5 rounded-full text-sm font-medium transition-colors min-h-[36px] ${
-                    activeCategory === cat
-                      ? "bg-[#3d6849] text-white"
-                      : "bg-white text-foreground border border-border hover:border-[#4A7C59]/40"
-                  }`}
-                >
-                  {cat}
-                </button>
-              ))}
-
-              {/* Divider between category and time chips */}
-              <div className="flex-shrink-0 w-px bg-border mx-1 self-stretch" />
-
-              {["Alle", "Unter 30 Min", "Unter 1 Std"].map((t) => (
-                <button
-                  key={t}
-                  onClick={() => setTimeFilter(t)}
-                  className={`flex-shrink-0 px-3 py-1.5 rounded-full text-xs font-medium transition-colors flex items-center gap-1 min-h-[36px] ${
-                    timeFilter === t
-                      ? "bg-[#C1693A] text-white"
-                      : "bg-white text-muted-foreground border border-border hover:border-[#C1693A]/40"
-                  }`}
-                >
-                  <Clock className="w-3 h-3" />
-                  {t}
-                </button>
-              ))}
-
-              {/* Divider between time, season and variant chips */}
-              <div className="flex-shrink-0 w-px bg-border mx-1 self-stretch" />
-
-              {(["Alle", "spring", "summer", "autumn", "winter"] as const).map((s) => (
-                <button
-                  key={s}
-                  onClick={() => setSeasonFilter(s)}
-                  className={`flex-shrink-0 px-3 py-1.5 rounded-full text-xs font-medium transition-colors flex items-center gap-1 min-h-[36px] ${
-                    seasonFilter === s
-                      ? "bg-[#4A7C59]/80 text-white"
-                      : "bg-white text-muted-foreground border border-border hover:border-[#4A7C59]/40"
-                  }`}
-                >
-                  {s === "Alle" ? "🌿 Saison" : `${SEASON_ICONS[s as Season]} ${SEASON_LABELS[s as Season]}`}
-                </button>
-              ))}
-
-              {/* Cooked status filter */}
-              <div className="flex-shrink-0 w-px bg-border mx-1 self-stretch" />
-
-              {(["Alle", "gekocht", "nicht_ausprobiert"] as const).map((c) => (
-                <button
-                  key={c}
-                  onClick={() => setCookedFilter(c)}
-                  className={`flex-shrink-0 px-3 py-1.5 rounded-full text-xs font-medium transition-colors min-h-[36px] ${
-                    cookedFilter === c
-                      ? "bg-orange-500 text-white"
-                      : "bg-white text-muted-foreground border border-border hover:border-orange-400"
-                  }`}
-                >
-                  {c === "Alle" ? "🍽️ Alle" : c === "gekocht" ? "✅ Schon gekocht" : "🆕 Noch nicht ausprobiert"}
-                </button>
-              ))}
-
-              {/* Variant filter */}
-              {recipes.some((r) => r.parentRecipeId) && (
-                <>
-                  <div className="flex-shrink-0 w-px bg-border mx-1 self-stretch" />
+            {/* Filter button + quick category chips */}
+            <div className="flex items-center gap-2">
+              <FilterBottomSheet
+                timeFilter={timeFilter}
+                seasonFilter={seasonFilter}
+                cookedFilter={cookedFilter}
+                showVariants={showVariants}
+                hasVariants={recipes.some((r) => r.parentRecipeId)}
+                onApply={({ timeFilter: t, seasonFilter: s, cookedFilter: c, showVariants: sv }) => {
+                  setTimeFilter(t);
+                  setSeasonFilter(s);
+                  setCookedFilter(c);
+                  setShowVariants(sv);
+                }}
+              />
+              <div className="flex gap-1.5 overflow-x-auto pb-0.5 no-scrollbar flex-1">
+                {allCategories.map((cat) => (
                   <button
-                    onClick={() => setShowVariants((v) => !v)}
-                    className={`flex-shrink-0 px-3 py-1.5 rounded-full text-xs font-medium transition-colors min-h-[36px] ${
-                      showVariants
-                        ? "bg-amber-500 text-white"
-                        : "bg-white text-muted-foreground border border-border hover:border-amber-400"
+                    key={cat}
+                    onClick={() => setActiveCategory(cat)}
+                    className={`flex-shrink-0 px-3 py-1.5 rounded-full text-sm font-medium transition-colors min-h-[36px] ${
+                      activeCategory === cat
+                        ? "bg-[#3d6849] text-white"
+                        : "bg-white text-foreground border border-border hover:border-[#4A7C59]/40"
                     }`}
                   >
-                    🔀 Varianten anzeigen
+                    {cat}
                   </button>
-                </>
-              )}
+                ))}
+              </div>
             </div>
           </div>
 

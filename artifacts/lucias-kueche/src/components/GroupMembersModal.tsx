@@ -71,11 +71,7 @@ export default function GroupMembersModal({ group, onClose, isOwner }: Props) {
     setBusy(true);
     try {
       const result = await inviteMember(group.id, inviteInput.trim());
-      if (result.inviteType === "email_only") {
-        toast("Einladung gespeichert – sie erscheint sobald sich die Person registriert.");
-      } else {
-        toast(`Einladung an „${inviteInput.trim()}" gesendet`);
-      }
+      toast(`Einladungs-E-Mail an „${inviteInput.trim()}" versandt ✉️`);
       setInviteInput("");
       await loadMembers();
     } catch (err) {
@@ -100,11 +96,7 @@ export default function GroupMembersModal({ group, onClose, isOwner }: Props) {
     setRemindingIds((prev) => new Set(prev).add(member.id));
     try {
       const result = await remindMember(group.id, member.id);
-      if (result.notified) {
-        toast(`Erinnerung an „${member.displayName ?? member.invitedEmail ?? "Eingeladene Person"}" gesendet`);
-      } else {
-        toast("Diese Person hat noch kein Konto – keine Benachrichtigung möglich.");
-      }
+      toast(`Erinnerung an „${member.displayName ?? member.invitedEmail ?? "Eingeladene Person"}" versandt ✉️`);
       setRemindedIds((prev) => new Set(prev).add(member.id));
       setTimeout(() => {
         setRemindedIds((prev) => {
@@ -288,7 +280,7 @@ export default function GroupMembersModal({ group, onClose, isOwner }: Props) {
                       {m.role === "owner" ? (
                         <span className="text-xs px-2 py-0.5 rounded-full bg-[#4A7C59]/10 text-[#4A7C59] font-medium">Eigentümer</span>
                       ) : m.memberStatus === "invited" ? (
-                        <span className="text-xs px-2 py-0.5 rounded-full bg-amber-100 text-amber-700 font-medium">Eingeladen</span>
+                        <span className="text-xs px-2 py-0.5 rounded-full bg-amber-100 text-amber-700 font-medium">Einladung ausstehend</span>
                       ) : (
                         <span className="text-xs px-2 py-0.5 rounded-full bg-blue-100 text-blue-700 font-medium">Mitglied</span>
                       )}
@@ -297,7 +289,7 @@ export default function GroupMembersModal({ group, onClose, isOwner }: Props) {
                           onClick={() => handleRemind(m)}
                           disabled={remindingIds.has(m.id) || remindedIds.has(m.id)}
                           className="p-1.5 rounded-lg hover:bg-amber-50 text-muted-foreground hover:text-amber-600 transition-colors disabled:opacity-50"
-                          title="Erneut anstoßen"
+                          title="Erinnerung senden"
                         >
                           {remindingIds.has(m.id) ? (
                             <Loader2 className="w-3.5 h-3.5 animate-spin" />

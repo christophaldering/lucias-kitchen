@@ -42,6 +42,7 @@ The project is structured as a pnpm monorepo with distinct packages for deployab
         - **Statistiken & Muster:** Data visualization using Recharts for cooking statistics and user patterns.
         - **Bulk PDF Import:** Advanced admin feature for uploading multiple PDFs, AI-powered recipe extraction (Claude AI), and a review dashboard with page scan thumbnails.
 - **Group/Community Features:** Initial architecture for group management, including creation, invitations, and membership roles with admin moderation.
+- **Email Invitations:** Token-based invite links (14-day expiry) with real email delivery via Gmail SMTP (nodemailer). Includes HTML email templates for invitation, confirmation, join notification, and reminder. Frontend invite acceptance page at `/invite/:token`. Password verification required for existing users accepting invites. Notifications sent to inviters when invited users join.
 
 ## Production Deployment Architecture:
 - **Full-Stack Single Server:** In production, the API server serves both the backend API and the frontend static files. The `build.mjs` builds the frontend (`pnpm --filter @workspace/lucias-kueche build`) with `BASE_PATH=/` and copies the output to `artifacts/api-server/dist/public/`.
@@ -66,3 +67,4 @@ The project is structured as a pnpm monorepo with distinct packages for deployab
 - **React Hook Form:** For form management in the React frontend.
 - **date-fns:** For date manipulation in the React frontend.
 - **Unsplash:** For background images on the login page.
+- **Nodemailer:** For sending emails via Gmail SMTP (group invitation system).

@@ -101,15 +101,12 @@ export default function FamilyInviteDialog({ onClose }: Props) {
             </div>
             <div>
               <h3 className="font-serif text-lg font-semibold mb-1">Einladung versandt!</h3>
-              {successInfo.inviteType === "user" ? (
-                <p className="text-sm text-muted-foreground">
-                  <span className="font-medium text-foreground">{successInfo.email}</span> wurde direkt in deine Familiengruppe aufgenommen und kann sofort loslegen.
-                </p>
-              ) : (
-                <p className="text-sm text-muted-foreground">
-                  Einladung für <span className="font-medium text-foreground">{successInfo.email}</span> gespeichert – sie können Lucias Küche beitreten und erscheinen dann in deiner Gruppe.
-                </p>
-              )}
+              <p className="text-sm text-muted-foreground">
+                Eine Einladungs-E-Mail wurde an <span className="font-medium text-foreground">{successInfo.email}</span> versandt.
+                {successInfo.inviteType === "user"
+                  ? " Die Person kann sofort loslegen."
+                  : " Sobald sie beitritt, wirst du benachrichtigt."}
+              </p>
             </div>
             <p className="text-xs text-muted-foreground bg-[#4A7C59]/5 rounded-xl p-3">
               Du findest das eingeladene Mitglied unter „Meine Küche" → Gruppen in deiner Familiengruppe.

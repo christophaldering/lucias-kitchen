@@ -10,6 +10,7 @@ import Login from "@/pages/Login";
 import Onboarding from "@/pages/Onboarding";
 import WasKocheIch from "@/pages/WasKocheIch";
 import MeineKueche from "@/pages/MeineKueche";
+import InviteAccept from "@/pages/InviteAccept";
 import { AuthProvider, useAuth } from "@/contexts/AuthContext";
 import { NotificationBell } from "@/components/NotificationBell";
 import { BulkImportProgressBar } from "@/components/BulkImportProgressBar";
@@ -174,8 +175,15 @@ function BottomNav({ activeTab, onTabChange, unreadCount }: { activeTab: Tab; on
   );
 }
 
+function getInviteTokenFromUrl(): string | null {
+  const path = window.location.pathname;
+  const match = path.match(/\/invite\/([a-f0-9-]{36})/i);
+  return match ? match[1]! : null;
+}
+
 function AppShell() {
   const { user, loading } = useAuth();
+  const [inviteToken, setInviteToken] = useState<string | null>(getInviteTokenFromUrl);
   const [activeTab, setActiveTab] = useState<Tab>("rezepte");
   const [previousTab, setPreviousTab] = useState<Tab>("rezepte");
   const [openRecipeId, setOpenRecipeId] = useState<number | null>(null);
@@ -217,6 +225,19 @@ function AppShell() {
           <p className="font-script text-2xl text-[#4A7C59]">Lucias Küche wird geladen...</p>
         </div>
       </div>
+    );
+  }
+
+  if (inviteToken) {
+    return (
+      <InviteAccept
+        token={inviteToken}
+        onLoggedIn={() => {
+          setInviteToken(null);
+          window.history.replaceState({}, "", "/");
+          window.location.reload();
+        }}
+      />
     );
   }
 

@@ -1,9 +1,28 @@
 import { Router, type IRouter } from "express";
+import crypto from "crypto";
 import { db } from "@workspace/db";
 import { groupsTable, groupMembersTable, usersTable, notificationsTable } from "@workspace/db/schema";
 import { eq, and, or } from "drizzle-orm";
 import { z } from "zod/v4";
 import { authMiddleware } from "./auth";
+import { sendEmail, isEmailConfigured } from "../lib/email";
+import { invitationEmail, confirmationEmail, reminderEmail, addedToGroupEmail } from "../lib/emailTemplates";
+
+function generateInviteToken(): string {
+  return crypto.randomUUID();
+}
+
+function inviteExpiresAt(): Date {
+  const d = new Date();
+  d.setDate(d.getDate() + 14);
+  return d;
+}
+
+function getAppBaseUrl(): string {
+  const domain = process.env["REPLIT_DEV_DOMAIN"] || process.env["REPLIT_DOMAINS"]?.split(",")[0];
+  if (domain) return `https://${domain}`;
+  return "http://localhost:5173";
+}
 
 const router: IRouter = Router();
 
@@ -344,6 +363,11 @@ router.post("/groups/:id/invite", authMiddleware, async (req, res) => {
         return;
       }
 
+      if (!isEmailConfigured()) {
+        res.status(503).json({ error: "email_not_configured", message: "E-Mail-Versand ist nicht konfiguriert. Einladungen können derzeit nicht versendet werden." });
+        return;
+      }
+
       const existingEmailInvite = await db
         .select()
         .from(groupMembersTable)
@@ -355,6 +379,7 @@ router.post("/groups/:id/invite", authMiddleware, async (req, res) => {
         return;
       }
 
+      const token = generateInviteToken();
       const [member] = await db
         .insert(groupMembersTable)
         .values({
@@ -364,8 +389,23 @@ router.post("/groups/:id/invite", authMiddleware, async (req, res) => {
           invitedByUserId: userId,
           role: "member",
           memberStatus: "invited",
+          inviteToken: token,
+          inviteTokenExpiresAt: inviteExpiresAt(),
         })
         .returning();
+
+      const inviter = await db.select({ displayName: usersTable.displayName, email: usersTable.email }).from(usersTable).where(eq(usersTable.id, userId)).then((r) => r[0]);
+      if (inviter) {
+        const inviteLink = `${getAppBaseUrl()}/invite/${token}`;
+        try {
+          await sendEmail(normalizedEmail, `${inviter.displayName} lädt dich zu Lucia's Küche ein!`, invitationEmail({ inviterName: inviter.displayName, groupName: group!.name, inviteLink, invitedEmail: normalizedEmail }));
+          await sendEmail(inviter.email, `Einladung an ${normalizedEmail} versandt`, confirmationEmail({ inviterName: inviter.displayName, invitedEmail: normalizedEmail, groupName: group!.name }));
+        } catch (emailErr) {
+          req.log.error({ err: emailErr }, "Failed to send invite emails");
+          res.status(500).json({ error: "email_send_failed", message: "Die Einladung wurde erstellt, aber die E-Mail konnte nicht versendet werden." });
+          return;
+        }
+      }
 
       res.status(201).json({ ...member, displayName: null, email: normalizedEmail, inviteType: "email_only" });
       return;
@@ -387,6 +427,12 @@ router.post("/groups/:id/invite", authMiddleware, async (req, res) => {
       return;
     }
 
+    if (!isEmailConfigured()) {
+      res.status(503).json({ error: "email_not_configured", message: "E-Mail-Versand ist nicht konfiguriert. Einladungen können derzeit nicht versendet werden." });
+      return;
+    }
+
+    const token = generateInviteToken();
     const [member] = await db
       .insert(groupMembersTable)
       .values({
@@ -396,8 +442,29 @@ router.post("/groups/:id/invite", authMiddleware, async (req, res) => {
         invitedByUserId: userId,
         role: "member",
         memberStatus: "invited",
+        inviteToken: token,
+        inviteTokenExpiresAt: inviteExpiresAt(),
       })
       .returning();
+
+    const inviter = await db.select({ displayName: usersTable.displayName, email: usersTable.email }).from(usersTable).where(eq(usersTable.id, userId)).then((r) => r[0]);
+    if (inviter) {
+      const inviteLink = `${getAppBaseUrl()}/invite/${token}`;
+      try {
+        await sendEmail(invitedUser.email, `${inviter.displayName} lädt dich zu Lucia's Küche ein!`, invitationEmail({ inviterName: inviter.displayName, groupName: group!.name, inviteLink, invitedEmail: invitedUser.email }));
+        await sendEmail(inviter.email, `Einladung an ${invitedUser.email} versandt`, confirmationEmail({ inviterName: inviter.displayName, invitedEmail: invitedUser.email, groupName: group!.name }));
+      } catch (emailErr) {
+        req.log.error({ err: emailErr }, "Failed to send invite emails for existing user");
+        res.status(500).json({ error: "email_send_failed", message: "Die Einladung wurde erstellt, aber die E-Mail konnte nicht versendet werden." });
+        return;
+      }
+    }
+
+    await db.insert(notificationsTable).values({
+      userId: invitedUser.id,
+      type: "group_invite",
+      payload: { message: `${inviter?.displayName ?? "Jemand"} hat dich in die Gruppe „${group!.name}" eingeladen`, groupId, inviterId: userId },
+    });
 
     res.status(201).json({ ...member, displayName: invitedUser.displayName, email: invitedUser.email, inviteType: "user" });
   } catch (err) {
@@ -507,6 +574,9 @@ router.post("/groups/family-invite", authMiddleware, async (req, res) => {
       return;
     }
 
+    const inviter = await db.select({ displayName: usersTable.displayName, email: usersTable.email }).from(usersTable).where(eq(usersTable.id, userId)).then((r) => r[0]);
+    const group = await db.select({ name: groupsTable.name }).from(groupsTable).where(eq(groupsTable.id, groupId)).then((r) => r[0]);
+
     if (invitedUser) {
       const [member] = await db
         .insert(groupMembersTable)
@@ -519,8 +589,31 @@ router.post("/groups/family-invite", authMiddleware, async (req, res) => {
           memberStatus: "joined",
         })
         .returning();
+
+      if (isEmailConfigured() && inviter) {
+        const groupName = group?.name ?? "Meine Familie";
+        try {
+          await sendEmail(invitedUser.email, `Du wurdest zur Gruppe „${groupName}" hinzugefügt`, addedToGroupEmail({ inviterName: inviter.displayName, invitedName: invitedUser.displayName, groupName }));
+          await sendEmail(inviter.email, `${invitedUser.displayName} wurde hinzugefügt`, confirmationEmail({ inviterName: inviter.displayName, invitedEmail: invitedUser.email, groupName }));
+        } catch (emailErr) {
+          req.log.error({ err: emailErr }, "Failed to send family invite emails");
+        }
+      }
+
+      await db.insert(notificationsTable).values({
+        userId: invitedUser.id,
+        type: "group_joined",
+        payload: { message: `${inviter?.displayName ?? "Jemand"} hat dich zur Gruppe „${group?.name ?? "Meine Familie"}" hinzugefügt`, groupId },
+      });
+
       res.status(201).json({ ...member, displayName: invitedUser.displayName, email: invitedUser.email, inviteType: "user", groupId });
     } else {
+      if (!isEmailConfigured()) {
+        res.status(503).json({ error: "email_not_configured", message: "E-Mail-Versand ist nicht konfiguriert. Einladungen können derzeit nicht versendet werden." });
+        return;
+      }
+
+      const token = generateInviteToken();
       const [member] = await db
         .insert(groupMembersTable)
         .values({
@@ -530,8 +623,23 @@ router.post("/groups/family-invite", authMiddleware, async (req, res) => {
           invitedByUserId: userId,
           role: "member",
           memberStatus: "invited",
+          inviteToken: token,
+          inviteTokenExpiresAt: inviteExpiresAt(),
         })
         .returning();
+
+      if (inviter) {
+        const inviteLink = `${getAppBaseUrl()}/invite/${token}`;
+        try {
+          await sendEmail(normalizedEmail, `${inviter.displayName} lädt dich zu Lucia's Küche ein!`, invitationEmail({ inviterName: inviter.displayName, groupName: group?.name ?? "Meine Familie", inviteLink, invitedEmail: normalizedEmail }));
+          await sendEmail(inviter.email, `Einladung an ${normalizedEmail} versandt`, confirmationEmail({ inviterName: inviter.displayName, invitedEmail: normalizedEmail, groupName: group?.name ?? "Meine Familie" }));
+        } catch (emailErr) {
+          req.log.error({ err: emailErr }, "Failed to send family invite emails");
+          res.status(500).json({ error: "email_send_failed", message: "Die Einladung wurde erstellt, aber die E-Mail konnte nicht versendet werden." });
+          return;
+        }
+      }
+
       res.status(201).json({ ...member, displayName: null, email: normalizedEmail, inviteType: "email_only", groupId });
     }
   } catch (err) {
@@ -589,7 +697,7 @@ router.put("/groups/:id/join", authMiddleware, async (req, res) => {
   }
 });
 
-router.post("/groups/:id/members/:memberId/remind", authMiddleware, async (req, res) => {
+async function handleInviteRemindOrResend(req: any, res: any) {
   try {
     const groupId = Number(req.params["id"]);
     const memberId = Number(req.params["memberId"]);
@@ -627,10 +735,11 @@ router.post("/groups/:id/members/:memberId/remind", authMiddleware, async (req, 
       return;
     }
 
-    if (!targetMember.userId) {
-      res.json({ notified: false, reason: "email_only" });
-      return;
-    }
+    const newToken = generateInviteToken();
+    await db
+      .update(groupMembersTable)
+      .set({ inviteToken: newToken, inviteTokenExpiresAt: inviteExpiresAt() })
+      .where(eq(groupMembersTable.id, targetMember.id));
 
     const group = await db
       .select()
@@ -644,23 +753,54 @@ router.post("/groups/:id/members/:memberId/remind", authMiddleware, async (req, 
       .where(eq(usersTable.id, userId))
       .then((r) => r[0]);
 
-    await db.insert(notificationsTable).values({
-      userId: targetMember.userId,
-      type: "group_invite_reminder",
-      payload: {
-        groupId,
-        groupName: group?.name ?? "",
-        inviterName: sender?.displayName ?? sender?.email ?? "",
-        inviterId: userId,
-      },
-    });
+    let emailSent = false;
+    if (sender && targetMember.invitedEmail) {
+      if (!isEmailConfigured()) {
+        if (!targetMember.userId) {
+          res.status(503).json({ error: "email_not_configured", message: "E-Mail-Versand ist nicht konfiguriert. Erinnerung kann nicht versendet werden." });
+          return;
+        }
+      } else {
+        const inviteLink = `${getAppBaseUrl()}/invite/${newToken}`;
+        try {
+          await sendEmail(
+            targetMember.invitedEmail,
+            `Erinnerung: ${sender.displayName} wartet auf dich in Lucia's Küche`,
+            reminderEmail({ inviterName: sender.displayName, groupName: group?.name ?? "", inviteLink, invitedEmail: targetMember.invitedEmail })
+          );
+          emailSent = true;
+        } catch (emailErr) {
+          req.log.error({ err: emailErr }, "Failed to send reminder email");
+          if (!targetMember.userId) {
+            res.status(500).json({ error: "email_send_failed", message: "Die Erinnerungs-E-Mail konnte nicht versendet werden." });
+            return;
+          }
+        }
+      }
+    }
 
-    res.json({ notified: true });
+    if (targetMember.userId) {
+      await db.insert(notificationsTable).values({
+        userId: targetMember.userId,
+        type: "group_invite_reminder",
+        payload: {
+          groupId,
+          groupName: group?.name ?? "",
+          inviterName: sender?.displayName ?? sender?.email ?? "",
+          inviterId: userId,
+        },
+      });
+    }
+
+    res.json({ notified: true, emailSent });
   } catch (err) {
     req.log.error({ err }, "Failed to send invite reminder");
     res.status(500).json({ error: "internal_error" });
   }
-});
+}
+
+router.post("/groups/:id/members/:memberId/remind", authMiddleware, handleInviteRemindOrResend);
+router.post("/groups/:id/invite/:memberId/resend", authMiddleware, handleInviteRemindOrResend);
 
 router.delete("/groups/:id/members/:memberId", authMiddleware, async (req, res) => {
   try {

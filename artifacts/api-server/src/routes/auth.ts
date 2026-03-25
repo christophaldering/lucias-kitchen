@@ -1,11 +1,12 @@
 import { Router, type IRouter, type Request, type Response, type NextFunction } from "express";
 import { db } from "@workspace/db";
-import { usersTable } from "@workspace/db/schema";
-import { groupMembersTable } from "@workspace/db/schema";
+import { usersTable, groupMembersTable, groupsTable, notificationsTable } from "@workspace/db/schema";
 import { eq } from "drizzle-orm";
 import bcrypt from "bcryptjs";
 import jwt from "jsonwebtoken";
 import { z } from "zod/v4";
+import { sendEmail, isEmailConfigured } from "../lib/email";
+import { joinedNotificationEmail } from "../lib/emailTemplates";
 
 const router: IRouter = Router();
 
@@ -69,10 +70,46 @@ router.post("/auth/register", async (req, res) => {
       .values({ email: normalizedEmail, passwordHash, displayName })
       .returning();
 
+    const pendingInvites = await db
+      .select({
+        id: groupMembersTable.id,
+        groupId: groupMembersTable.groupId,
+        invitedByUserId: groupMembersTable.invitedByUserId,
+      })
+      .from(groupMembersTable)
+      .where(eq(groupMembersTable.invitedEmail, normalizedEmail));
+
     await db
       .update(groupMembersTable)
-      .set({ userId: user.id })
+      .set({ userId: user!.id, memberStatus: "joined", inviteToken: null, inviteTokenExpiresAt: null })
       .where(eq(groupMembersTable.invitedEmail, normalizedEmail));
+
+    for (const inv of pendingInvites) {
+      if (inv.invitedByUserId) {
+        const groupInfo = await db.select({ name: groupsTable.name }).from(groupsTable).where(eq(groupsTable.id, inv.groupId)).then((r) => r[0]);
+        await db.insert(notificationsTable).values({
+          userId: inv.invitedByUserId,
+          type: "invite_accepted",
+          payload: {
+            message: `${user!.displayName} hat sich registriert und ist der Gruppe „${groupInfo?.name ?? ""}" beigetreten! 🎉`,
+            groupId: inv.groupId,
+            joinedUserId: user!.id,
+            joinedUserName: user!.displayName,
+          },
+        });
+
+        if (isEmailConfigured()) {
+          try {
+            const inviterUser = await db.select({ displayName: usersTable.displayName, email: usersTable.email }).from(usersTable).where(eq(usersTable.id, inv.invitedByUserId)).then((r) => r[0]);
+            if (inviterUser) {
+              await sendEmail(inviterUser.email, `${user!.displayName} ist Lucia's Küche beigetreten!`, joinedNotificationEmail({ inviterName: inviterUser.displayName, joinedUserName: user!.displayName, groupName: groupInfo?.name ?? "Unbekannte Gruppe" }));
+            }
+          } catch (emailErr) {
+            req.log.error({ err: emailErr }, "Failed to send join notification email to inviter");
+          }
+        }
+      }
+    }
 
     const token = jwt.sign(
       { id: user.id, email: user.email, displayName: user.displayName },

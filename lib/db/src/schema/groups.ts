@@ -26,6 +26,8 @@ export const groupMembersTable = pgTable("group_members", {
   invitedByUserId: integer("invited_by_user_id").references(() => usersTable.id, { onDelete: "set null" }),
   role: groupMemberRoleEnum("role").notNull().default("member"),
   memberStatus: groupMemberStatusEnum("member_status").notNull().default("invited"),
+  inviteToken: text("invite_token").unique(),
+  inviteTokenExpiresAt: timestamp("invite_token_expires_at"),
   createdAt: timestamp("created_at").notNull().defaultNow(),
 });
 

@@ -90,8 +90,8 @@ const STATUS_CONFIG = {
 };
 
 const FILE_STATUS_CONFIG: Record<string, { label: string; color: string; textColor: string }> = {
-  pending: { label: "Wartend", color: "bg-gray-100", textColor: "text-gray-600" },
-  processing: { label: "Wird verarbeitet", color: "bg-blue-100", textColor: "text-blue-700" },
+  pending: { label: "Wartet auf KI", color: "bg-gray-100", textColor: "text-gray-600" },
+  processing: { label: "KI analysiert…", color: "bg-blue-100", textColor: "text-blue-700" },
   done: { label: "Fertig", color: "bg-green-100", textColor: "text-green-700" },
   failed: { label: "Fehler", color: "bg-red-100", textColor: "text-red-700" },
 };
@@ -552,16 +552,24 @@ function ReviewDashboard({
     <div className="space-y-4">
       <div className="bg-white border border-border rounded-xl p-4">
         <div className="flex items-center justify-between mb-3">
-          <div>
+          <div className="flex-1 min-w-0">
             <h3 className="font-semibold text-foreground">
-              {isProcessing ? "Verarbeitung läuft…" : "Import abgeschlossen"}
+              {isProcessing ? "KI-Analyse läuft…" : "Import abgeschlossen"}
             </h3>
-            <p className="text-sm text-muted-foreground">
-              {session.processedFiles} / {session.totalFiles} Dateien verarbeitet
-              {session.currentFile && ` · ${session.currentFile}`}
+            <p className="text-sm text-muted-foreground mt-0.5">
+              {isProcessing ? (
+                <>
+                  Datei {session.processedFiles + 1} von {session.totalFiles} wird analysiert
+                  {session.currentFile && (
+                    <span className="block truncate text-xs mt-0.5 max-w-full">„{session.currentFile}"</span>
+                  )}
+                </>
+              ) : (
+                `${session.processedFiles} / ${session.totalFiles} Dateien abgeschlossen`
+              )}
             </p>
           </div>
-          {isProcessing && <Loader2 className="w-5 h-5 animate-spin text-[#4A7C59]" />}
+          {isProcessing && <Loader2 className="w-5 h-5 animate-spin text-[#4A7C59] flex-shrink-0 ml-3" />}
         </div>
 
         <div className="w-full bg-gray-100 rounded-full h-2">
@@ -570,6 +578,12 @@ function ReviewDashboard({
             style={{ width: `${session.totalFiles > 0 ? (session.processedFiles / session.totalFiles) * 100 : 0}%` }}
           />
         </div>
+
+        {isProcessing && (
+          <p className="text-xs text-muted-foreground mt-2">
+            {session.processedFiles} von {session.totalFiles} fertig · {session.totalFiles - session.processedFiles} ausstehend
+          </p>
+        )}
 
         {!isProcessing && (
           <div className="flex gap-3 mt-4 flex-wrap">
@@ -767,10 +781,21 @@ function ImportHistory() {
   );
 }
 
+type FileQueueStatus = "waiting" | "uploading" | "done" | "error";
+
+interface FileQueueEntry {
+  name: string;
+  size: number;
+  status: FileQueueStatus;
+  errorText?: string;
+  chunkProgress?: { current: number; total: number };
+}
+
 export default function BulkImportTab({ onUploadingChange }: { onUploadingChange?: (isUploading: boolean) => void }) {
   const [files, setFiles] = useState<File[]>([]);
   const [uploading, setUploading] = useState(false);
-  const [uploadProgress, setUploadProgress] = useState<{ current: number; total: number; label?: string } | null>(null);
+  const [fileQueue, setFileQueue] = useState<FileQueueEntry[]>([]);
+  const [currentUploadIndex, setCurrentUploadIndex] = useState<number | null>(null);
   const [sessionId, setSessionId] = useState<number | null>(() => {
     try {
       const stored = localStorage.getItem("lk_bulk_import_session");
@@ -851,7 +876,7 @@ export default function BulkImportTab({ onUploadingChange }: { onUploadingChange
 
   const uploadFileInChunks = async (
     file: File,
-    sessionId: number | null,
+    currentSessionId: number | null,
     onProgress: (chunk: number, total: number) => void
   ): Promise<{ sessionId: number }> => {
     const arrayBuffer = await file.arrayBuffer();
@@ -859,7 +884,7 @@ export default function BulkImportTab({ onUploadingChange }: { onUploadingChange
     const totalChunks = Math.ceil(bytes.byteLength / CHUNK_SIZE) || 1;
     const uploadId = `${Date.now()}-${Math.random().toString(36).slice(2)}`;
 
-    let currentSessionId = sessionId;
+    let sid = currentSessionId;
 
     for (let i = 0; i < totalChunks; i++) {
       onProgress(i + 1, totalChunks);
@@ -875,7 +900,7 @@ export default function BulkImportTab({ onUploadingChange }: { onUploadingChange
         totalChunks,
         data: base64,
       };
-      if (currentSessionId != null) body.sessionId = currentSessionId;
+      if (sid != null) body.sessionId = sid;
 
       const res = await authFetch(`${API_BASE}/bulk-import/upload-chunk`, {
         method: "POST",
@@ -885,16 +910,16 @@ export default function BulkImportTab({ onUploadingChange }: { onUploadingChange
 
       if (!res.ok) {
         const err = await res.json().catch(() => ({}));
-        throw new Error(`Datei "${file.name}": ${(err as { message?: string }).message ?? `HTTP ${res.status}`}`);
+        throw new Error((err as { message?: string }).message ?? `HTTP ${res.status}`);
       }
 
       const result = await res.json() as { complete: boolean; sessionId?: number };
       if (result.complete && result.sessionId != null) {
-        currentSessionId = result.sessionId;
+        sid = result.sessionId;
       }
     }
 
-    return { sessionId: currentSessionId! };
+    return { sessionId: sid! };
   };
 
   const handleStart = async () => {
@@ -902,35 +927,63 @@ export default function BulkImportTab({ onUploadingChange }: { onUploadingChange
     setUploading(true);
     setError(null);
 
-    const totalChunksAll = files.reduce((sum, f) => sum + (Math.ceil(f.size / CHUNK_SIZE) || 1), 0);
-    let chunksUploaded = 0;
-
-    setUploadProgress({ current: 0, total: totalChunksAll, label: files[0].name });
+    const initialQueue: FileQueueEntry[] = files.map((f) => ({
+      name: f.name,
+      size: f.size,
+      status: "waiting",
+    }));
+    setFileQueue(initialQueue);
 
     try {
       let currentSessionId: number | null = null;
 
       for (let i = 0; i < files.length; i++) {
         const file = files[i];
-        const result = await uploadFileInChunks(file, currentSessionId, (chunk, total) => {
-          setUploadProgress({
-            current: chunksUploaded + chunk,
-            total: totalChunksAll,
-            label: file.name,
+        setCurrentUploadIndex(i);
+
+        setFileQueue((prev) =>
+          prev.map((entry, idx) =>
+            idx === i
+              ? { ...entry, status: "uploading", chunkProgress: { current: 0, total: Math.ceil(file.size / CHUNK_SIZE) || 1 } }
+              : entry
+          )
+        );
+
+        try {
+          const result = await uploadFileInChunks(file, currentSessionId, (chunk, total) => {
+            setFileQueue((prev) =>
+              prev.map((entry, idx) =>
+                idx === i ? { ...entry, chunkProgress: { current: chunk, total } } : entry
+              )
+            );
           });
-          if (chunk === total) chunksUploaded += total;
-        });
-        currentSessionId = result.sessionId;
+          currentSessionId = result.sessionId;
+
+          setFileQueue((prev) =>
+            prev.map((entry, idx) =>
+              idx === i ? { ...entry, status: "done", chunkProgress: undefined } : entry
+            )
+          );
+        } catch (fileErr) {
+          const errMsg = fileErr instanceof Error ? fileErr.message : "Upload fehlgeschlagen";
+          setFileQueue((prev) =>
+            prev.map((entry, idx) =>
+              idx === i ? { ...entry, status: "error", errorText: errMsg, chunkProgress: undefined } : entry
+            )
+          );
+        }
       }
 
-      localStorage.setItem("lk_bulk_import_session", String(currentSessionId));
-      setSessionId(currentSessionId);
-      setFiles([]);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Upload fehlgeschlagen");
+      if (currentSessionId != null) {
+        localStorage.setItem("lk_bulk_import_session", String(currentSessionId));
+        setSessionId(currentSessionId);
+        setFiles([]);
+      } else {
+        setError("Keine Datei konnte hochgeladen werden. Bitte erneut versuchen.");
+      }
     } finally {
       setUploading(false);
-      setUploadProgress(null);
+      setCurrentUploadIndex(null);
     }
   };
 
@@ -939,6 +992,7 @@ export default function BulkImportTab({ onUploadingChange }: { onUploadingChange
     setSessionId(null);
     setFiles([]);
     setError(null);
+    setFileQueue([]);
     setHistoryKey((k) => k + 1);
   };
 
@@ -947,6 +1001,7 @@ export default function BulkImportTab({ onUploadingChange }: { onUploadingChange
     setSessionId(null);
     setFiles([]);
     setError(null);
+    setFileQueue([]);
     setShowLeaveConfirm(false);
   };
 
@@ -1046,7 +1101,7 @@ export default function BulkImportTab({ onUploadingChange }: { onUploadingChange
         </p>
       )}
 
-      {files.length > 0 && (
+      {files.length > 0 && !uploading && (
         <div className="space-y-3">
           <div className="flex items-center justify-between">
             <p className="text-sm font-medium text-foreground">
@@ -1070,42 +1125,118 @@ export default function BulkImportTab({ onUploadingChange }: { onUploadingChange
             ))}
           </ul>
 
-          {uploadProgress && (
-            <div className="w-full">
-              <div className="flex justify-between text-xs text-muted-foreground mb-1">
-                <span className="truncate max-w-[70%]">
-                  {uploadProgress.label ? `„${uploadProgress.label}"` : "Dateien"} wird hochgeladen…
-                </span>
-                <span>{Math.round((uploadProgress.current / uploadProgress.total) * 100)} %</span>
-              </div>
-              <div className="h-1.5 w-full bg-gray-200 rounded-full overflow-hidden">
-                <div
-                  className="h-full bg-[#4A7C59] rounded-full transition-all duration-300"
-                  style={{ width: `${(uploadProgress.current / uploadProgress.total) * 100}%` }}
-                />
-              </div>
-            </div>
-          )}
-
           <button
             onClick={handleStart}
-            disabled={uploading}
-            className="w-full py-3 bg-[#4A7C59] text-white rounded-xl text-sm font-semibold hover:bg-[#3d6849] transition-colors disabled:opacity-50 flex items-center justify-center gap-2"
+            className="w-full py-3 bg-[#4A7C59] text-white rounded-xl text-sm font-semibold hover:bg-[#3d6849] transition-colors flex items-center justify-center gap-2"
           >
-            {uploading ? (
-              <>
-                <Loader2 className="w-4 h-4 animate-spin" />
-                {uploadProgress && uploadProgress.total > 0
-                  ? `${Math.round((uploadProgress.current / uploadProgress.total) * 100)} % hochgeladen…`
-                  : "Wird hochgeladen…"}
-              </>
-            ) : (
-              <>
-                <Upload className="w-4 h-4" />
-                {files.length} PDF{files.length !== 1 ? "s" : ""} importieren
-              </>
-            )}
+            <Upload className="w-4 h-4" />
+            {files.length} PDF{files.length !== 1 ? "s" : ""} importieren
           </button>
+        </div>
+      )}
+
+      {fileQueue.length > 0 && (
+        <div className="space-y-3">
+          {(() => {
+            const doneCount = fileQueue.filter((f) => f.status === "done" || f.status === "error").length;
+            const errorCount = fileQueue.filter((f) => f.status === "error").length;
+            const totalCount = fileQueue.length;
+            const activeFile = uploading && currentUploadIndex !== null ? fileQueue[currentUploadIndex] : null;
+            const overallPct = totalCount > 0 ? Math.round((doneCount / totalCount) * 100) : 0;
+
+            return (
+              <>
+                <div className="bg-white border border-border rounded-xl p-4 space-y-3">
+                  <div className="flex items-center gap-3">
+                    {uploading
+                      ? <Loader2 className="w-5 h-5 animate-spin text-[#4A7C59] flex-shrink-0" />
+                      : errorCount > 0
+                        ? <AlertTriangle className="w-5 h-5 text-amber-500 flex-shrink-0" />
+                        : <Check className="w-5 h-5 text-green-600 flex-shrink-0" />
+                    }
+                    <div className="flex-1 min-w-0">
+                      <p className="text-sm font-semibold text-foreground">
+                        {uploading
+                          ? `Datei ${Math.min(doneCount + 1, totalCount)} von ${totalCount} wird hochgeladen…`
+                          : errorCount > 0
+                            ? `Upload abgeschlossen – ${errorCount} Datei${errorCount !== 1 ? "en" : ""} fehlgeschlagen`
+                            : `Alle ${totalCount} Dateien hochgeladen`}
+                      </p>
+                      {activeFile && (
+                        <p className="text-xs text-muted-foreground truncate mt-0.5">„{activeFile.name}"</p>
+                      )}
+                    </div>
+                    <span className="text-sm font-medium text-[#4A7C59] flex-shrink-0">{overallPct} %</span>
+                  </div>
+
+                  <div className="h-2 w-full bg-gray-100 rounded-full overflow-hidden">
+                    <div
+                      className="h-full bg-[#4A7C59] rounded-full transition-all duration-300"
+                      style={{ width: `${overallPct}%` }}
+                    />
+                  </div>
+
+                  {uploading && activeFile?.chunkProgress && activeFile.chunkProgress.total > 1 && (
+                    <div className="space-y-1">
+                      <div className="flex justify-between text-xs text-muted-foreground">
+                        <span>Datei-Upload</span>
+                        <span>{Math.round((activeFile.chunkProgress.current / activeFile.chunkProgress.total) * 100)} %</span>
+                      </div>
+                      <div className="h-1 w-full bg-gray-100 rounded-full overflow-hidden">
+                        <div
+                          className="h-full bg-[#4A7C59]/50 rounded-full transition-all duration-200"
+                          style={{ width: `${(activeFile.chunkProgress.current / activeFile.chunkProgress.total) * 100}%` }}
+                        />
+                      </div>
+                    </div>
+                  )}
+                </div>
+
+                <div className="bg-white border border-border rounded-xl overflow-hidden">
+                  <div className="px-4 py-2 bg-gray-50 border-b border-border flex items-center justify-between">
+                    <span className="text-xs font-medium text-muted-foreground uppercase tracking-wide">Upload-Warteschlange</span>
+                    {!uploading && (
+                      <button
+                        onClick={() => setFileQueue([])}
+                        className="text-xs text-muted-foreground hover:text-foreground transition-colors"
+                      >
+                        Schließen
+                      </button>
+                    )}
+                  </div>
+                  <ul className="divide-y divide-border max-h-64 overflow-y-auto">
+                    {fileQueue.map((entry, idx) => (
+                      <li key={entry.name} className="flex items-start gap-3 px-4 py-2.5">
+                        <div className="flex-shrink-0 mt-0.5">
+                          {entry.status === "done" && <Check className="w-4 h-4 text-green-600" />}
+                          {entry.status === "error" && <X className="w-4 h-4 text-red-500" />}
+                          {entry.status === "uploading" && <Loader2 className="w-4 h-4 animate-spin text-[#4A7C59]" />}
+                          {entry.status === "waiting" && <Clock className="w-4 h-4 text-gray-400" />}
+                        </div>
+                        <div className="flex-1 min-w-0">
+                          <span className="text-sm text-foreground truncate block">{entry.name}</span>
+                          {entry.status === "error" && entry.errorText && (
+                            <span className="text-xs text-red-500 block mt-0.5">{entry.errorText}</span>
+                          )}
+                        </div>
+                        <span className={`text-xs flex-shrink-0 font-medium mt-0.5 ${
+                          entry.status === "done" ? "text-green-600" :
+                          entry.status === "error" ? "text-red-500" :
+                          entry.status === "uploading" ? "text-[#4A7C59]" :
+                          "text-muted-foreground"
+                        }`}>
+                          {entry.status === "done" ? "Fertig" :
+                           entry.status === "error" ? "Fehler" :
+                           entry.status === "uploading" ? "Hochladen…" :
+                           `#${idx + 1}`}
+                        </span>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              </>
+            );
+          })()}
         </div>
       )}
 

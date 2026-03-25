@@ -1,63 +1,56 @@
 import { useAuth } from "@/contexts/AuthContext";
-import { BookOpen, Plus, Link, CalendarDays, ShoppingCart, BarChart3, ArrowRight } from "lucide-react";
+import { ArrowRight } from "lucide-react";
 
 interface ActionCard {
   id: string;
-  icon: React.ReactNode;
   emoji: string;
   title: string;
   description: string;
-  tab?: string;
+  tab: string;
 }
 
 const CARDS: ActionCard[] = [
   {
-    id: "rezepte",
-    icon: <BookOpen className="w-8 h-8" />,
-    emoji: "📖",
-    title: "Rezepte entdecken",
-    description: "Stöbere durch deine persönliche Rezeptsammlung und entdecke alte Lieblinge.",
+    id: "kochen",
+    emoji: "🍳",
+    title: "Ich möchte kochen",
+    description: "Öffne deine Rezeptbibliothek und such dir etwas Leckeres aus.",
     tab: "rezepte",
   },
   {
-    id: "neu",
-    icon: <Plus className="w-8 h-8" />,
-    emoji: "✍️",
-    title: "Neues Rezept erstellen",
-    description: "Halte ein neues Lieblingsrezept fest und füge es deiner Sammlung hinzu.",
-    tab: "rezepte",
+    id: "ueberraschung",
+    emoji: "🎲",
+    title: "Überrasch mich!",
+    description: "Lass die KI entscheiden – bekomme einen kreativen Kochvorschlag.",
+    tab: "was-koche-ich",
   },
   {
-    id: "importieren",
-    icon: <Link className="w-8 h-8" />,
-    emoji: "🌐",
-    title: "Rezept von Website importieren",
-    description: "Kopiere einfach die URL und lass die KI das Rezept automatisch importieren.",
-    tab: "rezepte",
+    id: "kuehlschrank",
+    emoji: "🥦",
+    title: "Was hab ich zuhause?",
+    description: "Schau nach, was du vorrätig hast und lass dich inspirieren.",
+    tab: "was-koche-ich",
   },
   {
     id: "wochenplan",
-    icon: <CalendarDays className="w-8 h-8" />,
     emoji: "📅",
-    title: "Wochenmenü planen",
-    description: "Plane deine Mahlzeiten für die Woche und behalte den Überblick.",
+    title: "Ich plane die Woche",
+    description: "Plane deine Mahlzeiten für die nächsten Tage und behalte den Überblick.",
     tab: "wochenplan",
   },
   {
-    id: "einkaufsliste",
-    icon: <ShoppingCart className="w-8 h-8" />,
-    emoji: "🛒",
-    title: "Einkaufsliste erstellen",
-    description: "Generiere automatisch eine sortierte Einkaufsliste aus deinem Wochenplan.",
-    tab: "wochenplan",
+    id: "suchen",
+    emoji: "🔍",
+    title: "Ich suche ein Rezept",
+    description: "Finde gezielt ein Rezept nach Name, Zutat oder Kategorie.",
+    tab: "rezepte",
   },
   {
-    id: "statistiken",
-    icon: <BarChart3 className="w-8 h-8" />,
-    emoji: "📊",
-    title: "Meine Küchen-Statistiken",
-    description: "Entdecke Muster in deiner Küche – was du am liebsten kochst und wie oft.",
-    tab: "statistiken",
+    id: "gemeinsam",
+    emoji: "👨‍👩‍👧",
+    title: "Mit Familie/Freunden kochen",
+    description: "Teile Rezepte, plane gemeinsam und koche zusammen.",
+    tab: "meine-kueche",
   },
 ];
 
@@ -70,9 +63,7 @@ export default function Onboarding({ onNavigate }: OnboardingProps) {
 
   const handleCardClick = async (card: ActionCard) => {
     await completeOnboarding();
-    if (card.tab) {
-      onNavigate(card.tab);
-    }
+    onNavigate(card.tab);
   };
 
   const handleOverview = async () => {
@@ -107,10 +98,7 @@ export default function Onboarding({ onNavigate }: OnboardingProps) {
               className="group text-left bg-white rounded-2xl border border-border p-6 shadow-sm hover:shadow-lg hover:-translate-y-1 transition-all duration-200 hover:border-[#4A7C59]/40"
             >
               <div className="text-4xl mb-4">{card.emoji}</div>
-              <div className="w-10 h-10 rounded-xl bg-[#4A7C59]/10 text-[#4A7C59] flex items-center justify-center mb-3 group-hover:bg-[#4A7C59] group-hover:text-white transition-colors">
-                {card.icon}
-              </div>
-              <h3 className="font-serif font-semibold text-lg text-foreground mb-2 leading-snug">
+              <h3 className="font-serif font-semibold text-lg text-foreground mb-2 leading-snug group-hover:text-[#4A7C59] transition-colors">
                 {card.title}
               </h3>
               <p className="text-sm text-muted-foreground leading-relaxed">
@@ -124,9 +112,9 @@ export default function Onboarding({ onNavigate }: OnboardingProps) {
         <div className="text-center">
           <button
             onClick={handleOverview}
-            className="inline-flex items-center gap-2 text-[#4A7C59] font-semibold hover:text-[#3d6849] transition-colors group"
+            className="inline-flex items-center gap-2 text-[#4A7C59] font-semibold hover:text-[#3d6849] transition-colors group text-sm"
           >
-            Alles auf einen Blick → Zur Übersicht
+            Alles auf einen Blick
             <ArrowRight className="w-4 h-4 group-hover:translate-x-1 transition-transform" />
           </button>
         </div>

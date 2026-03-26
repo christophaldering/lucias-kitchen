@@ -1679,6 +1679,106 @@ router.post("/recipes/:id/generate-image", authMiddleware, async (req, res) => {
   }
 });
 
+router.get("/admin/recipes-without-images", authMiddleware, async (req, res) => {
+  if (!isAdmin(req.authUser!.email)) {
+    res.status(403).json({ error: "forbidden", message: "Nur Admins können diese Daten abrufen" });
+    return;
+  }
+
+  try {
+    const recipesWithPhotos = await db
+      .selectDistinct({ recipeId: recipePhotoLinksTable.recipeId })
+      .from(recipePhotoLinksTable);
+
+    const recipeIdsWithPhotos = new Set(recipesWithPhotos.map((r) => r.recipeId));
+
+    const allRecipes = await db
+      .select({ id: recipesTable.id, title: recipesTable.title, category: recipesTable.category, createdAt: recipesTable.createdAt })
+      .from(recipesTable)
+      .where(and(isNull(recipesTable.deletedAt), isNull(recipesTable.imageUrl)))
+      .orderBy(recipesTable.id);
+
+    const result = allRecipes.filter((r) => !recipeIdsWithPhotos.has(r.id));
+    res.json(result);
+  } catch (err) {
+    req.log.error({ err }, "Failed to fetch recipes without images");
+    res.status(500).json({ error: "internal_error" });
+  }
+});
+
+router.post("/admin/generate-recipe-images/selected", authMiddleware, async (req, res) => {
+  if (!isAdmin(req.authUser!.email)) {
+    res.status(403).json({ error: "forbidden", message: "Nur Admins können Bilder generieren" });
+    return;
+  }
+
+  const bodySchema = z.object({ ids: z.array(z.number().int().positive()).min(1) });
+  const parseResult = bodySchema.safeParse(req.body);
+  if (!parseResult.success) {
+    res.status(400).json({ error: "invalid_input", message: "ids muss eine nicht-leere Liste von Rezept-IDs sein" });
+    return;
+  }
+
+  const { ids } = parseResult.data;
+
+  res.setHeader("Content-Type", "text/event-stream");
+  res.setHeader("Cache-Control", "no-cache");
+  res.setHeader("Connection", "keep-alive");
+  res.flushHeaders();
+
+  const sendEvent = (data: object) => {
+    res.write(`data: ${JSON.stringify(data)}\n\n`);
+  };
+
+  try {
+    const allRecipes = await db
+      .select({ id: recipesTable.id, title: recipesTable.title, category: recipesTable.category, imageUrl: recipesTable.imageUrl })
+      .from(recipesTable)
+      .where(and(isNull(recipesTable.deletedAt), inArray(recipesTable.id, ids)));
+
+    const recipesWithPhotos = await db
+      .selectDistinct({ recipeId: recipePhotoLinksTable.recipeId })
+      .from(recipePhotoLinksTable)
+      .where(inArray(recipePhotoLinksTable.recipeId, ids));
+
+    const recipeIdsWithPhotos = new Set(recipesWithPhotos.map((r) => r.recipeId));
+
+    const recipesToProcess = allRecipes.filter(
+      (r) => !recipeIdsWithPhotos.has(r.id) && !r.imageUrl
+    );
+
+    const total = recipesToProcess.length;
+    let done = 0;
+    let errors = 0;
+
+    sendEvent({ done, total, errors });
+
+    const { batchProcessWithSSE } = await import("@workspace/integrations-openai-ai-server/batch");
+
+    await batchProcessWithSSE(
+      recipesToProcess,
+      async (recipe) => {
+        await generateAndSaveRecipeImage(recipe.id, recipe.title, recipe.category);
+      },
+      (event) => {
+        if (event.type === "progress") {
+          done++;
+          if (event.error) errors++;
+          sendEvent({ done, total, errors });
+        } else if (event.type === "complete") {
+          sendEvent({ done: total, total, errors: event.errors as number, finished: true });
+        }
+      },
+      { retries: 2 }
+    );
+  } catch (err) {
+    req.log.error({ err }, "Failed to run selected image generation");
+    sendEvent({ error: "Fehler bei der Bildgenerierung" });
+  } finally {
+    res.end();
+  }
+});
+
 router.post("/admin/generate-recipe-images", authMiddleware, async (req, res) => {
   if (!isAdmin(req.authUser!.email)) {
     res.status(403).json({ error: "forbidden", message: "Nur Admins können Bilder generieren" });

@@ -170,7 +170,7 @@ export default function RecipePhotoGallery({ recipeId, allRecipes, currentImageU
               title="Foto aus Galerie"
             >
               <Image className="w-3.5 h-3.5 text-[#C1693A]" />
-              Galerie
+              Auswahl
             </button>
             <button
               type="button"

@@ -1458,6 +1458,31 @@ router.get("/recipes/:id/photos", async (req, res) => {
       res.status(400).json({ error: "bad_request", message: "Invalid recipe id" });
       return;
     }
+
+    const [recipe] = await db
+      .select({ imageUrl: recipesTable.imageUrl, imageSource: recipesTable.imageSource })
+      .from(recipesTable)
+      .where(and(eq(recipesTable.id, id), isNull(recipesTable.deletedAt)))
+      .limit(1);
+
+    // Lazy backfill: if the recipe has an AI image but no corresponding photo link entry
+    // (e.g. generated before the syncMainPhotoLink call was added), create the entry now.
+    if (recipe?.imageUrl && recipe.imageSource === "ai") {
+      const [existingLink] = await db
+        .select({ id: recipePhotoLinksTable.id })
+        .from(recipePhotoLinksTable)
+        .innerJoin(photosTable, eq(photosTable.id, recipePhotoLinksTable.photoId))
+        .where(and(eq(recipePhotoLinksTable.recipeId, id), eq(photosTable.imageUrl, recipe.imageUrl)))
+        .limit(1);
+
+      if (!existingLink) {
+        try {
+          await syncMainPhotoLink(id, recipe.imageUrl, null, "ai");
+        } catch {
+        }
+      }
+    }
+
     const rows = await db
       .select({
         id: photosTable.id,
@@ -1758,17 +1783,7 @@ export async function generateAndSaveRecipeImage(recipeId: number, title: string
     await db.update(recipesTable).set({ imageUrl, isAiGenerated: true, imageSource: "ai" }).where(eq(recipesTable.id, recipeId));
     invalidateRecipeListCache();
 
-    try {
-      const [photo] = await db
-        .insert(photosTable)
-        .values({ imageUrl, uploadedBy: null, source: "ai" })
-        .returning();
-      await db
-        .insert(recipePhotoLinksTable)
-        .values({ photoId: photo.id, recipeId, sortOrder: 0, isMain: false })
-        .onConflictDoNothing();
-    } catch {
-    }
+    await syncMainPhotoLink(recipeId, imageUrl, null, "ai");
 
     return imageUrl;
   } catch (err) {

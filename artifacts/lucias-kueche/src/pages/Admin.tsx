@@ -1515,6 +1515,9 @@ function RecipeImagesTab() {
   const [status, setStatus] = useState<"idle" | "running" | "done" | "error">("idle");
   const [progress, setProgress] = useState<{ done: number; total: number; errors: number } | null>(null);
 
+  const [photoStatus, setPhotoStatus] = useState<"idle" | "running" | "done" | "error">("idle");
+  const [photoProgress, setPhotoProgress] = useState<{ done: number; total: number; errors: number } | null>(null);
+
   const [recipes, setRecipes] = useState<RecipeWithoutImage[]>([]);
   const [loadingRecipes, setLoadingRecipes] = useState(false);
   const [loadError, setLoadError] = useState(false);
@@ -1615,7 +1618,49 @@ function RecipeImagesTab() {
     body: JSON.stringify({ ids: Array.from(selectedIds) }),
   });
 
-  const startPhotoExtraction = () => runSSE("/api/admin/extract-recipe-images", {
+  const runPhotoSSE = async (url: string, init: RequestInit) => {
+    setPhotoStatus("running");
+    setPhotoProgress({ done: 0, total: 0, errors: 0 });
+
+    let succeeded = false;
+    try {
+      const res = await fetch(url, init);
+      if (!res.ok) { setPhotoStatus("error"); return; }
+
+      const reader = res.body?.getReader();
+      if (!reader) { setPhotoStatus("error"); return; }
+
+      const decoder = new TextDecoder();
+      let buffer = "";
+
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        buffer += decoder.decode(value, { stream: true });
+        const lines = buffer.split("\n");
+        buffer = lines.pop() ?? "";
+        for (const line of lines) {
+          if (line.startsWith("data: ")) {
+            try {
+              const data = JSON.parse(line.slice(6));
+              if (data.error) { setPhotoStatus("error"); return; }
+              setPhotoProgress({ done: data.done ?? 0, total: data.total ?? 0, errors: data.errors ?? 0 });
+              if (data.finished) { succeeded = true; setPhotoStatus("done"); return; }
+            } catch {}
+          }
+        }
+      }
+      setPhotoStatus("done");
+    } catch {
+      setPhotoStatus("error");
+    } finally {
+      if (succeeded) {
+        loadRecipes();
+      }
+    }
+  };
+
+  const startPhotoExtraction = () => runPhotoSSE("/api/admin/extract-recipe-images", {
     method: "POST",
     headers: { ...authHeaders() },
   });
@@ -1782,13 +1827,58 @@ function RecipeImagesTab() {
       title="📷 Vorhandene Kochfotos als Hauptbild nutzen"
       description="Das Programm durchsucht alle Rezepte nach bereits hochgeladenen Kochfotos und setzt das erste gefundene Foto als Hauptbild – auch wenn bereits ein automatisch erstelltes Bild vorhanden ist. Nützlich, wenn beim Scannen eigene Fotos erkannt wurden."
     >
+      {photoProgress && (
+        <div className="space-y-2">
+          <div className="flex items-center justify-between text-sm text-foreground">
+            <span>{photoProgress.done} von {photoProgress.total} fertig</span>
+            {photoProgress.errors > 0 && (
+              <span className="text-red-600 font-medium">{photoProgress.errors} Fehler</span>
+            )}
+          </div>
+          {photoProgress.total > 0 && (
+            <div className="w-full bg-[#f5ede0] rounded-full h-2">
+              <div
+                className="bg-[#4A7C59] h-2 rounded-full transition-all"
+                style={{ width: `${Math.round((photoProgress.done / photoProgress.total) * 100)}%` }}
+              />
+            </div>
+          )}
+          {photoStatus === "done" && (
+            <div className="flex items-center justify-between gap-2">
+              <div className="flex items-center gap-2 text-sm text-[#4A7C59] font-medium">
+                <Check className="w-4 h-4" /> Fertig! Alle Rezepte wurden verarbeitet.
+              </div>
+              <button
+                onClick={() => { setPhotoStatus("idle"); setPhotoProgress(null); }}
+                className="text-xs px-3 py-1 rounded-lg border border-[#4A7C59] text-[#4A7C59] hover:bg-[#4A7C59]/10 transition-colors"
+              >
+                Neu starten
+              </button>
+            </div>
+          )}
+          {photoStatus === "error" && (
+            <div className="flex items-center gap-2 text-sm text-red-600 font-medium">
+              <AlertTriangle className="w-4 h-4" /> Fehler bei der Fotoextraktion.
+            </div>
+          )}
+        </div>
+      )}
       <button
         onClick={startPhotoExtraction}
-        disabled={status === "running"}
+        disabled={photoStatus === "running" || status === "running"}
         className="flex items-center gap-2 px-5 py-2.5 bg-white border border-[#4A7C59]/40 text-[#4A7C59] rounded-xl text-sm font-semibold hover:bg-[#4A7C59]/5 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
       >
-        <Images className="w-4 h-4" />
-        Vorhandene Fotos nutzen
+        {photoStatus === "running" ? (
+          <>
+            <Loader2 className="w-4 h-4 animate-spin" />
+            Fotos werden verarbeitet…
+          </>
+        ) : (
+          <>
+            <Images className="w-4 h-4" />
+            Vorhandene Fotos nutzen
+          </>
+        )}
       </button>
     </AdminActionCard>
 

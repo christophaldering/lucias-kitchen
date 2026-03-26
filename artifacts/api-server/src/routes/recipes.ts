@@ -1905,7 +1905,9 @@ router.post("/admin/extract-recipe-images", authMiddleware, async (req, res) => 
   res.flushHeaders();
 
   const sendEvent = (data: object) => {
-    res.write(`data: ${JSON.stringify(data)}\n\n`);
+    if (!res.writableEnded && !res.destroyed) {
+      res.write(`data: ${JSON.stringify(data)}\n\n`);
+    }
   };
 
   try {
@@ -2420,7 +2422,9 @@ router.post("/admin/optimize-existing-images", authMiddleware, async (req, res) 
   res.flushHeaders();
 
   const sendEvent = (data: object) => {
-    res.write(`data: ${JSON.stringify(data)}\n\n`);
+    if (!res.writableEnded && !res.destroyed) {
+      res.write(`data: ${JSON.stringify(data)}\n\n`);
+    }
   };
 
   try {
@@ -2519,7 +2523,9 @@ router.post("/admin/generate-recipe-images/selected", authMiddleware, async (req
   res.flushHeaders();
 
   const sendEvent = (data: object) => {
-    res.write(`data: ${JSON.stringify(data)}\n\n`);
+    if (!res.writableEnded && !res.destroyed) {
+      res.write(`data: ${JSON.stringify(data)}\n\n`);
+    }
   };
 
   try {
@@ -2613,7 +2619,9 @@ router.post("/admin/generate-recipe-images", authMiddleware, async (req, res) =>
   res.flushHeaders();
 
   const sendEvent = (data: object) => {
-    res.write(`data: ${JSON.stringify(data)}\n\n`);
+    if (!res.writableEnded && !res.destroyed) {
+      res.write(`data: ${JSON.stringify(data)}\n\n`);
+    }
   };
 
   try {

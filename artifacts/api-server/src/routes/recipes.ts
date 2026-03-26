@@ -1627,10 +1627,16 @@ export async function generateAndSaveRecipeImage(recipeId: number, title: string
     const { ObjectStorageService } = await import("../lib/objectStorage");
 
     const prompt = `Ein appetitliches, professionelles Foodfoto des Gerichts "${title}" (Kategorie: ${category}). Realistisch, hell beleuchtet, auf einem schönen Teller angerichtet, weißer oder heller Hintergrund, keine Menschen, keine Schrift.`;
-    const imageBuffer = await generateImageBuffer(prompt, "1024x1024");
+    const rawImageBuffer = await generateImageBuffer(prompt, "1024x1024");
+
+    const sharp = (await import("sharp")).default;
+    const imageBuffer = await sharp(rawImageBuffer)
+      .resize(800, 800, { fit: "inside", withoutEnlargement: true })
+      .webp({ quality: 80 })
+      .toBuffer();
 
     const storageService = new ObjectStorageService();
-    const storagePath = await storageService.uploadBuffer(imageBuffer, "image/png", "recipe-images");
+    const storagePath = await storageService.uploadBuffer(imageBuffer, "image/webp", "recipe-images");
     const imageUrl = `/api/storage${storagePath}`;
 
     await db.update(recipesTable).set({ imageUrl }).where(eq(recipesTable.id, recipeId));

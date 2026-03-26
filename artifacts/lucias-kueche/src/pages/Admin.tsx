@@ -1349,8 +1349,16 @@ function RecipeImagesTab() {
             </div>
           )}
           {status === "done" && (
-            <div className="flex items-center gap-2 text-sm text-[#4A7C59] font-medium">
-              <Check className="w-4 h-4" /> Fertig! Alle Rezepte wurden verarbeitet.
+            <div className="flex items-center justify-between gap-2">
+              <div className="flex items-center gap-2 text-sm text-[#4A7C59] font-medium">
+                <Check className="w-4 h-4" /> Fertig! Alle Rezepte wurden verarbeitet.
+              </div>
+              <button
+                onClick={() => setStatus("idle")}
+                className="text-xs px-3 py-1 rounded-lg border border-[#4A7C59] text-[#4A7C59] hover:bg-[#4A7C59]/10 transition-colors"
+              >
+                Neue Auswahl
+              </button>
             </div>
           )}
           {status === "error" && (
@@ -1418,7 +1426,8 @@ function RecipeImagesTab() {
                 <input
                   type="checkbox"
                   checked={selectedIds.has(recipe.id)}
-                  onChange={() => toggleOne(recipe.id)}
+                  readOnly
+                  onClick={(e) => { e.stopPropagation(); if (status !== "running") toggleOne(recipe.id); }}
                   disabled={status === "running"}
                   className="w-4 h-4 accent-[#4A7C59] cursor-pointer"
                 />

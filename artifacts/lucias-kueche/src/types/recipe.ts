@@ -75,6 +75,7 @@ export interface Recipe {
   imageUrl?: string | null;
   createdAt?: string | null;
   seasons?: Season[] | null;
+  tags?: string[] | null;
   createdBy?: number | null;
   isOwner?: boolean;
   isFavorite?: boolean;

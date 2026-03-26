@@ -440,6 +440,20 @@ export default function RecipeModal({ recipe, onClose, onAddToWeek, onToggleFavo
             )}
           </div>
 
+          {/* Tags */}
+          {recipe.tags && recipe.tags.length > 0 && (
+            <div className="flex flex-wrap gap-1.5 pt-1">
+              {recipe.tags.map((tag) => (
+                <span
+                  key={tag}
+                  className="px-2 py-0.5 rounded-full bg-[#4A7C59]/10 text-[#4A7C59] text-xs font-medium border border-[#4A7C59]/20"
+                >
+                  {tag}
+                </span>
+              ))}
+            </div>
+          )}
+
           {/* Actions */}
           <div className="flex flex-col gap-3 pt-2">
             {/* Calendar date picker */}

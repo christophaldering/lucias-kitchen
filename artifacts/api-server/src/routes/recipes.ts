@@ -9,6 +9,7 @@ import { authMiddleware } from "./auth";
 import path from "path";
 import fs from "fs";
 import { createHash } from "crypto";
+import { generateTagsForRecipe } from "../lib/generateRecipeTags";
 
 const ADMIN_EMAIL = "lucia.aldering@googlemail.com";
 function isAdmin(email: string) {
@@ -112,6 +113,7 @@ async function getRecipesWithIngredients(currentUserId?: number, filter?: string
       r.image_url       AS "imageUrl",
       r.created_at      AS "createdAt",
       r.seasons,
+      r.tags,
       r.created_by      AS "createdBy",
       r.parent_recipe_id AS "parentRecipeId",
       r.variant_name    AS "variantName",
@@ -160,6 +162,7 @@ async function getRecipesWithIngredients(currentUserId?: number, filter?: string
     imageUrl: string | null;
     createdAt: Date | string | null;
     seasons: string[] | null;
+    tags: string[] | null;
     createdBy: number | null;
     parentRecipeId: number | null;
     variantName: string | null;
@@ -192,6 +195,7 @@ async function getRecipesWithIngredients(currentUserId?: number, filter?: string
     imageUrl: r.imageUrl,
     createdAt: r.createdAt,
     seasons: r.seasons ?? [],
+    tags: r.tags ?? [],
     createdBy: r.createdBy,
     parentRecipeId: r.parentRecipeId,
     variantName: r.variantName,
@@ -624,6 +628,22 @@ router.post("/recipes", authMiddleware, async (req, res) => {
         .from(recipeIngredientsTable)
         .where(eq(recipeIngredientsTable.recipeId, recipe.id));
 
+      generateTagsForRecipe({
+        title: recipe.title,
+        category: recipe.category,
+        ingredients: recipeIngredients,
+        seasons: recipe.seasons,
+        steps: recipeData.steps,
+        notes: recipe.notes,
+      }).then((tags) => {
+        if (tags.length > 0) {
+          db.update(recipesTable)
+            .set({ tags })
+            .where(eq(recipesTable.id, recipe.id))
+            .catch(() => {});
+        }
+      }).catch(() => {});
+
       created.push({
         ...recipe,
         ingredients: recipeIngredients,
@@ -945,6 +965,121 @@ router.delete("/recipes/:id/favorite", authMiddleware, async (req, res) => {
   } catch (err) {
     req.log.error({ err }, "Failed to remove favorite");
     res.status(500).json({ error: "internal_error", message: "Failed to remove favorite" });
+  }
+});
+
+router.post("/admin/recipes/generate-tags", authMiddleware, async (req, res) => {
+  if (!isAdmin(req.authUser!.email)) {
+    res.status(403).json({ error: "forbidden", message: "Nur Admins können Tags generieren" });
+    return;
+  }
+
+  const { forceAll = false } = req.body as { forceAll?: boolean };
+
+  try {
+    const allRecipes = await db
+      .select({
+        id: recipesTable.id,
+        title: recipesTable.title,
+        category: recipesTable.category,
+        seasons: recipesTable.seasons,
+        notes: recipesTable.notes,
+        tags: recipesTable.tags,
+        steps: recipesTable.steps,
+      })
+      .from(recipesTable)
+      .where(isNull(recipesTable.deletedAt));
+
+    const toProcess = forceAll
+      ? allRecipes
+      : allRecipes.filter((r) => !r.tags || r.tags.length === 0);
+
+    const total = toProcess.length;
+
+    res.writeHead(200, {
+      "Content-Type": "application/json; charset=utf-8",
+      "Transfer-Encoding": "chunked",
+      "Cache-Control": "no-cache",
+    });
+
+    let processed = 0;
+    let failed = 0;
+
+    for (const recipe of toProcess) {
+      try {
+        const ingredients = await db
+          .select({ name: recipeIngredientsTable.name })
+          .from(recipeIngredientsTable)
+          .where(eq(recipeIngredientsTable.recipeId, recipe.id));
+
+        const tags = await generateTagsForRecipe({
+          title: recipe.title,
+          category: recipe.category,
+          ingredients,
+          seasons: recipe.seasons,
+          steps: Array.isArray(recipe.steps) ? (recipe.steps as string[]) : [],
+          notes: recipe.notes,
+        });
+
+        if (tags.length > 0) {
+          await db
+            .update(recipesTable)
+            .set({ tags })
+            .where(eq(recipesTable.id, recipe.id));
+        }
+
+        processed++;
+      } catch {
+        failed++;
+        processed++;
+      }
+
+      res.write(JSON.stringify({ processed, total, failed, recipeId: recipe.id }) + "\n");
+    }
+
+    res.end(JSON.stringify({ done: true, total, processed, failed }));
+  } catch (err) {
+    req.log.error({ err }, "Failed to generate tags");
+    if (!res.headersSent) {
+      res.status(500).json({ error: "internal_error", message: "Tag-Generierung fehlgeschlagen" });
+    } else {
+      res.end(JSON.stringify({ error: "internal_error" }));
+    }
+  }
+});
+
+router.get("/admin/recipes/tags-status", authMiddleware, async (req, res) => {
+  if (!isAdmin(req.authUser!.email)) {
+    res.status(403).json({ error: "forbidden", message: "Nur Admins können den Tag-Status einsehen" });
+    return;
+  }
+
+  try {
+    const [totalRow] = await db
+      .select({ count: sql<number>`count(*)` })
+      .from(recipesTable)
+      .where(isNull(recipesTable.deletedAt));
+
+    const [withTagsRow] = await db
+      .select({ count: sql<number>`count(*)` })
+      .from(recipesTable)
+      .where(and(
+        isNull(recipesTable.deletedAt),
+        sql`${recipesTable.tags} IS NOT NULL AND array_length(${recipesTable.tags}, 1) > 0`
+      ));
+
+    const total = Number(totalRow?.count ?? 0);
+    const withTags = Number(withTagsRow?.count ?? 0);
+
+    res.json({
+      total,
+      withTags,
+      withoutTags: total - withTags,
+      coverage: total > 0 ? Math.round((withTags / total) * 100) : 0,
+    });
+  } catch (err) {
+    req.log.error({ err }, "Failed to fetch tags status");
+    res.status(500).json({ error: "internal_error", message: "Failed to fetch tags status" });
   }
 });
 

@@ -85,6 +85,13 @@
       "when": 1774500000000,
       "tag": "0011_photo_many_to_many",
       "breakpoints": true
+    },
+    {
+      "idx": 12,
+      "version": "7",
+      "when": 1774560000000,
+      "tag": "0012_add_tags_to_recipes",
+      "breakpoints": true
     }
   ]
 }

@@ -20,6 +20,7 @@ import {
 } from "../lib/bulkImportExtractionPrompt";
 import { invalidateRecipeListCache } from "./recipes";
 import { authMiddleware } from "./auth";
+import { generateTagsForRecipe } from "../lib/generateRecipeTags";
 
 const router: IRouter = Router();
 
@@ -1527,6 +1528,22 @@ router.post("/bulk-import/:sessionId/save", authMiddleware, async (req, res) => 
           .update(bulkImportItemsTable)
           .set({ savedRecipeId: recipe.id })
           .where(eq(bulkImportItemsTable.id, item.id));
+
+        generateTagsForRecipe({
+          title: rd.title ?? "Importiertes Rezept",
+          category: rd.category ?? null,
+          ingredients: (rd.ingredients ?? []).map((i) => ({ name: i.name })),
+          seasons: [],
+          steps: rd.steps ?? [],
+          notes: rd.notes ?? null,
+        }).then((tags) => {
+          if (tags.length > 0) {
+            db.update(recipesTable)
+              .set({ tags })
+              .where(eq(recipesTable.id, recipe.id))
+              .catch(() => {});
+          }
+        }).catch(() => {});
 
         savedCount++;
       } catch (err) {

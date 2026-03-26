@@ -22,6 +22,7 @@ export const recipesTable = pgTable("recipes", {
   imageUrl: text("image_url"),
   createdAt: timestamp("created_at").defaultNow(),
   seasons: text("seasons").array().default([]),
+  tags: text("tags").array().default([]),
   createdBy: integer("created_by").references(() => usersTable.id, { onDelete: "set null" }),
   parentRecipeId: integer("parent_recipe_id"),
   variantName: text("variant_name"),

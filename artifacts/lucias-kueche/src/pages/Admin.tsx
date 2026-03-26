@@ -23,6 +23,7 @@ const SECTION_TABS = [
   { id: "duplicates", label: "Duplikate", icon: Copy },
   { id: "backup", label: "Backup & Import", icon: Database },
   { id: "bulk-import", label: "Massen-Import", icon: FolderOpen },
+  { id: "tags", label: "Tags", icon: Tag },
   { id: "trash", label: "Papierkorb", icon: Trash2 },
   { id: "settings", label: "App-Einstellungen", icon: Sliders },
 ] as const;
@@ -1074,6 +1075,144 @@ function BackupSectionWithData() {
   );
 }
 
+function TagsAdmin() {
+  const [status, setStatus] = useState<{ total: number; withTags: number; withoutTags: number; coverage: number } | null>(null);
+  const [loadingStatus, setLoadingStatus] = useState(false);
+  const [running, setRunning] = useState(false);
+  const [progress, setProgress] = useState<{ processed: number; total: number; failed: number } | null>(null);
+  const [forceAll, setForceAll] = useState(false);
+
+  const fetchStatus = async () => {
+    setLoadingStatus(true);
+    try {
+      const res = await fetch("/api/admin/recipes/tags-status", { headers: authHeaders() });
+      if (res.ok) setStatus(await res.json());
+    } finally {
+      setLoadingStatus(false);
+    }
+  };
+
+  useEffect(() => { fetchStatus(); }, []);
+
+  const startBackfill = async () => {
+    setRunning(true);
+    setProgress(null);
+    try {
+      const res = await fetch("/api/admin/recipes/generate-tags", {
+        method: "POST",
+        headers: { ...authHeaders(), "Content-Type": "application/json" },
+        body: JSON.stringify({ forceAll }),
+      });
+      if (!res.ok || !res.body) throw new Error("Anfrage fehlgeschlagen");
+      const reader = res.body.getReader();
+      const decoder = new TextDecoder();
+      let buffer = "";
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        buffer += decoder.decode(value, { stream: true });
+        const lines = buffer.split("\n");
+        buffer = lines.pop() ?? "";
+        for (const line of lines) {
+          if (!line.trim()) continue;
+          try {
+            const parsed = JSON.parse(line);
+            if (parsed.processed != null) setProgress({ processed: parsed.processed, total: parsed.total, failed: parsed.failed });
+          } catch {}
+        }
+      }
+      toast("Tags erfolgreich generiert!");
+      await fetchStatus();
+    } catch {
+      toast("Fehler beim Generieren der Tags", "err");
+    } finally {
+      setRunning(false);
+    }
+  };
+
+  return (
+    <div className="space-y-6">
+      <div className="bg-white rounded-2xl border border-border p-5">
+        <div className="flex items-center justify-between mb-4">
+          <h3 className="font-serif text-lg font-semibold">Tag-Status</h3>
+          <button onClick={fetchStatus} disabled={loadingStatus} className="p-1.5 rounded-lg hover:bg-secondary transition-colors">
+            <RefreshCw className={`w-4 h-4 text-muted-foreground ${loadingStatus ? "animate-spin" : ""}`} />
+          </button>
+        </div>
+        {status ? (
+          <div className="space-y-3">
+            <div className="flex items-center gap-3">
+              <div className="flex-1 bg-secondary rounded-full h-3 overflow-hidden">
+                <div
+                  className="h-full bg-[#4A7C59] rounded-full transition-all"
+                  style={{ width: `${status.coverage}%` }}
+                />
+              </div>
+              <span className="text-sm font-semibold text-[#4A7C59]">{status.coverage}%</span>
+            </div>
+            <div className="grid grid-cols-3 gap-3 text-center">
+              <div className="bg-secondary rounded-xl p-3">
+                <div className="text-xl font-semibold text-foreground">{status.total}</div>
+                <div className="text-xs text-muted-foreground">Gesamt</div>
+              </div>
+              <div className="bg-[#4A7C59]/10 rounded-xl p-3">
+                <div className="text-xl font-semibold text-[#4A7C59]">{status.withTags}</div>
+                <div className="text-xs text-muted-foreground">Mit Tags</div>
+              </div>
+              <div className="bg-amber-50 rounded-xl p-3">
+                <div className="text-xl font-semibold text-amber-700">{status.withoutTags}</div>
+                <div className="text-xs text-muted-foreground">Ohne Tags</div>
+              </div>
+            </div>
+          </div>
+        ) : loadingStatus ? (
+          <div className="flex justify-center py-6"><Loader2 className="w-5 h-5 animate-spin text-muted-foreground" /></div>
+        ) : (
+          <p className="text-sm text-muted-foreground">Status konnte nicht geladen werden.</p>
+        )}
+      </div>
+
+      <div className="bg-white rounded-2xl border border-border p-5 space-y-4">
+        <h3 className="font-serif text-lg font-semibold">Tags generieren</h3>
+        <p className="text-sm text-muted-foreground">
+          Generiert KI-basierte Tags für Rezepte via GPT-4o-mini. Standardmäßig werden nur Rezepte ohne Tags verarbeitet.
+        </p>
+        <label className="flex items-center gap-2 cursor-pointer">
+          <input
+            type="checkbox"
+            checked={forceAll}
+            onChange={(e) => setForceAll(e.target.checked)}
+            className="rounded"
+          />
+          <span className="text-sm">Alle Rezepte neu generieren (auch mit vorhandenen Tags)</span>
+        </label>
+        {progress && (
+          <div className="space-y-1">
+            <div className="flex justify-between text-xs text-muted-foreground">
+              <span>{progress.processed} / {progress.total} verarbeitet</span>
+              {progress.failed > 0 && <span className="text-amber-600">{progress.failed} fehlgeschlagen</span>}
+            </div>
+            <div className="w-full bg-secondary rounded-full h-2">
+              <div
+                className="h-full bg-[#4A7C59] rounded-full transition-all"
+                style={{ width: `${progress.total > 0 ? Math.round((progress.processed / progress.total) * 100) : 0}%` }}
+              />
+            </div>
+          </div>
+        )}
+        <button
+          onClick={startBackfill}
+          disabled={running}
+          className="flex items-center gap-2 px-4 py-2.5 bg-[#4A7C59] text-white rounded-xl text-sm font-semibold hover:bg-[#3d6849] transition-colors disabled:opacity-60"
+        >
+          {running ? <Loader2 className="w-4 h-4 animate-spin" /> : <Tag className="w-4 h-4" />}
+          {running ? "Generiert…" : "Tags generieren"}
+        </button>
+      </div>
+    </div>
+  );
+}
+
 export default function Admin({ initialTab, navToken, onTabInitialized }: { initialTab?: string; navToken?: number; onTabInitialized?: () => void }) {
   const validTabs = SECTION_TABS.map((t) => t.id);
   const resolvedTab: SectionTab = (validTabs.includes(initialTab as SectionTab) ? initialTab : "categories") as SectionTab;
@@ -1171,6 +1310,8 @@ export default function Admin({ initialTab, navToken, onTabInitialized }: { init
       {section === "backup" && <BackupSectionWithData />}
 
       {section === "bulk-import" && <BulkImportTab onUploadingChange={setIsBulkUploading} />}
+
+      {section === "tags" && <TagsAdmin />}
 
       {section === "trash" && <TrashTab />}
 

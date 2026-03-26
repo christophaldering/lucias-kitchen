@@ -24,14 +24,65 @@ import { generateTagsForRecipe } from "../lib/generateRecipeTags";
 
 const router: IRouter = Router();
 
+const ALLOWED_IMAGE_MIMETYPES = new Set([
+  "image/jpeg",
+  "image/jpg",
+  "image/png",
+  "image/heic",
+  "image/heif",
+  "image/webp",
+]);
+
+const ALLOWED_IMAGE_EXTENSIONS = new Set([".jpg", ".jpeg", ".png", ".heic", ".heif", ".webp"]);
+
+function isImageFile(mimetype: string, filename: string): boolean {
+  const ext = filename.toLowerCase().match(/\.[^.]+$/)?.[0] ?? "";
+  return ALLOWED_IMAGE_MIMETYPES.has(mimetype) || ALLOWED_IMAGE_EXTENSIONS.has(ext);
+}
+
+function isPdfFile(mimetype: string, filename: string): boolean {
+  return mimetype === "application/pdf" || filename.toLowerCase().endsWith(".pdf");
+}
+
+const HEIC_BRANDS = new Set(["heic", "heix", "heif", "mif1", "msf1", "hevx", "hevc", "heis", "heim", "hevs"]);
+
+function getMimeFromExtension(name: string): string {
+  const ext = name.toLowerCase().match(/\.[^.]+$/)?.[0] ?? "";
+  const mimeMap: Record<string, string> = {
+    ".jpg": "image/jpeg",
+    ".jpeg": "image/jpeg",
+    ".png": "image/png",
+    ".heic": "image/heic",
+    ".heif": "image/heif",
+    ".webp": "image/webp",
+  };
+  return mimeMap[ext] ?? "image/jpeg";
+}
+
+function verifyFileSignature(buf: Buffer, name: string): boolean {
+  if (buf.length < 4) return false;
+  const isPdf = buf[0] === 0x25 && buf[1] === 0x50 && buf[2] === 0x44 && buf[3] === 0x46;
+  const isJpeg = buf[0] === 0xff && buf[1] === 0xd8;
+  const isPng = buf[0] === 0x89 && buf[1] === 0x50 && buf[2] === 0x4e && buf[3] === 0x47;
+  const isWebp = buf.length >= 12 && buf.slice(0, 4).toString("ascii") === "RIFF" && buf.slice(8, 12).toString("ascii") === "WEBP";
+  const isHeic = buf.length >= 12 && buf.slice(4, 8).toString("ascii") === "ftyp" && HEIC_BRANDS.has(buf.slice(8, 12).toString("ascii").toLowerCase().trim());
+  const ext = name.toLowerCase().match(/\.[^.]+$/)?.[0] ?? "";
+  if (ext === ".pdf") return isPdf;
+  if (ext === ".jpg" || ext === ".jpeg") return isJpeg;
+  if (ext === ".png") return isPng;
+  if (ext === ".webp") return isWebp;
+  if (ext === ".heic" || ext === ".heif") return isHeic;
+  return false;
+}
+
 const upload = multer({
   storage: multer.memoryStorage(),
   limits: { fileSize: 500 * 1024 * 1024 },
   fileFilter: (_req, file, cb) => {
-    if (file.mimetype === "application/pdf" || file.originalname.toLowerCase().endsWith(".pdf")) {
+    if (isPdfFile(file.mimetype, file.originalname) || isImageFile(file.mimetype, file.originalname)) {
       cb(null, true);
     } else {
-      cb(new Error("Only PDF files are allowed"));
+      cb(new Error("Nur PDF, JPEG, PNG, HEIC, HEIF oder WEBP Dateien sind erlaubt"));
     }
   },
 });
@@ -393,9 +444,243 @@ async function processPdfFile(
   }
 }
 
+async function convertHeicToJpeg(buffer: Buffer): Promise<Buffer> {
+  const sharp = (await import("sharp")).default;
+  return sharp(buffer).jpeg({ quality: 90 }).toBuffer();
+}
+
+async function normalizeImageBuffer(buffer: Buffer, filename: string): Promise<{ jpeg: Buffer; mimeType: "image/jpeg" }> {
+  const ext = filename.toLowerCase().match(/\.[^.]+$/)?.[0] ?? "";
+  if (ext === ".heic" || ext === ".heif") {
+    const jpeg = await convertHeicToJpeg(buffer);
+    return { jpeg, mimeType: "image/jpeg" };
+  }
+  const sharp = (await import("sharp")).default;
+  const jpeg = await sharp(buffer).jpeg({ quality: 90 }).toBuffer();
+  return { jpeg, mimeType: "image/jpeg" };
+}
+
+async function processImageFile(
+  fileId: number,
+  sessionId: number,
+  fileName: string,
+  imageBuffer: Buffer
+): Promise<void> {
+  try {
+    await db
+      .update(bulkImportFilesTable)
+      .set({ status: "processing", startedAt: new Date(), errorText: null })
+      .where(eq(bulkImportFilesTable.id, fileId));
+
+    await db
+      .update(bulkImportSessionsTable)
+      .set({ currentFile: fileName, updatedAt: new Date() })
+      .where(eq(bulkImportSessionsTable.id, sessionId));
+
+    const { jpeg } = await normalizeImageBuffer(imageBuffer, fileName);
+    const imageBase64 = jpeg.toString("base64");
+
+    const objectPath = await storageService.uploadBuffer(jpeg, "image/jpeg", "bulk-import/pages");
+    const servingUrl = `/api/storage${objectPath}`;
+    const pageImageUrls = [servingUrl];
+
+    await db
+      .update(bulkImportFilesTable)
+      .set({ pageImageUrls: pageImageUrls as unknown as string[] })
+      .where(eq(bulkImportFilesTable.id, fileId));
+
+    let documentHasHandwriting = false;
+    try {
+      const handwritingResponse = await anthropic.messages.create({
+        model: "claude-opus-4-5",
+        max_tokens: 256,
+        system: "Du analysierst ein Foto. Antworte NUR mit einem JSON-Objekt: {\"hasHandwriting\": true/false}. Prüfe ob handschriftliche Anmerkungen, Notizen oder handgeschriebene Rezepte vorhanden sind.",
+        messages: [
+          {
+            role: "user",
+            content: [
+              {
+                type: "image",
+                source: { type: "base64", media_type: "image/jpeg", data: imageBase64 },
+              },
+              { type: "text", text: "Gibt es handschriftliche Anmerkungen oder ein handgeschriebenes Rezept in diesem Bild?" },
+            ],
+          },
+        ],
+      });
+      const rawText = handwritingResponse.content[0]?.type === "text" ? handwritingResponse.content[0].text : "{}";
+      const cleaned = rawText.replace(/^```(?:json)?\s*/i, "").replace(/\s*```$/i, "").trim();
+      const parsed = JSON.parse(cleaned);
+      documentHasHandwriting = !!parsed.hasHandwriting;
+    } catch {
+      documentHasHandwriting = false;
+    }
+
+    const systemPrompt = documentHasHandwriting
+      ? BULK_IMPORT_HANDWRITING_PROMPT
+      : BULK_IMPORT_EXTRACTION_SYSTEM_PROMPT;
+
+    const extractionResponse = await anthropic.messages.create({
+      model: "claude-opus-4-5",
+      max_tokens: 8192,
+      system: systemPrompt,
+      messages: [
+        {
+          role: "user",
+          content: [
+            {
+              type: "image",
+              source: { type: "base64", media_type: "image/jpeg", data: imageBase64 },
+            },
+            {
+              type: "text",
+              text: documentHasHandwriting
+                ? "Extrahiere ALLE Rezepte aus diesem Bild. Achte besonders auf handschriftliche Anmerkungen, Notizen und Korrekturen. Erfasse sie vollständig in personalNotes."
+                : "Extrahiere ALLE Rezepte aus diesem Bild. Ein Bild kann ein handgeschriebenes Rezept, ein Kochbuchfoto oder ein Rezeptzettel sein.",
+            },
+          ],
+        },
+      ],
+    });
+
+    let rawJson = extractionResponse.content[0]?.type === "text" ? extractionResponse.content[0].text : "{}";
+    rawJson = rawJson.replace(/^```(?:json)?\s*/i, "").replace(/\s*```$/i, "").trim();
+
+    let extractedRecipes: Array<{
+      title?: string;
+      servings?: number;
+      prepTime?: string;
+      totalTime?: string;
+      difficulty?: string;
+      category?: string;
+      ingredients?: Array<{ amount: string; unit: string; name: string; note?: string }>;
+      steps?: string[];
+      notes?: string;
+      personalNotes?: string;
+      source?: string;
+      hasHandwriting?: boolean;
+      confidence?: string;
+      uncertainties?: string[];
+      pageNumbers?: number[];
+    }> = [];
+
+    const parseError = "KI konnte keine gültige JSON-Antwort liefern";
+    try {
+      const parsed = JSON.parse(rawJson);
+      extractedRecipes = Array.isArray(parsed.recipes) ? parsed.recipes : [];
+    } catch {
+      await db
+        .update(bulkImportFilesTable)
+        .set({ status: "failed", finishedAt: new Date(), errorText: parseError })
+        .where(eq(bulkImportFilesTable.id, fileId));
+
+      await db.insert(bulkImportItemsTable).values({
+        sessionId,
+        fileId,
+        fileName,
+        status: "failed",
+        recipeData: null,
+        pageNumbers: [] as unknown as string[],
+        pageImageUrls: [] as unknown as string[],
+        hasHandwriting: documentHasHandwriting,
+        errorText: parseError,
+      });
+      return;
+    }
+
+    for (const recipe of extractedRecipes) {
+      const hasHw = recipe.hasHandwriting ?? documentHasHandwriting;
+      let status: "done" | "uncertain" | "handwriting" | "failed" = "done";
+      if (hasHw) {
+        status = "handwriting";
+      } else if (recipe.confidence === "uncertain") {
+        status = "uncertain";
+      }
+
+      const uncertainties = recipe.confidence === "uncertain" && Array.isArray(recipe.uncertainties)
+        ? recipe.uncertainties.filter((q) => typeof q === "string")
+        : [];
+
+      const recipeData = {
+        title: recipe.title ?? "Unbekanntes Rezept",
+        servings: recipe.servings,
+        prepTime: recipe.prepTime,
+        totalTime: recipe.totalTime,
+        difficulty: recipe.difficulty ?? "normal",
+        category: recipe.category ?? "Vegetarisch",
+        ingredients: recipe.ingredients ?? [],
+        steps: recipe.steps ?? [],
+        notes: recipe.notes,
+        personalNotes: recipe.personalNotes,
+        source: recipe.source,
+        uncertainties,
+      };
+
+      await db.insert(bulkImportItemsTable).values({
+        sessionId,
+        fileId,
+        fileName,
+        status,
+        recipeData: recipeData as unknown as string,
+        pageNumbers: [1] as unknown as string[],
+        pageImageUrls: pageImageUrls as unknown as string[],
+        photoPageUrls: pageImageUrls as unknown as string[],
+        hasHandwriting: hasHw,
+        errorText: null,
+      });
+    }
+
+    if (extractedRecipes.length === 0) {
+      const noRecipesError = "Keine Rezepte im Bild gefunden";
+      await db
+        .update(bulkImportFilesTable)
+        .set({ status: "failed", finishedAt: new Date(), errorText: noRecipesError })
+        .where(eq(bulkImportFilesTable.id, fileId));
+
+      await db.insert(bulkImportItemsTable).values({
+        sessionId,
+        fileId,
+        fileName,
+        status: "failed",
+        recipeData: null,
+        pageNumbers: [] as unknown as string[],
+        pageImageUrls: [] as unknown as string[],
+        hasHandwriting: documentHasHandwriting,
+        errorText: noRecipesError,
+      });
+      return;
+    }
+
+    await db
+      .update(bulkImportFilesTable)
+      .set({ status: "done", finishedAt: new Date() })
+      .where(eq(bulkImportFilesTable.id, fileId));
+
+  } catch (err) {
+    console.error("Error processing image file:", err);
+    const errMsg = err instanceof Error ? err.message : "Verarbeitung fehlgeschlagen";
+    await db
+      .update(bulkImportFilesTable)
+      .set({ status: "failed", finishedAt: new Date(), errorText: errMsg })
+      .where(eq(bulkImportFilesTable.id, fileId));
+
+    await db.insert(bulkImportItemsTable).values({
+      sessionId,
+      fileId,
+      fileName,
+      status: "failed",
+      recipeData: null,
+      pageNumbers: [] as unknown as string[],
+      pageImageUrls: [] as unknown as string[],
+      hasHandwriting: false,
+      errorText: errMsg,
+    });
+  }
+}
+
 async function runQueue(
   sessionId: number,
-  files: Array<{ id: number; name: string; buffer: Buffer; base64: string }>,
+  files: Array<{ id: number; name: string; buffer: Buffer; base64: string; fileType: string }>,
   userId?: number
 ): Promise<void> {
   try {
@@ -405,7 +690,11 @@ async function runQueue(
       .where(eq(bulkImportSessionsTable.id, sessionId));
 
     for (const file of files) {
-      await processPdfFile(file.id, sessionId, file.name, file.buffer, file.base64);
+      if (file.fileType === "image") {
+        await processImageFile(file.id, sessionId, file.name, file.buffer);
+      } else {
+        await processPdfFile(file.id, sessionId, file.name, file.buffer, file.base64);
+      }
 
       const [session] = await db
         .select()
@@ -551,13 +840,13 @@ export async function recoverProcessingSessions(): Promise<void> {
       const unrecoverableFiles = stuckFiles.filter((f) => f.pdfStoragePath == null);
 
       if (unrecoverableFiles.length > 0) {
-        console.log(`[BulkImport] Session ${session.id}: ${unrecoverableFiles.length} file(s) have no stored PDF, marking as failed.`);
+        console.log(`[BulkImport] Session ${session.id}: ${unrecoverableFiles.length} file(s) have no stored file, marking as failed.`);
         for (const f of unrecoverableFiles) {
           await db
             .update(bulkImportFilesTable)
             .set({
               status: "failed",
-              errorText: "Verarbeitung nach Neustart nicht möglich (PDF nicht gespeichert)",
+              errorText: "Verarbeitung nach Neustart nicht möglich (Datei nicht gespeichert)",
               finishedAt: new Date(),
             })
             .where(eq(bulkImportFilesTable.id, f.id));
@@ -585,7 +874,7 @@ export async function recoverProcessingSessions(): Promise<void> {
 
       setImmediate(async () => {
         try {
-          const queueItems: Array<{ id: number; name: string; buffer: Buffer; base64: string }> = [];
+          const queueItems: Array<{ id: number; name: string; buffer: Buffer; base64: string; fileType: string }> = [];
           for (const f of recoverableFiles) {
             try {
               const buffer = await downloadPdfFromStorage(f.pdfStoragePath!);
@@ -594,14 +883,15 @@ export async function recoverProcessingSessions(): Promise<void> {
                 name: f.fileName,
                 buffer,
                 base64: buffer.toString("base64"),
+                fileType: f.fileType ?? "pdf",
               });
             } catch (downloadErr) {
-              console.error(`[BulkImport] Failed to download PDF for file ${f.id}:`, downloadErr);
+              console.error(`[BulkImport] Failed to download file for file ${f.id}:`, downloadErr);
               await db
                 .update(bulkImportFilesTable)
                 .set({
                   status: "failed",
-                  errorText: "PDF konnte nicht aus dem Speicher geladen werden",
+                  errorText: "Datei konnte nicht aus dem Speicher geladen werden",
                   finishedAt: new Date(),
                 })
                 .where(eq(bulkImportFilesTable.id, f.id));
@@ -730,10 +1020,11 @@ router.get("/bulk-import/history", authMiddleware, async (req, res) => {
 });
 
 const CHUNK_TTL_MS = 10 * 60 * 1000;
+const CHUNK_MAX_BYTES = 500 * 1024 * 1024;
 
 const chunkBuffer = new Map<
   string,
-  { chunks: (Buffer | null)[]; totalChunks: number; fileName: string; expiresAt: number }
+  { chunks: (Buffer | null)[]; totalChunks: number; fileName: string; expiresAt: number; bytesReceived: number }
 >();
 
 function evictExpiredChunks() {
@@ -766,6 +1057,11 @@ router.post(
         return;
       }
 
+      if (!isPdfFile("", fileName) && !isImageFile("", fileName)) {
+        res.status(400).json({ error: "bad_request", message: "Nur PDF, JPEG, PNG, HEIC, HEIF oder WEBP Dateien sind erlaubt" });
+        return;
+      }
+
       const userId = req.authUser!.id;
       const key = `${userId}:${uploadId}`;
 
@@ -775,12 +1071,25 @@ router.post(
           totalChunks,
           fileName,
           expiresAt: Date.now() + CHUNK_TTL_MS,
+          bytesReceived: 0,
         });
       }
 
       const entry = chunkBuffer.get(key)!;
       entry.expiresAt = Date.now() + CHUNK_TTL_MS;
-      entry.chunks[chunkIndex] = Buffer.from(data, "base64");
+
+      const chunkData = Buffer.from(data, "base64");
+      const newBytesTotal = entry.bytesReceived + chunkData.length;
+      if (newBytesTotal > CHUNK_MAX_BYTES) {
+        chunkBuffer.delete(key);
+        res.status(413).json({ error: "payload_too_large", message: "Datei überschreitet die maximale Größe von 500 MB" });
+        return;
+      }
+
+      if (entry.chunks[chunkIndex] === null) {
+        entry.bytesReceived += chunkData.length;
+      }
+      entry.chunks[chunkIndex] = chunkData;
 
       const received = entry.chunks.filter((c) => c !== null).length;
       const isComplete = received === totalChunks;
@@ -792,6 +1101,15 @@ router.post(
 
       const fullBuffer = Buffer.concat(entry.chunks as Buffer[]);
       chunkBuffer.delete(key);
+
+      if (!verifyFileSignature(fullBuffer, fileName)) {
+        res.status(400).json({ error: "bad_request", message: "Dateiinhalt stimmt nicht mit dem Dateinamen überein" });
+        return;
+      }
+
+      const detectedFileType = isImageFile("application/octet-stream", fileName) ? "image" : "pdf";
+      const storageFolder = "bulk-import/pdfs";
+      const storageMime = detectedFileType === "image" ? getMimeFromExtension(fileName) : "application/pdf";
 
       const isFirstFile = sessionId == null;
 
@@ -813,9 +1131,9 @@ router.post(
 
         let pdfStoragePath: string | null = null;
         try {
-          pdfStoragePath = await storageService.uploadBuffer(fullBuffer, "application/pdf", "bulk-import/pdfs");
+          pdfStoragePath = await storageService.uploadBuffer(fullBuffer, storageMime, storageFolder);
         } catch (uploadErr) {
-          console.error("Failed to persist PDF to storage:", uploadErr);
+          console.error("Failed to persist file to storage:", uploadErr);
         }
 
         const [fileRecord] = await db
@@ -826,13 +1144,14 @@ router.post(
             status: "pending",
             pageImageUrls: [] as unknown as string[],
             pdfStoragePath,
+            fileType: detectedFileType,
           })
           .returning();
 
         const fileBase64 = fullBuffer.toString("base64");
 
         setImmediate(() => {
-          runQueue(session.id, [{ id: fileRecord.id, name: fileName, buffer: fullBuffer, base64: fileBase64 }], userId).catch(console.error);
+          runQueue(session.id, [{ id: fileRecord.id, name: fileName, buffer: fullBuffer, base64: fileBase64, fileType: detectedFileType }], userId).catch(console.error);
         });
 
         res.json({ complete: true, sessionId: session.id });
@@ -854,9 +1173,9 @@ router.post(
 
         let pdfStoragePath: string | null = null;
         try {
-          pdfStoragePath = await storageService.uploadBuffer(fullBuffer, "application/pdf", "bulk-import/pdfs");
+          pdfStoragePath = await storageService.uploadBuffer(fullBuffer, storageMime, storageFolder);
         } catch (uploadErr) {
-          console.error("Failed to persist PDF to storage:", uploadErr);
+          console.error("Failed to persist file to storage:", uploadErr);
         }
 
         const [fileRecord] = await db
@@ -867,6 +1186,7 @@ router.post(
             status: "pending",
             pageImageUrls: [] as unknown as string[],
             pdfStoragePath,
+            fileType: detectedFileType,
           })
           .returning();
 
@@ -885,7 +1205,11 @@ router.post(
 
         setImmediate(async () => {
           try {
-            await processPdfFile(fileRecord.id, sessionId, fileName, fullBuffer, fileBase64);
+            if (detectedFileType === "image") {
+              await processImageFile(fileRecord.id, sessionId, fileName, fullBuffer);
+            } else {
+              await processPdfFile(fileRecord.id, sessionId, fileName, fullBuffer, fileBase64);
+            }
 
             const [updated] = await db
               .update(bulkImportSessionsTable)
@@ -958,7 +1282,13 @@ router.post(
     try {
       const files = req.files as Express.Multer.File[];
       if (!files || files.length === 0) {
-        res.status(400).json({ error: "bad_request", message: "Keine PDF-Dateien hochgeladen" });
+        res.status(400).json({ error: "bad_request", message: "Keine Dateien hochgeladen" });
+        return;
+      }
+
+      const invalidFile = files.find((f) => !verifyFileSignature(f.buffer, f.originalname));
+      if (invalidFile) {
+        res.status(400).json({ error: "bad_request", message: `Dateiinhalt stimmt nicht mit dem Dateinamen überein: ${invalidFile.originalname}` });
         return;
       }
 
@@ -981,11 +1311,13 @@ router.post(
 
       const fileRecords = await Promise.all(
         files.map(async (f) => {
+          const fType = isImageFile(f.mimetype, f.originalname) ? "image" : "pdf";
+          const fMime = fType === "image" ? getMimeFromExtension(f.originalname) : "application/pdf";
           let pdfStoragePath: string | null = null;
           try {
-            pdfStoragePath = await storageService.uploadBuffer(f.buffer, "application/pdf", "bulk-import/pdfs");
+            pdfStoragePath = await storageService.uploadBuffer(f.buffer, fMime, "bulk-import/pdfs");
           } catch (uploadErr) {
-            console.error("Failed to persist PDF to storage:", uploadErr);
+            console.error("Failed to persist file to storage:", uploadErr);
           }
 
           const [record] = await db
@@ -996,17 +1328,19 @@ router.post(
               status: "pending",
               pageImageUrls: [] as unknown as string[],
               pdfStoragePath,
+              fileType: fType,
             })
             .returning();
-          return record;
+          return { record, fType };
         })
       );
 
       const queueItems = files.map((f, i) => ({
-        id: fileRecords[i].id,
+        id: fileRecords[i].record.id,
         name: f.originalname,
         buffer: f.buffer,
         base64: f.buffer.toString("base64"),
+        fileType: fileRecords[i].fType,
       }));
 
       setImmediate(() => {
@@ -1035,7 +1369,12 @@ router.post(
 
       const file = req.file;
       if (!file) {
-        res.status(400).json({ error: "bad_request", message: "Keine PDF-Datei hochgeladen" });
+        res.status(400).json({ error: "bad_request", message: "Keine Datei hochgeladen" });
+        return;
+      }
+
+      if (!verifyFileSignature(file.buffer, file.originalname)) {
+        res.status(400).json({ error: "bad_request", message: `Dateiinhalt stimmt nicht mit dem Dateinamen überein: ${file.originalname}` });
         return;
       }
 
@@ -1056,11 +1395,13 @@ router.post(
         return;
       }
 
+      const addFileType = isImageFile(file.mimetype, file.originalname) ? "image" : "pdf";
+      const addFileMime = addFileType === "image" ? getMimeFromExtension(file.originalname) : "application/pdf";
       let pdfStoragePath: string | null = null;
       try {
-        pdfStoragePath = await storageService.uploadBuffer(file.buffer, "application/pdf", "bulk-import/pdfs");
+        pdfStoragePath = await storageService.uploadBuffer(file.buffer, addFileMime, "bulk-import/pdfs");
       } catch (uploadErr) {
-        console.error("Failed to persist PDF to storage:", uploadErr);
+        console.error("Failed to persist file to storage:", uploadErr);
       }
 
       const [fileRecord] = await db
@@ -1071,6 +1412,7 @@ router.post(
           status: "pending",
           pageImageUrls: [] as unknown as string[],
           pdfStoragePath,
+          fileType: addFileType,
         })
         .returning();
 
@@ -1091,7 +1433,11 @@ router.post(
 
       setImmediate(async () => {
         try {
-          await processPdfFile(fileRecord.id, sessionId, fileName, fileBuffer, fileBase64);
+          if (addFileType === "image") {
+            await processImageFile(fileRecord.id, sessionId, fileName, fileBuffer);
+          } else {
+            await processPdfFile(fileRecord.id, sessionId, fileName, fileBuffer, fileBase64);
+          }
 
           const [updated] = await db
             .update(bulkImportSessionsTable)
@@ -1338,7 +1684,7 @@ router.post("/bulk-import/:sessionId/retry/:fileId", authMiddleware, async (req,
     }
 
     if (!file.pdfStoragePath) {
-      res.status(400).json({ error: "bad_request", message: "PDF nicht mehr verfügbar — kein Retry möglich" });
+      res.status(400).json({ error: "bad_request", message: "Datei nicht mehr verfügbar — kein Retry möglich" });
       return;
     }
 
@@ -1386,8 +1732,13 @@ router.post("/bulk-import/:sessionId/retry/:fileId", authMiddleware, async (req,
     setImmediate(async () => {
       try {
         const buffer = await downloadPdfFromStorage(file.pdfStoragePath!);
-        const base64 = buffer.toString("base64");
-        await processPdfFile(fileId, sessionId, file.fileName, buffer, base64);
+        const retryFileType = file.fileType ?? "pdf";
+        if (retryFileType === "image") {
+          await processImageFile(fileId, sessionId, file.fileName, buffer);
+        } else {
+          const base64 = buffer.toString("base64");
+          await processPdfFile(fileId, sessionId, file.fileName, buffer, base64);
+        }
 
         const [updatedSession] = await db
           .select()
@@ -1487,9 +1838,10 @@ router.post("/bulk-import/:sessionId/save", authMiddleware, async (req, res) => 
       (item) => item.status !== "failed" && item.recipeData != null && item.savedRecipeId == null
     );
 
-    // Preload original PDFs per file (keyed by fileId) for page extraction
+    // Preload original files per fileId for page extraction / source document
     const fileIds = [...new Set(savableItems.map((item) => item.fileId))];
     const pdfBuffersByFileId = new Map<number, Buffer>();
+    const fileTypeByFileId = new Map<number, string>();
     const fileRecords = fileIds.length > 0
       ? await db
           .select()
@@ -1498,6 +1850,7 @@ router.post("/bulk-import/:sessionId/save", authMiddleware, async (req, res) => 
       : [];
 
     for (const fileRecord of fileRecords) {
+      fileTypeByFileId.set(fileRecord.id, fileRecord.fileType ?? "pdf");
       if (fileRecord.pdfStoragePath) {
         try {
           const buf = await downloadPdfFromStorage(fileRecord.pdfStoragePath);
@@ -1526,21 +1879,26 @@ router.post("/bulk-import/:sessionId/save", authMiddleware, async (req, res) => 
           source?: string;
         };
 
-        // Build source document URL: extract relevant pages from the original PDF
+        // Build source document URL: for images store as-is; for PDFs extract relevant pages
         let sourceDocumentUrl: string | null = null;
         const pageNumbers = (item.pageNumbers as number[]) ?? [];
-        const originalPdfBuffer = pdfBuffersByFileId.get(item.fileId);
-        if (originalPdfBuffer) {
+        const originalFileBuffer = pdfBuffersByFileId.get(item.fileId);
+        const itemFileType = fileTypeByFileId.get(item.fileId) ?? "pdf";
+        if (originalFileBuffer) {
           try {
-            if (pageNumbers.length > 0) {
-              const miniPdf = await extractPdfPages(originalPdfBuffer, pageNumbers);
+            if (itemFileType === "image") {
+              const { jpeg: normalizedJpeg } = await normalizeImageBuffer(originalFileBuffer, fileRecords.find((r) => r.id === item.fileId)?.fileName ?? "image.jpg");
+              const storagePath = await storageService.uploadBuffer(normalizedJpeg, "image/jpeg", "source-documents");
+              sourceDocumentUrl = `/api/storage${storagePath}`;
+            } else if (pageNumbers.length > 0) {
+              const miniPdf = await extractPdfPages(originalFileBuffer, pageNumbers);
               if (miniPdf) {
                 const storagePath = await storageService.uploadBuffer(miniPdf, "application/pdf", "source-documents");
                 sourceDocumentUrl = `/api/storage${storagePath}`;
               }
             } else {
               // No page numbers — store the entire PDF
-              const storagePath = await storageService.uploadBuffer(originalPdfBuffer, "application/pdf", "source-documents");
+              const storagePath = await storageService.uploadBuffer(originalFileBuffer, "application/pdf", "source-documents");
               sourceDocumentUrl = `/api/storage${storagePath}`;
             }
           } catch {

@@ -874,16 +874,23 @@ export default function BulkImportTab({ onUploadingChange }: { onUploadingChange
     }
   }, [sessionId]);
 
+  const ALLOWED_EXTENSIONS = new Set([".pdf", ".jpg", ".jpeg", ".png", ".heic", ".heif", ".webp"]);
+
+  const isAllowedFile = (f: File) => {
+    const ext = f.name.toLowerCase().match(/\.[^.]+$/)?.[0] ?? "";
+    return ALLOWED_EXTENSIONS.has(ext);
+  };
+
   const handleFiles = (newFiles: FileList | File[]) => {
-    const pdfs = Array.from(newFiles).filter((f) => f.name.toLowerCase().endsWith(".pdf"));
-    if (pdfs.length === 0) {
-      setError("Bitte nur PDF-Dateien auswählen.");
+    const allowed = Array.from(newFiles).filter(isAllowedFile);
+    if (allowed.length === 0) {
+      setError("Bitte nur PDF, JPEG, PNG, HEIC, HEIF oder WEBP Dateien auswählen.");
       return;
     }
     setError(null);
     setFiles((prev) => {
       const existing = new Set(prev.map((f) => f.name));
-      return [...prev, ...pdfs.filter((f) => !existing.has(f.name))];
+      return [...prev, ...allowed.filter((f) => !existing.has(f.name))];
     });
   };
 
@@ -1099,7 +1106,7 @@ export default function BulkImportTab({ onUploadingChange }: { onUploadingChange
       <div>
         <h3 className="font-semibold text-foreground mb-1">Massen-Import</h3>
         <p className="text-sm text-muted-foreground">
-          Mehrere PDF-Kochbuch-Scans auf einmal hochladen. Die KI extrahiert alle Rezepte und erkennt handschriftliche Anmerkungen.
+          PDFs und Fotos hochladen. Die KI extrahiert alle Rezepte und erkennt handschriftliche Anmerkungen.
         </p>
       </div>
 
@@ -1112,13 +1119,13 @@ export default function BulkImportTab({ onUploadingChange }: { onUploadingChange
       >
         <Upload className="w-10 h-10 text-[#4A7C59]/60" />
         <div className="text-center">
-          <p className="font-semibold text-foreground">PDFs hier ablegen</p>
-          <p className="text-sm text-muted-foreground mt-0.5">Mehrfachauswahl möglich · nur PDF-Dateien</p>
+          <p className="font-semibold text-foreground">PDFs & Fotos hier ablegen</p>
+          <p className="text-sm text-muted-foreground mt-0.5">JPG · PNG · HEIC · WEBP · PDF · bis 500 MB · Mehrfachauswahl möglich</p>
         </div>
         <input
           ref={fileRef}
           type="file"
-          accept=".pdf"
+          accept=".pdf,.jpg,.jpeg,.png,.heic,.heif,.webp,image/jpeg,image/png,image/heic,image/heif,image/webp,application/pdf"
           multiple
           className="hidden"
           onChange={(e) => e.target.files && handleFiles(e.target.files)}
@@ -1160,7 +1167,7 @@ export default function BulkImportTab({ onUploadingChange }: { onUploadingChange
             className="w-full py-3 bg-[#4A7C59] text-white rounded-xl text-sm font-semibold hover:bg-[#3d6849] transition-colors flex items-center justify-center gap-2"
           >
             <Upload className="w-4 h-4" />
-            {files.length} PDF{files.length !== 1 ? "s" : ""} importieren
+            {files.length} Datei{files.length !== 1 ? "en" : ""} importieren
           </button>
         </div>
       )}
@@ -1272,11 +1279,11 @@ export default function BulkImportTab({ onUploadingChange }: { onUploadingChange
 
       <div className="bg-[#4A7C59]/5 border border-[#4A7C59]/20 rounded-xl p-4 text-sm text-muted-foreground space-y-1">
         <p className="font-semibold text-foreground text-xs uppercase tracking-wide mb-2">Hinweise</p>
-        <p>· Bis zu 76 PDFs können auf einmal hochgeladen werden</p>
-        <p>· Pro PDF können mehrere Rezepte erkannt werden</p>
-        <p>· Handschriftliche Anmerkungen werden automatisch erkannt</p>
+        <p>· Unterstützte Formate: PDF, JPG, PNG, HEIC/HEIF (iPhone-Fotos), WEBP</p>
+        <p>· Bis zu 500 MB pro Datei · Mehrere Dateien gleichzeitig möglich</p>
+        <p>· Pro Datei können mehrere Rezepte erkannt werden</p>
+        <p>· Handschriftliche Anmerkungen und Rezeptzettel werden erkannt</p>
         <p>· Der Import läuft im Hintergrund – du kannst die Seite neu laden</p>
-        <p>· Scan-Seiten werden als Rezeptfotos gespeichert</p>
       </div>
 
       <ImportHistory key={historyKey} />

@@ -1,8 +1,93 @@
 import { useState, useRef, useEffect, useCallback } from "react";
-import { X, Camera, ImageIcon, FileText, Check, Loader2, Bot, ChevronUp, Edit2, SkipForward, Zap } from "lucide-react";
+import { X, Camera, ImageIcon, FileText, Check, Loader2, Bot, ChevronUp, Edit2, SkipForward, Zap, Clock, ChefHat } from "lucide-react";
 import type { Recipe } from "@/types/recipe";
 import { extractImageRecipes } from "@/hooks/useRecipes";
 import { compressImageToBase64 } from "@/lib/imageCompression";
+import { authFetch, authHeaders } from "@/lib/authFetch";
+
+const API_BASE = "/api";
+
+const CATEGORY_EMOJIS: Record<string, string> = {
+  Fisch: "🐟",
+  Geflügel: "🍗",
+  Fleisch: "🥩",
+  Vegetarisch: "🌿",
+  Pasta: "🍝",
+};
+
+function ImportedRecipeCard({ recipe }: { recipe: Recipe }) {
+  const emoji = CATEGORY_EMOJIS[recipe.category] ?? "🍽️";
+  const displayUrl = recipe.mainPhotoUrl ?? recipe.imageUrl ?? null;
+  const diffColor =
+    recipe.difficulty === "simpel"
+      ? "bg-green-100 text-green-700"
+      : recipe.difficulty === "normal"
+      ? "bg-amber-100 text-amber-700"
+      : "bg-red-100 text-red-700";
+
+  return (
+    <div
+      className="bg-white rounded-2xl border border-border overflow-hidden"
+      style={{ boxShadow: "0 2px 12px rgba(120,70,30,0.10)" }}
+    >
+      <div className="relative w-full overflow-hidden" style={{ paddingTop: "60%" }}>
+        {displayUrl ? (
+          <img
+            src={displayUrl}
+            alt={recipe.title}
+            className="absolute inset-0 w-full h-full object-cover"
+          />
+        ) : (
+          <div
+            className="absolute inset-0 flex items-center justify-center text-5xl"
+            style={{ background: "linear-gradient(135deg, #f5ede0, #f0e0c8)" }}
+          >
+            {emoji}
+          </div>
+        )}
+        <div className="absolute top-2.5 left-2.5">
+          <span
+            className="text-xs font-semibold px-2.5 py-1 rounded-full text-white shadow"
+            style={{ background: "rgba(45,82,64,0.85)", backdropFilter: "blur(4px)" }}
+          >
+            {emoji} {recipe.category}
+          </span>
+        </div>
+        {recipe.prepTime && (
+          <div className="absolute bottom-2.5 right-2.5">
+            <span
+              className="flex items-center gap-1 text-xs font-medium px-2 py-0.5 rounded-full text-white shadow"
+              style={{ background: "rgba(193,105,58,0.88)", backdropFilter: "blur(4px)" }}
+            >
+              <Clock className="w-3 h-3" />
+              {recipe.prepTime.replace("ca. ", "")}
+            </span>
+          </div>
+        )}
+      </div>
+      <div className="p-3">
+        <h3 className="font-serif font-semibold text-foreground leading-snug mb-2 line-clamp-2">
+          {recipe.title}
+        </h3>
+        <div className="flex items-center gap-2 flex-wrap">
+          <span className={`flex items-center gap-1 text-xs font-medium px-2 py-0.5 rounded-full ${diffColor}`}>
+            <ChefHat className="w-3 h-3" />
+            {recipe.difficulty}
+          </span>
+          {recipe.servings && (
+            <span className="text-xs text-muted-foreground">{recipe.servings} Portionen</span>
+          )}
+          {recipe.ingredients && recipe.ingredients.length > 0 && (
+            <span className="text-xs text-muted-foreground flex items-center gap-1">
+              <FileText className="w-3 h-3" />
+              {recipe.ingredients.length} Zutaten
+            </span>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
 
 interface Props {
   onClose: (savedRecipeIds?: number[]) => void;
@@ -115,6 +200,8 @@ export default function ImageImportModal({ onClose, onAdd }: Props) {
   const [skippedCount, setSkippedCount] = useState(0);
   const [globalErrorMsg, setGlobalErrorMsg] = useState("");
   const [expandedEdit, setExpandedEdit] = useState(false);
+  const [savedRecipes, setSavedRecipes] = useState<Recipe[]>([]);
+  const [loadingSavedRecipes, setLoadingSavedRecipes] = useState(false);
   const queueRef = useRef<QueueItem[]>([]);
   const autoSaveRef = useRef(autoSave);
   const processingRef = useRef(false);
@@ -163,6 +250,24 @@ export default function ImageImportModal({ onClose, onAdd }: Props) {
   const appendSavedRecipeIds = (newIds: number[]) => {
     savedRecipeIdsRef.current = [...savedRecipeIdsRef.current, ...newIds];
   };
+
+  useEffect(() => {
+    if (step !== "done") return;
+    const ids = savedRecipeIdsRef.current;
+    if (ids.length === 0) return;
+    setLoadingSavedRecipes(true);
+    authFetch(`${API_BASE}/recipes`, { headers: authHeaders() })
+      .then((res) => (res.ok ? res.json() : []))
+      .then((allRecipes: Recipe[]) => {
+        const byId = new Map(allRecipes.map((r) => [r.id, r]));
+        const matched = ids.map((id) => byId.get(id)).filter((r): r is Recipe => r !== undefined);
+        setSavedRecipes(matched);
+      })
+      .catch(() => {
+        setSavedRecipes([]);
+      })
+      .finally(() => setLoadingSavedRecipes(false));
+  }, [step]);
 
   const handleClose = () => {
     queueRef.current.forEach((item) => URL.revokeObjectURL(item.objectUrl));
@@ -496,6 +601,7 @@ export default function ImageImportModal({ onClose, onAdd }: Props) {
     setSavedCountSync(0);
     setSkippedCountSync(0);
     savedRecipeIdsRef.current = [];
+    setSavedRecipes([]);
     setExpandedEdit(false);
     processingRef.current = false;
   };
@@ -878,27 +984,64 @@ export default function ImageImportModal({ onClose, onAdd }: Props) {
 
           {/* STEP: Done */}
           {step === "done" && (
-            <div className="flex flex-col items-center gap-4 py-10 text-center">
-              <div className="w-16 h-16 rounded-full bg-[#4A7C59]/10 flex items-center justify-center">
-                <Check className="w-8 h-8 text-[#4A7C59]" />
+            <div className="flex flex-col gap-4">
+              {/* Success header */}
+              <div className="flex flex-col items-center gap-3 pt-6 text-center">
+                <div className="w-14 h-14 rounded-full bg-[#4A7C59]/10 flex items-center justify-center">
+                  <Check className="w-7 h-7 text-[#4A7C59]" />
+                </div>
+                <p className="font-serif text-xl text-foreground">Import abgeschlossen!</p>
+                <div className="space-y-1">
+                  {savedCount > 0 && (
+                    <p className="text-sm text-[#4A7C59] font-semibold">
+                      {savedCount} Rezept{savedCount !== 1 ? "e" : ""} erfolgreich importiert
+                    </p>
+                  )}
+                  {skippedCount > 0 && (
+                    <p className="text-sm text-muted-foreground">
+                      {skippedCount} Foto{skippedCount !== 1 ? "s" : ""} übersprungen
+                    </p>
+                  )}
+                  {savedCount === 0 && skippedCount === 0 && (
+                    <p className="text-sm text-muted-foreground">Keine Rezepte importiert.</p>
+                  )}
+                </div>
               </div>
-              <p className="font-serif text-xl text-foreground">Import abgeschlossen!</p>
-              <div className="space-y-1">
-                {savedCount > 0 && (
-                  <p className="text-sm text-[#4A7C59] font-semibold">
-                    {savedCount} Rezept{savedCount !== 1 ? "e" : ""} erfolgreich importiert
-                  </p>
-                )}
-                {skippedCount > 0 && (
-                  <p className="text-sm text-muted-foreground">
-                    {skippedCount} Foto{skippedCount !== 1 ? "s" : ""} übersprungen
-                  </p>
-                )}
-                {savedCount === 0 && skippedCount === 0 && (
-                  <p className="text-sm text-muted-foreground">Keine Rezepte importiert.</p>
-                )}
-              </div>
-              <div className="flex gap-3 mt-2">
+
+              {/* Recipe cards preview */}
+              {savedCount > 0 && loadingSavedRecipes && (
+                <div className="flex items-center justify-center gap-2 py-6">
+                  <Loader2 className="w-5 h-5 text-[#4A7C59] animate-spin" />
+                  <span className="text-sm text-muted-foreground">
+                    {savedCount === 1 ? "Rezept wird geladen…" : "Rezepte werden geladen…"}
+                  </span>
+                </div>
+              )}
+
+              {savedCount > 0 && !loadingSavedRecipes && savedRecipes.length === 1 && (
+                <div className="w-full">
+                  <ImportedRecipeCard recipe={savedRecipes[0]} />
+                </div>
+              )}
+
+              {savedCount > 0 && !loadingSavedRecipes && savedRecipes.length > 1 && (
+                <div className="max-h-64 overflow-y-auto">
+                  <div className="grid grid-cols-2 gap-3">
+                    {savedRecipes.map((recipe) => (
+                      <ImportedRecipeCard key={recipe.id} recipe={recipe} />
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {savedCount > 0 && !loadingSavedRecipes && savedRecipes.length === 0 && (
+                <p className="text-xs text-muted-foreground text-center">
+                  Vorschau konnte nicht geladen werden.
+                </p>
+              )}
+
+              {/* Actions */}
+              <div className="flex gap-3 pb-4 justify-center">
                 <button
                   onClick={handleClose}
                   className="px-6 py-2.5 bg-[#4A7C59] text-white rounded-xl text-sm font-semibold hover:bg-[#3d6849] transition-colors"

@@ -5,6 +5,9 @@ import { seedUser } from "./db/seedUser";
 import { recoverProcessingSessions } from "./routes/bulkImport";
 import { warmupRecipeCache } from "./routes/recipes";
 import { startTrashCleanupJob } from "./lib/trashCleanup";
+import { db } from "@workspace/db";
+import { recipesTable } from "@workspace/db/schema";
+import { eq, isNull, and, or, sql } from "drizzle-orm";
 import type { Socket } from "node:net";
 import net from "node:net";
 import http from "node:http";
@@ -98,6 +101,16 @@ async function main() {
   warmupRecipeCache(undefined).catch(() => {});
 
   startTrashCleanupJob();
+
+  try {
+    const result = await db
+      .update(recipesTable)
+      .set({ imageSource: "ai" })
+      .where(and(eq(recipesTable.isAiGenerated, true), or(isNull(recipesTable.imageSource), sql`${recipesTable.imageSource} = ''`)));
+    logger.info({ result }, "Backfilled image_source='ai' for is_ai_generated recipes");
+  } catch (err) {
+    logger.error({ err }, "Failed to backfill image_source for AI-generated recipes");
+  }
 }
 
 main().catch((err) => {

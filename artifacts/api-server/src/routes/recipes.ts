@@ -1460,14 +1460,15 @@ router.get("/recipes/:id/photos", async (req, res) => {
     }
 
     const [recipe] = await db
-      .select({ imageUrl: recipesTable.imageUrl, imageSource: recipesTable.imageSource })
+      .select({ imageUrl: recipesTable.imageUrl, imageSource: recipesTable.imageSource, isAiGenerated: recipesTable.isAiGenerated })
       .from(recipesTable)
       .where(and(eq(recipesTable.id, id), isNull(recipesTable.deletedAt)))
       .limit(1);
 
     // Lazy backfill: if the recipe has an AI image but no corresponding photo link entry
     // (e.g. generated before the syncMainPhotoLink call was added), create the entry now.
-    if (recipe?.imageUrl && recipe.imageSource === "ai") {
+    // Also covers older recipes where image_source is null but is_ai_generated is true.
+    if (recipe?.imageUrl && (recipe.imageSource === "ai" || recipe.isAiGenerated === true)) {
       const [existingLink] = await db
         .select({ id: recipePhotoLinksTable.id })
         .from(recipePhotoLinksTable)

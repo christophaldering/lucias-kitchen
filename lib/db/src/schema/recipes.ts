@@ -171,6 +171,7 @@ export const bulkImportItemsTable = pgTable("bulk_import_items", {
   recipeData: jsonb("recipe_data"),
   pageNumbers: jsonb("page_numbers").notNull().default([]),
   pageImageUrls: jsonb("page_image_urls").notNull().default([]),
+  photoPageUrls: jsonb("photo_page_urls").notNull().default([]),
   hasHandwriting: boolean("has_handwriting").notNull().default(false),
   errorText: text("error_text"),
   rejected: boolean("rejected").notNull().default(false),

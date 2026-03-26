@@ -1,7 +1,7 @@
 import { useState, useRef, useCallback, useEffect } from "react";
 import {
   Upload, Loader2, Check, X, AlertTriangle, PenLine, ChevronDown, ChevronUp,
-  Eye, RefreshCw, Save, FileText, Clock, RotateCcw, History, Plus
+  Eye, RefreshCw, Save, FileText, Clock, RotateCcw, History, Plus, Camera
 } from "lucide-react";
 import { authFetch, authHeaders } from "@/lib/authFetch";
 
@@ -37,6 +37,7 @@ interface BulkImportItem {
   errorText: string | null;
   pageNumbers: number[];
   pageImageUrls: string[];
+  photoPageUrls: string[];
   recipeData: {
     title: string;
     servings?: number;
@@ -148,6 +149,10 @@ function ItemCard({
   const Icon = cfg.icon;
   const rd = item.recipeData;
 
+  const photoPageUrls = item.photoPageUrls ?? [];
+  const photoPageUrlSet = new Set(photoPageUrls);
+  const hasDetectedPhoto = photoPageUrls.length > 0;
+
   const pageLabel = item.pageNumbers.length > 0
     ? item.pageNumbers.length === 1
       ? `Seite ${item.pageNumbers[0]}`
@@ -180,6 +185,11 @@ function ItemCard({
             )}
             {pageLabel && (
               <span className="text-xs text-muted-foreground">{pageLabel}</span>
+            )}
+            {hasDetectedPhoto && (
+              <span className="text-xs flex items-center gap-1 text-amber-700 bg-amber-50 px-1.5 py-0.5 rounded-full" title="Rezeptfoto erkannt">
+                <Camera className="w-3 h-3" /> Foto erkannt
+              </span>
             )}
             {item.hasHandwriting && (
               <span className="text-xs flex items-center gap-1 text-violet-700">
@@ -238,15 +248,24 @@ function ItemCard({
 
       {item.pageImageUrls.length > 0 && (
         <div className="flex gap-1.5 px-3 pb-2 overflow-x-auto">
-          {item.pageImageUrls.map((url, i) => (
-            <img
-              key={i}
-              src={url}
-              alt={`Seite ${item.pageNumbers[i] ?? i + 1}`}
-              onClick={() => setLightbox(i)}
-              className="w-12 h-16 object-cover rounded-md border border-border cursor-pointer hover:opacity-80 transition-opacity flex-shrink-0"
-            />
-          ))}
+          {item.pageImageUrls.map((url, i) => {
+            const isPhoto = photoPageUrlSet.has(url);
+            return (
+              <div key={i} className="relative flex-shrink-0">
+                <img
+                  src={url}
+                  alt={`Seite ${item.pageNumbers[i] ?? i + 1}`}
+                  onClick={() => setLightbox(i)}
+                  className={`w-12 h-16 object-cover rounded-md cursor-pointer hover:opacity-80 transition-opacity border-2 ${isPhoto ? "border-amber-400" : "border-border"}`}
+                />
+                {isPhoto && (
+                  <div className="absolute bottom-0.5 right-0.5 bg-amber-400 rounded-full p-0.5" title="Rezeptfoto">
+                    <Camera className="w-2 h-2 text-white" />
+                  </div>
+                )}
+              </div>
+            );
+          })}
         </div>
       )}
 

@@ -40,7 +40,7 @@ The project is structured as a pnpm monorepo with distinct packages for deployab
         - **Recipe Management:** Gallery view, search, filters, recipe detail modal, quick new-recipe creation via FAB, PDF upload, and URL import.
         - **Wochenplan & Einkaufsliste:** Date-based weekly meal planner and dynamic shopping list generation.
         - **Statistiken & Muster:** Data visualization using Recharts for cooking statistics and user patterns.
-        - **Bulk PDF Import:** Advanced admin feature for uploading multiple PDFs, AI-powered recipe extraction (Claude AI), and a review dashboard with page scan thumbnails.
+        - **Bulk PDF Import:** Advanced admin feature for uploading multiple PDFs, AI-powered recipe extraction (Claude AI), and a review dashboard with page scan thumbnails. Includes AI-powered food photo detection: Claude analyzes rendered page images to identify which pages contain actual food photos (vs. text pages), stores detected photo URLs in `photoPageUrls` column, shows camera icon badge in the review UI, and only saves detected food photos (not text renders) as recipe photos.
 - **Group/Community Features:** Initial architecture for group management, including creation, invitations, and membership roles with admin moderation.
 - **Email Invitations:** Token-based invite links (14-day expiry) with real email delivery via Gmail SMTP (nodemailer). Includes HTML email templates for invitation, confirmation, join notification, and reminder. Frontend invite acceptance page at `/invite/:token`. Password verification required for existing users accepting invites. Notifications sent to inviters when invited users join.
 

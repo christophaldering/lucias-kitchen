@@ -1,7 +1,6 @@
 import { Router, type IRouter } from "express";
 import multer from "multer";
 import { db } from "@workspace/db";
-import { generateTagsForRecipe } from "../lib/generateRecipeTags";
 import {
   bulkImportSessionsTable,
   bulkImportFilesTable,
@@ -92,6 +91,53 @@ async function renderPdfPages(pdfBuffer: Buffer): Promise<Buffer[]> {
   return pageImages;
 }
 
+async function detectFoodPhotoPages(pageBuffers: Buffer[]): Promise<Set<number>> {
+  if (pageBuffers.length === 0) return new Set();
+  try {
+    const imageContents = pageBuffers.map((buf, i) => [
+      {
+        type: "text" as const,
+        text: `Seite ${i + 1}:`,
+      },
+      {
+        type: "image" as const,
+        source: {
+          type: "base64" as const,
+          media_type: "image/jpeg" as const,
+          data: buf.toString("base64"),
+        },
+      },
+    ]).flat();
+
+    const response = await anthropic.messages.create({
+      model: "claude-opus-4-5",
+      max_tokens: 256,
+      system: `Du analysierst Seiten aus einem eingescannten Kochbuch. Deine Aufgabe: Erkenne, welche Seiten ein Foto eines fertig zubereiteten Gerichts zeigen. Ein brauchbares Rezeptfoto zeigt das fertige Essen deutlich und ansprechend. Keine Rezeptfotos sind: reine Textseiten, Zutaten-Listen, Kochschritte-Text, Handschrift, leere Seiten, Coverbilder ohne Speisen, oder dekorative Elemente ohne erkennbares Gericht. Antworte NUR mit einem JSON-Objekt: {"photoPages": [1, 3]} wobei die Zahlen 1-basierte Seitennummern der Seiten mit echten Essensfotos sind. Leeres Array wenn keine Seite ein Foto enthält.`,
+      messages: [
+        {
+          role: "user",
+          content: [
+            ...imageContents,
+            {
+              type: "text",
+              text: `Analysiere alle ${pageBuffers.length} Seiten. Welche zeigen ein echtes Foto eines fertig zubereiteten Gerichts?`,
+            },
+          ],
+        },
+      ],
+    });
+
+    const rawText = response.content[0]?.type === "text" ? response.content[0].text : "{}";
+    const cleaned = rawText.replace(/^```(?:json)?\s*/i, "").replace(/\s*```$/i, "").trim();
+    const parsed = JSON.parse(cleaned);
+    const photoPages: number[] = Array.isArray(parsed.photoPages) ? parsed.photoPages : [];
+    return new Set(photoPages);
+  } catch (err) {
+    console.error("Photo detection failed, skipping:", err);
+    return new Set();
+  }
+}
+
 async function processPdfFile(
   fileId: number,
   sessionId: number,
@@ -111,6 +157,7 @@ async function processPdfFile(
       .where(eq(bulkImportSessionsTable.id, sessionId));
 
     let pageImageUrls: string[] = [];
+    let foodPhotoPageNumbers: Set<number> = new Set();
     try {
       const pageBuffers = await renderPdfPages(pdfBuffer);
       for (let i = 0; i < pageBuffers.length; i++) {
@@ -121,6 +168,10 @@ async function processPdfFile(
         );
         const servingUrl = `/api/storage${objectPath}`;
         pageImageUrls.push(servingUrl);
+      }
+      // Detect which pages show actual food photos (1-based page numbers)
+      if (pageBuffers.length > 0) {
+        foodPhotoPageNumbers = await detectFoodPhotoPages(pageBuffers);
       }
     } catch (renderErr) {
       console.error("PDF rendering failed, proceeding without page images:", renderErr);
@@ -247,6 +298,11 @@ async function processPdfFile(
         .filter((n) => n >= 1 && n <= pageImageUrls.length)
         .map((n) => pageImageUrls[n - 1]);
 
+      // Only include pages that were detected as actual food photos
+      const recipePhotoPageUrls = pageNums
+        .filter((n) => n >= 1 && n <= pageImageUrls.length && foodPhotoPageNumbers.has(n))
+        .map((n) => pageImageUrls[n - 1]);
+
       const hasHw = recipe.hasHandwriting ?? documentHasHandwriting;
       let status: "done" | "uncertain" | "handwriting" | "failed" = "done";
       if (hasHw) {
@@ -277,6 +333,7 @@ async function processPdfFile(
         recipeData: recipeData as unknown as string,
         pageNumbers: pageNums as unknown as string[],
         pageImageUrls: recipePageImageUrls as unknown as string[],
+        photoPageUrls: recipePhotoPageUrls as unknown as string[],
         hasHandwriting: hasHw,
         errorText: null,
       });
@@ -1191,6 +1248,7 @@ router.get("/bulk-import/:sessionId/results", authMiddleware, async (req, res) =
           errorText: item.errorText,
           pageNumbers: item.pageNumbers as number[],
           pageImageUrls: item.pageImageUrls as string[],
+          photoPageUrls: (item.photoPageUrls as string[]) ?? [],
           recipeData: item.recipeData,
           fileName: item.fileName,
         })),
@@ -1515,10 +1573,12 @@ router.post("/bulk-import/:sessionId/save", authMiddleware, async (req, res) => 
           );
         }
 
-        const pageImageUrls = item.pageImageUrls as string[];
-        if (pageImageUrls.length > 0) {
+        // Use only detected food photo pages; if none were detected, save no photos
+        const photoPageUrls = (item.photoPageUrls as string[] | null) ?? [];
+        const photosToSave = photoPageUrls;
+        if (photosToSave.length > 0) {
           await db.insert(recipePhotosTable).values(
-            pageImageUrls.map((url) => ({
+            photosToSave.map((url) => ({
               recipeId: recipe.id,
               imageUrl: url,
             }))

@@ -8,6 +8,7 @@ export interface RecipePhoto {
   recipeId: number;
   sortOrder: number;
   isMain: boolean;
+  setAsMain?: boolean;
 }
 
 export interface RecipeIngredient {

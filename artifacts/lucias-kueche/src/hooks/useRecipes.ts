@@ -332,3 +332,16 @@ export async function linkPhotoToRecipe(photoId: number, recipeId: number): Prom
   }
   return res.json();
 }
+
+export async function usePhotoAsMain(recipeId: number, photoId: number): Promise<{ imageUrl: string }> {
+  const res = await authFetch(`${API_BASE}/recipes/${recipeId}/use-photo`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", ...authHeaders() },
+    body: JSON.stringify({ photoId }),
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error(err.message ?? `HTTP ${res.status}`);
+  }
+  return res.json();
+}

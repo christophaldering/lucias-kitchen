@@ -3,7 +3,7 @@ import * as XLSX from "xlsx";
 import {
   Loader2, Trash2, Edit2, Download, Tag, RefreshCw,
   Upload, Check, AlertTriangle, Settings, Database, Sliders,
-  X, Plus, ChevronsUpDown, Users, CheckCircle, XCircle, Clock, FolderOpen, Copy, RotateCcw
+  X, Plus, ChevronsUpDown, Users, CheckCircle, XCircle, Clock, FolderOpen, Copy, RotateCcw, Images
 } from "lucide-react";
 import { useRecipes } from "@/hooks/useRecipes";
 import { useAdminGroups, type AdminGroup } from "@/hooks/useGroups";
@@ -1321,6 +1321,11 @@ function RecipeImagesTab() {
     body: JSON.stringify({ ids: Array.from(selectedIds) }),
   });
 
+  const startPhotoExtraction = () => runSSE("/api/admin/extract-recipe-images", {
+    method: "POST",
+    headers: { ...authHeaders() },
+  });
+
   return (
     <div className="bg-white rounded-2xl border border-border shadow-sm p-6 space-y-5">
       <div className="flex items-center gap-3 mb-2">
@@ -1471,6 +1476,16 @@ function RecipeImagesTab() {
         >
           <Upload className="w-4 h-4" />
           Alle generieren
+        </button>
+
+        <button
+          onClick={startPhotoExtraction}
+          disabled={status === "running"}
+          className="flex items-center gap-2 px-5 py-2.5 bg-white border border-[#4A7C59]/40 text-[#4A7C59] rounded-xl text-sm font-semibold hover:bg-[#4A7C59]/5 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+          title="Setzt das erste vorhandene Kochfoto als Hauptbild für Rezepte ohne Bild"
+        >
+          <Images className="w-4 h-4" />
+          Vorhandene Fotos nutzen
         </button>
       </div>
     </div>

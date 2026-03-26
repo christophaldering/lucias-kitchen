@@ -1491,6 +1491,27 @@ router.post("/recipes/:id/photos", singleImageUploadMiddleware, async (req, res)
       .values({ photoId: photo.id, recipeId: id, sortOrder: 0, isMain: false })
       .returning();
 
+    const [existingRecipe] = await db
+      .select({ imageUrl: recipesTable.imageUrl, createdBy: recipesTable.createdBy })
+      .from(recipesTable)
+      .where(and(eq(recipesTable.id, id), isNull(recipesTable.deletedAt)))
+      .limit(1);
+
+    let setAsMain = false;
+    if (existingRecipe && !existingRecipe.imageUrl) {
+      const currentUserId = req.authUser?.id;
+      const isOwner = existingRecipe.createdBy == null || (currentUserId != null && existingRecipe.createdBy === currentUserId);
+      const isAdminUser = currentUserId != null && req.authUser?.email != null && isAdmin(req.authUser.email);
+      if (isOwner || isAdminUser) {
+        await db
+          .update(recipesTable)
+          .set({ imageUrl, isAiGenerated: false })
+          .where(eq(recipesTable.id, id));
+        invalidateRecipeListCache();
+        setAsMain = true;
+      }
+    }
+
     res.status(201).json({
       id: photo.id,
       imageUrl: photo.imageUrl,
@@ -1501,6 +1522,7 @@ router.post("/recipes/:id/photos", singleImageUploadMiddleware, async (req, res)
       recipeId: link.recipeId,
       sortOrder: link.sortOrder,
       isMain: link.isMain,
+      setAsMain,
     });
   } catch (err) {
     req.log.error({ err }, "Failed to upload recipe photo");
@@ -1647,12 +1669,200 @@ export async function generateAndSaveRecipeImage(recipeId: number, title: string
     await db.update(recipesTable).set({ imageUrl, isAiGenerated: true }).where(eq(recipesTable.id, recipeId));
     invalidateRecipeListCache();
 
+    try {
+      const [photo] = await db
+        .insert(photosTable)
+        .values({ imageUrl, uploadedBy: null })
+        .returning();
+      await db
+        .insert(recipePhotoLinksTable)
+        .values({ photoId: photo.id, recipeId, sortOrder: 0, isMain: false })
+        .onConflictDoNothing();
+    } catch {
+    }
+
     return imageUrl;
   } catch (err) {
     console.error(`Failed to generate image for recipe ${recipeId}:`, err);
     return null;
   }
 }
+
+router.post("/recipes/:id/use-photo", authMiddleware, async (req, res) => {
+  try {
+    const id = Number(req.params.id);
+    if (isNaN(id)) {
+      res.status(400).json({ error: "bad_request", message: "Invalid recipe id" });
+      return;
+    }
+
+    const bodySchema = z.object({ photoId: z.number().int().positive() });
+    const parseResult = bodySchema.safeParse(req.body);
+    if (!parseResult.success) {
+      res.status(400).json({ error: "invalid_input", message: "photoId ist erforderlich" });
+      return;
+    }
+
+    const { photoId } = parseResult.data;
+
+    const [recipe] = await db
+      .select({ id: recipesTable.id, createdBy: recipesTable.createdBy, imageUrl: recipesTable.imageUrl })
+      .from(recipesTable)
+      .where(and(eq(recipesTable.id, id), isNull(recipesTable.deletedAt)))
+      .limit(1);
+
+    if (!recipe) {
+      res.status(404).json({ error: "not_found", message: "Rezept nicht gefunden" });
+      return;
+    }
+
+    const isOwner = recipe.createdBy == null || recipe.createdBy === req.authUser!.id;
+    if (!isOwner && !isAdmin(req.authUser!.email)) {
+      res.status(403).json({ error: "forbidden", message: "Nur der Eigentümer kann das Hauptbild setzen" });
+      return;
+    }
+
+    const [link] = await db
+      .select({ photoId: recipePhotoLinksTable.photoId })
+      .from(recipePhotoLinksTable)
+      .where(and(eq(recipePhotoLinksTable.recipeId, id), eq(recipePhotoLinksTable.photoId, photoId)))
+      .limit(1);
+
+    if (!link) {
+      res.status(404).json({ error: "not_found", message: "Foto nicht in dieser Rezept-Galerie gefunden" });
+      return;
+    }
+
+    const [photo] = await db
+      .select({ id: photosTable.id, imageUrl: photosTable.imageUrl })
+      .from(photosTable)
+      .where(eq(photosTable.id, photoId))
+      .limit(1);
+
+    if (!photo) {
+      res.status(404).json({ error: "not_found", message: "Foto nicht gefunden" });
+      return;
+    }
+
+    if (recipe.imageUrl && recipe.imageUrl !== photo.imageUrl) {
+      const existingLink = await db
+        .select({ id: recipePhotoLinksTable.id })
+        .from(recipePhotoLinksTable)
+        .innerJoin(photosTable, eq(photosTable.id, recipePhotoLinksTable.photoId))
+        .where(and(eq(recipePhotoLinksTable.recipeId, id), eq(photosTable.imageUrl, recipe.imageUrl)))
+        .limit(1);
+      if (existingLink.length === 0) {
+        const [savedPhoto] = await db
+          .insert(photosTable)
+          .values({ imageUrl: recipe.imageUrl, uploadedBy: null })
+          .returning();
+        await db
+          .insert(recipePhotoLinksTable)
+          .values({ photoId: savedPhoto.id, recipeId: id, sortOrder: 0, isMain: false })
+          .onConflictDoNothing();
+      }
+    }
+
+    await db
+      .update(recipesTable)
+      .set({ imageUrl: photo.imageUrl, isAiGenerated: false })
+      .where(eq(recipesTable.id, id));
+
+    await db
+      .update(recipePhotoLinksTable)
+      .set({ isMain: false })
+      .where(eq(recipePhotoLinksTable.recipeId, id));
+    await db
+      .update(recipePhotoLinksTable)
+      .set({ isMain: true })
+      .where(and(eq(recipePhotoLinksTable.recipeId, id), eq(recipePhotoLinksTable.photoId, photoId)));
+
+    invalidateRecipeListCache();
+
+    res.json({ imageUrl: photo.imageUrl });
+  } catch (err) {
+    req.log.error({ err }, "Failed to set recipe main photo");
+    res.status(500).json({ error: "internal_error", message: "Fehler beim Setzen des Hauptbilds" });
+  }
+});
+
+router.post("/admin/extract-recipe-images", authMiddleware, async (req, res) => {
+  if (!isAdmin(req.authUser!.email)) {
+    res.status(403).json({ error: "forbidden", message: "Nur Admins erlaubt" });
+    return;
+  }
+
+  res.setHeader("Content-Type", "text/event-stream");
+  res.setHeader("Cache-Control", "no-cache");
+  res.setHeader("Connection", "keep-alive");
+  res.flushHeaders();
+
+  const sendEvent = (data: object) => {
+    res.write(`data: ${JSON.stringify(data)}\n\n`);
+  };
+
+  try {
+    const recipesWithPhotos = await db
+      .selectDistinct({ recipeId: recipePhotoLinksTable.recipeId })
+      .from(recipePhotoLinksTable);
+
+    const recipeIdsWithPhotos = new Set(recipesWithPhotos.map((r) => r.recipeId));
+
+    const allRecipes = await db
+      .select({ id: recipesTable.id, imageUrl: recipesTable.imageUrl })
+      .from(recipesTable)
+      .where(isNull(recipesTable.deletedAt));
+
+    const recipesToProcess = allRecipes.filter(
+      (r) => recipeIdsWithPhotos.has(r.id) && !r.imageUrl
+    );
+
+    const total = recipesToProcess.length;
+    let done = 0;
+    let errors = 0;
+
+    sendEvent({ done, total, errors });
+
+    for (const recipe of recipesToProcess) {
+      try {
+        const photos = await db
+          .select({
+            id: photosTable.id,
+            imageUrl: photosTable.imageUrl,
+            createdAt: photosTable.createdAt,
+          })
+          .from(recipePhotoLinksTable)
+          .innerJoin(photosTable, eq(photosTable.id, recipePhotoLinksTable.photoId))
+          .where(eq(recipePhotoLinksTable.recipeId, recipe.id))
+          .orderBy(desc(photosTable.createdAt))
+          .limit(1);
+
+        if (photos.length > 0) {
+          const firstPhoto = photos[0];
+          await db
+            .update(recipesTable)
+            .set({ imageUrl: firstPhoto.imageUrl, isAiGenerated: false })
+            .where(eq(recipesTable.id, recipe.id));
+          invalidateRecipeListCache();
+        } else {
+          errors++;
+        }
+      } catch (err) {
+        console.error(`Failed to extract image for recipe ${recipe.id}:`, err);
+        errors++;
+      }
+      done++;
+      sendEvent({ done, total, errors });
+    }
+
+    sendEvent({ done: total, total, errors, finished: true });
+  } catch (err) {
+    req.log.error({ err }, "Failed to run photo extraction backfill");
+    sendEvent({ error: "Fehler bei der Fotoextraktion" });
+  } finally {
+    res.end();
+  }
+});
 
 router.post("/recipes/:id/generate-image", authMiddleware, async (req, res) => {
   try {

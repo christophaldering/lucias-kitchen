@@ -1,11 +1,13 @@
 import { useState, useEffect, useRef, useCallback } from "react";
-import { Camera, Image, Loader2, Trash2, X, Link } from "lucide-react";
+import { Camera, Image, Loader2, Trash2, X, Link, Star } from "lucide-react";
 import type { RecipePhoto, Recipe } from "@/types/recipe";
-import { fetchRecipePhotos, uploadRecipePhoto, deleteRecipePhoto, linkPhotoToRecipe } from "@/hooks/useRecipes";
+import { fetchRecipePhotos, uploadRecipePhoto, deleteRecipePhoto, linkPhotoToRecipe, usePhotoAsMain } from "@/hooks/useRecipes";
 
 interface Props {
   recipeId: number;
   allRecipes?: Recipe[];
+  currentImageUrl?: string | null;
+  onSetAsMain?: (imageUrl: string) => void;
 }
 
 function formatDateTime(isoString: string): string {
@@ -23,7 +25,7 @@ function formatDateTime(isoString: string): string {
   }
 }
 
-export default function RecipePhotoGallery({ recipeId, allRecipes }: Props) {
+export default function RecipePhotoGallery({ recipeId, allRecipes, currentImageUrl, onSetAsMain }: Props) {
   const [photos, setPhotos] = useState<RecipePhoto[]>([]);
   const [loading, setLoading] = useState(true);
   const [uploading, setUploading] = useState(false);
@@ -33,6 +35,7 @@ export default function RecipePhotoGallery({ recipeId, allRecipes }: Props) {
   const [linkingPhoto, setLinkingPhoto] = useState<RecipePhoto | null>(null);
   const [selectedRecipeIds, setSelectedRecipeIds] = useState<Set<number>>(new Set());
   const [linking, setLinking] = useState(false);
+  const [settingMainPhotoId, setSettingMainPhotoId] = useState<number | null>(null);
   const galleryInputRef = useRef<HTMLInputElement>(null);
   const cameraInputRef = useRef<HTMLInputElement>(null);
 
@@ -63,6 +66,9 @@ export default function RecipePhotoGallery({ recipeId, allRecipes }: Props) {
     try {
       const photo = await uploadRecipePhoto(recipeId, file);
       setPhotos((prev) => [photo, ...prev]);
+      if (photo.setAsMain && onSetAsMain) {
+        onSetAsMain(photo.imageUrl);
+      }
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : "Upload fehlgeschlagen. Bitte erneut versuchen.");
     } finally {
@@ -101,6 +107,19 @@ export default function RecipePhotoGallery({ recipeId, allRecipes }: Props) {
       setError(err instanceof Error ? err.message : "Verknüpfung fehlgeschlagen.");
     } finally {
       setLinking(false);
+    }
+  };
+
+  const handleSetAsMain = async (photo: RecipePhoto) => {
+    setSettingMainPhotoId(photo.id);
+    setError(null);
+    try {
+      const result = await usePhotoAsMain(recipeId, photo.id);
+      if (onSetAsMain) onSetAsMain(result.imageUrl);
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : "Fehler beim Setzen des Hauptbilds.");
+    } finally {
+      setSettingMainPhotoId(null);
     }
   };
 
@@ -166,41 +185,64 @@ export default function RecipePhotoGallery({ recipeId, allRecipes }: Props) {
         </p>
       ) : (
         <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
-          {photos.map((photo) => (
-            <div key={photo.id} className="relative group rounded-xl overflow-hidden border border-border bg-white flex flex-col">
-              <div className="aspect-square overflow-hidden">
-                <img
-                  src={photo.imageUrl}
-                  alt="Kochfoto"
-                  className="w-full h-full object-cover cursor-pointer hover:scale-105 transition-transform duration-200"
-                  onClick={() => setLightboxPhoto(photo)}
-                />
-              </div>
-              <div className="flex items-center justify-between px-2 py-1 bg-white">
-                <p className="text-muted-foreground text-[10px] leading-tight">{formatDateTime(photo.createdAt)}</p>
-                <div className="flex gap-1">
-                  {otherRecipes.length > 0 && (
+          {photos.map((photo) => {
+            const isCurrentMain = currentImageUrl === photo.imageUrl;
+            return (
+              <div key={photo.id} className="relative group rounded-xl overflow-hidden border border-border bg-white flex flex-col">
+                {isCurrentMain && (
+                  <span className="absolute top-1 left-1 z-10 bg-[#4A7C59] text-white text-[9px] font-semibold px-1.5 py-0.5 rounded-full">
+                    Hauptbild
+                  </span>
+                )}
+                <div className="aspect-square overflow-hidden">
+                  <img
+                    src={photo.imageUrl}
+                    alt="Kochfoto"
+                    className="w-full h-full object-cover cursor-pointer hover:scale-105 transition-transform duration-200"
+                    onClick={() => setLightboxPhoto(photo)}
+                  />
+                </div>
+                <div className="flex items-center justify-between px-2 py-1 bg-white gap-1">
+                  <p className="text-muted-foreground text-[10px] leading-tight truncate flex-1">{formatDateTime(photo.createdAt)}</p>
+                  <div className="flex gap-1 flex-shrink-0">
+                    {onSetAsMain && !isCurrentMain && (
+                      <button
+                        type="button"
+                        onClick={(e) => { e.stopPropagation(); handleSetAsMain(photo); }}
+                        disabled={settingMainPhotoId === photo.id}
+                        className="flex items-center gap-0.5 px-1 py-0.5 text-[9px] font-medium hover:bg-amber-50 text-amber-500 hover:text-amber-700 rounded transition-colors disabled:opacity-50 whitespace-nowrap"
+                        title="Als Hauptbild setzen"
+                      >
+                        {settingMainPhotoId === photo.id
+                          ? <Loader2 className="w-2.5 h-2.5 animate-spin" />
+                          : <Star className="w-2.5 h-2.5" />
+                        }
+                        Hauptbild
+                      </button>
+                    )}
+                    {otherRecipes.length > 0 && (
+                      <button
+                        type="button"
+                        onClick={(e) => { e.stopPropagation(); openLinkDialog(photo); }}
+                        className="p-0.5 hover:bg-blue-50 text-blue-400 hover:text-blue-600 rounded transition-colors"
+                        title="Mit weiteren Rezepten verknüpfen"
+                      >
+                        <Link className="w-3 h-3" />
+                      </button>
+                    )}
                     <button
                       type="button"
-                      onClick={(e) => { e.stopPropagation(); openLinkDialog(photo); }}
-                      className="p-0.5 hover:bg-blue-50 text-blue-400 hover:text-blue-600 rounded transition-colors"
-                      title="Mit weiteren Rezepten verknüpfen"
+                      onClick={(e) => { e.stopPropagation(); setConfirmDeleteId(photo.id); }}
+                      className="p-0.5 hover:bg-red-50 text-red-400 hover:text-red-600 rounded transition-colors"
+                      title="Foto löschen"
                     >
-                      <Link className="w-3 h-3" />
+                      <Trash2 className="w-3 h-3" />
                     </button>
-                  )}
-                  <button
-                    type="button"
-                    onClick={(e) => { e.stopPropagation(); setConfirmDeleteId(photo.id); }}
-                    className="p-0.5 hover:bg-red-50 text-red-400 hover:text-red-600 rounded transition-colors"
-                    title="Foto löschen"
-                  >
-                    <Trash2 className="w-3 h-3" />
-                  </button>
+                  </div>
                 </div>
               </div>
-            </div>
-          ))}
+            );
+          })}
         </div>
       )}
 

@@ -67,7 +67,7 @@ export function useRecipes(filter: RecipeFilter = "all") {
   });
 
   const addRecipesMutation = useMutation({
-    mutationFn: async (newRecipes: Partial<Recipe>[]) => {
+    mutationFn: async (newRecipes: Partial<Recipe>[]): Promise<Recipe[]> => {
       const res = await authFetch(`${API_BASE}/recipes`, {
         method: "POST",
         headers: { "Content-Type": "application/json", ...authHeaders() },
@@ -77,6 +77,8 @@ export function useRecipes(filter: RecipeFilter = "all") {
         const errBody = await res.json().catch(() => ({}));
         throw new Error(JSON.stringify(errBody));
       }
+      const data = await res.json();
+      return Array.isArray(data) ? data : [data];
     },
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ["recipes"] }),
   });
@@ -153,8 +155,9 @@ export function useRecipes(filter: RecipeFilter = "all") {
     await queryClient.invalidateQueries({ queryKey: ["recipes"] });
   }
 
-  async function addRecipes(newRecipes: Partial<Recipe>[]) {
-    return addRecipesMutation.mutateAsync(newRecipes);
+  async function addRecipes(newRecipes: Partial<Recipe>[]): Promise<number[]> {
+    const created = await addRecipesMutation.mutateAsync(newRecipes);
+    return created.map((r) => r.id);
   }
 
   async function updateRecipe(id: number, data: RecipeUpdatePayload) {

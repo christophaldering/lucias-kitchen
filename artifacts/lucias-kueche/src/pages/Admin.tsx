@@ -312,7 +312,7 @@ function BackupSection({
 }: {
   recipes: Recipe[];
   totalCount?: number | null;
-  addRecipes: (r: Partial<Recipe>[]) => Promise<void>;
+  addRecipes: (r: Partial<Recipe>[]) => Promise<number[]>;
   deleteAllRecipes: () => Promise<void>;
   restoreDemo: () => Promise<void>;
   refetch: () => Promise<void>;

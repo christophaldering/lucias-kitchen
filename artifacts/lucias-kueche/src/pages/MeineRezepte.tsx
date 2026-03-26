@@ -465,6 +465,7 @@ export default function MeineRezepte({ onNavigate: _onNavigate, initialOpenRecip
   const [showVariants, setShowVariants] = useState(false);
   const [selectedId, setSelectedId] = useState<number | null>(null);
   const selected = selectedId != null ? (recipes.find((r) => r.id === selectedId) ?? null) : null;
+  const pendingOpenIdRef = useRef<number | null>(null);
   const [cookingRecipe, setCookingRecipe] = useState<Recipe | null>(null);
   const [showPdfModal, setShowPdfModal] = useState(false);
   const [showUrlModal, setShowUrlModal] = useState(false);
@@ -505,6 +506,16 @@ export default function MeineRezepte({ onNavigate: _onNavigate, initialOpenRecip
     setSortOrderOverride(initialSortOrder);
     onSortOrderApplied?.();
   }, [initialSortOrder]);
+
+  useEffect(() => {
+    const pendingId = pendingOpenIdRef.current;
+    if (pendingId == null) return;
+    const recipe = recipes.find((r) => r.id === pendingId);
+    if (recipe) {
+      pendingOpenIdRef.current = null;
+      setSelectedId(recipe.id);
+    }
+  }, [recipes]);
 
   const refreshTokenRef = useRef(refreshToken);
   useEffect(() => {
@@ -1085,7 +1096,7 @@ export default function MeineRezepte({ onNavigate: _onNavigate, initialOpenRecip
             <UrlImportModal
               onClose={() => setShowUrlModal(false)}
               onAdd={async (newRecipes) => {
-                await addRecipes(newRecipes);
+                return addRecipes(newRecipes);
               }}
             />
           )}
@@ -1094,16 +1105,27 @@ export default function MeineRezepte({ onNavigate: _onNavigate, initialOpenRecip
             <PdfUploadModal
               onClose={() => setShowPdfModal(false)}
               onAdd={async (newRecipes) => {
-                await addRecipes(newRecipes);
+                return addRecipes(newRecipes);
               }}
             />
           )}
 
           {showImageModal && (
             <ImageImportModal
-              onClose={() => setShowImageModal(false)}
+              onClose={(savedIds) => {
+                setShowImageModal(false);
+                if (savedIds && savedIds.length > 0) {
+                  const firstId = savedIds[0];
+                  const alreadyInList = recipes.find((r) => r.id === firstId);
+                  if (alreadyInList) {
+                    setSelectedId(firstId);
+                  } else {
+                    pendingOpenIdRef.current = firstId;
+                  }
+                }
+              }}
               onAdd={async (newRecipes) => {
-                await addRecipes(newRecipes);
+                return addRecipes(newRecipes);
               }}
             />
           )}

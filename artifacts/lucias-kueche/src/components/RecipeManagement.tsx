@@ -501,7 +501,7 @@ export interface RecipeManagementProps {
   updateRecipe: (id: number, data: RecipeUpdatePayload) => Promise<void>;
   refetch: () => Promise<void>;
   onClearSelect: () => void;
-  addRecipes?: (newRecipes: Partial<Recipe>[]) => Promise<void>;
+  addRecipes?: (newRecipes: Partial<Recipe>[]) => Promise<number[]>;
 }
 
 export default function RecipeManagement({

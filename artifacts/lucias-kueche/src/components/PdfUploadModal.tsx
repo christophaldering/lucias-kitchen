@@ -5,7 +5,7 @@ import { extractPdfRecipes } from "@/hooks/useRecipes";
 
 interface Props {
   onClose: () => void;
-  onAdd: (recipes: Partial<Recipe>[]) => Promise<void>;
+  onAdd: (recipes: Partial<Recipe>[]) => Promise<number[]>;
 }
 
 type Step = "upload" | "loading" | "review" | "saving" | "done" | "error";

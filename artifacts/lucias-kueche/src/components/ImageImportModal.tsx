@@ -5,8 +5,8 @@ import { extractImageRecipes } from "@/hooks/useRecipes";
 import { compressImageToBase64 } from "@/lib/imageCompression";
 
 interface Props {
-  onClose: () => void;
-  onAdd: (recipes: Partial<Recipe>[]) => Promise<void>;
+  onClose: (savedRecipeIds?: number[]) => void;
+  onAdd: (recipes: Partial<Recipe>[]) => Promise<number[]>;
 }
 
 type Step = "upload" | "queue" | "done" | "error";
@@ -115,7 +115,6 @@ export default function ImageImportModal({ onClose, onAdd }: Props) {
   const [skippedCount, setSkippedCount] = useState(0);
   const [globalErrorMsg, setGlobalErrorMsg] = useState("");
   const [expandedEdit, setExpandedEdit] = useState(false);
-
   const queueRef = useRef<QueueItem[]>([]);
   const autoSaveRef = useRef(autoSave);
   const processingRef = useRef(false);
@@ -134,9 +133,16 @@ export default function ImageImportModal({ onClose, onAdd }: Props) {
     };
   }, []);
 
+  const savedRecipeIdsRef = useRef<number[]>([]);
+
+  const appendSavedRecipeIds = (newIds: number[]) => {
+    savedRecipeIdsRef.current = [...savedRecipeIdsRef.current, ...newIds];
+  };
+
   const handleClose = () => {
     queueRef.current.forEach((item) => URL.revokeObjectURL(item.objectUrl));
-    onClose();
+    const ids = savedRecipeIdsRef.current;
+    onClose(ids.length > 0 ? ids : undefined);
   };
 
   const readFileAsBase64 = (file: File): Promise<{ base64: string; mimeType: string }> =>
@@ -215,7 +221,8 @@ export default function ImageImportModal({ onClose, onAdd }: Props) {
           prev.map((it, i) => (i === index ? { ...it, status: "saving" } : it))
         );
         try {
-          await onAdd([{ ...firstRecipe, sourceDocumentUrl: sourceDocumentUrl ?? undefined, imageUrl: extractedImageUrl ?? undefined }]);
+          const newIds = await onAdd([{ ...firstRecipe, sourceDocumentUrl: sourceDocumentUrl ?? undefined, imageUrl: extractedImageUrl ?? undefined }]);
+          appendSavedRecipeIds(newIds);
           setQueue((prev) =>
             prev.map((it, i) => (i === index ? { ...it, status: "saved" } : it))
           );
@@ -271,7 +278,8 @@ export default function ImageImportModal({ onClose, onAdd }: Props) {
     );
 
     try {
-      await onAdd([{ ...currentItem.extracted, sourceDocumentUrl: currentItem.sourceDocumentUrl ?? undefined, imageUrl: currentItem.extractedImageUrl ?? undefined }]);
+      const newIds = await onAdd([{ ...currentItem.extracted, sourceDocumentUrl: currentItem.sourceDocumentUrl ?? undefined, imageUrl: currentItem.extractedImageUrl ?? undefined }]);
+      appendSavedRecipeIds(newIds);
       setQueue((prev) =>
         prev.map((it, i) => (i === currentIndex ? { ...it, status: "saved" } : it))
       );
@@ -378,7 +386,8 @@ export default function ImageImportModal({ onClose, onAdd }: Props) {
     );
 
     try {
-      await onAdd([{ ...item.extracted, sourceDocumentUrl: item.sourceDocumentUrl ?? undefined, imageUrl: item.extractedImageUrl ?? undefined }]);
+      const newIds = await onAdd([{ ...item.extracted, sourceDocumentUrl: item.sourceDocumentUrl ?? undefined, imageUrl: item.extractedImageUrl ?? undefined }]);
+      appendSavedRecipeIds(newIds);
       setQueue((prev) =>
         prev.map((it, i) => (i === currentIndex ? { ...it, status: "saved" } : it))
       );
@@ -465,6 +474,7 @@ export default function ImageImportModal({ onClose, onAdd }: Props) {
     setCurrentIndex(0);
     setSavedCount(0);
     setSkippedCount(0);
+    savedRecipeIdsRef.current = [];
     setExpandedEdit(false);
     processingRef.current = false;
   };

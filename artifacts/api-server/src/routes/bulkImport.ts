@@ -265,6 +265,7 @@ async function processPdfFile(
       source?: string;
       hasHandwriting?: boolean;
       confidence?: string;
+      uncertainties?: string[];
       pageNumbers?: number[];
     }> = [];
 
@@ -311,6 +312,10 @@ async function processPdfFile(
         status = "uncertain";
       }
 
+      const uncertainties = recipe.confidence === "uncertain" && Array.isArray(recipe.uncertainties)
+        ? recipe.uncertainties.filter((q) => typeof q === "string")
+        : [];
+
       const recipeData = {
         title: recipe.title ?? "Unbekanntes Rezept",
         servings: recipe.servings,
@@ -323,6 +328,7 @@ async function processPdfFile(
         notes: recipe.notes,
         personalNotes: recipe.personalNotes,
         source: recipe.source,
+        uncertainties,
       };
 
       await db.insert(bulkImportItemsTable).values({

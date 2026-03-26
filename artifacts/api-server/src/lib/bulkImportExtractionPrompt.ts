@@ -6,6 +6,7 @@ Wichtige Hinweise:
 - Gib für jedes Rezept die Seitenzahlen an, auf denen es sich befindet (1-basiert).
 - Wenn handschriftliche Anmerkungen vorhanden sind, setze hasHandwriting: true und erfasse alle Notizen in personalNotes.
 - Bei unsicherer Erkennung (unleserliche Handschrift, schlechte Scan-Qualität) setze confidence: "uncertain".
+- Wenn confidence "uncertain" ist, fülle das Feld "uncertainties" mit einer Liste konkreter Rückfragen auf Deutsch, z. B. ["Die Mengenangabe bei 'Mehl' war unleserlich – war es 200g oder 2 EL?", "Schritt 3 endet abrupt – könnte unvollständig sein."]. Bei confidence "done" bleibt uncertainties ein leeres Array.
 
 JSON-Struktur:
 {
@@ -26,6 +27,7 @@ JSON-Struktur:
       "source": "string - Rezeptautor falls angegeben",
       "hasHandwriting": true,
       "confidence": "done|uncertain",
+      "uncertainties": ["string - konkrete Rückfrage auf Deutsch"],
       "pageNumbers": [1, 2]
     }
   ]
@@ -40,6 +42,7 @@ Wichtige Hinweise für handschriftliche Dokumente:
 - Gib für jedes Rezept die Seitenzahlen an, auf denen es sich befindet (1-basiert).
 - Setze hasHandwriting: true für alle Rezepte mit handschriftlichen Anmerkungen.
 - Bei sehr unsicherer Erkennung setze confidence: "uncertain".
+- Wenn confidence "uncertain" ist, fülle das Feld "uncertainties" mit einer Liste konkreter Rückfragen auf Deutsch, z. B. ["Die Mengenangabe bei 'Butter' war unleserlich – bitte prüfen.", "Zutat 4 ist nicht lesbar – bitte ergänzen."]. Bei confidence "done" bleibt uncertainties ein leeres Array.
 
 JSON-Struktur:
 {
@@ -60,6 +63,7 @@ JSON-Struktur:
       "source": "string - Rezeptautor falls angegeben",
       "hasHandwriting": true,
       "confidence": "done|uncertain",
+      "uncertainties": ["string - konkrete Rückfrage auf Deutsch"],
       "pageNumbers": [1, 2]
     }
   ]

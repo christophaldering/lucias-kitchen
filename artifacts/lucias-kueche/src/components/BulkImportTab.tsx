@@ -50,6 +50,7 @@ interface BulkImportItem {
     notes?: string;
     personalNotes?: string;
     source?: string;
+    uncertainties?: string[];
   } | null;
   fileName: string;
 }
@@ -204,6 +205,16 @@ function ItemCard({
           </div>
           {item.status === "failed" && item.errorText && (
             <p className="text-xs text-red-600 mt-1">{item.errorText}</p>
+          )}
+          {item.status === "uncertain" && rd?.uncertainties && rd.uncertainties.length > 0 && (
+            <div className="mt-2 bg-yellow-50 border border-yellow-200 rounded-lg px-3 py-2">
+              <p className="text-xs font-semibold text-yellow-800 mb-1">KI-Rückfragen:</p>
+              <ol className="list-decimal list-inside space-y-0.5">
+                {rd.uncertainties.map((q, i) => (
+                  <li key={i} className="text-xs text-yellow-700">{q}</li>
+                ))}
+              </ol>
+            </div>
           )}
         </div>
 

@@ -2101,6 +2101,260 @@ router.get("/admin/recipes-without-images", authMiddleware, async (req, res) => 
   }
 });
 
+router.get("/admin/recipes-without-scan-photo", authMiddleware, async (req, res) => {
+  if (!isAdmin(req.authUser!.email)) {
+    res.status(403).json({ error: "forbidden", message: "Nur Admins können diese Daten abrufen" });
+    return;
+  }
+
+  try {
+    const candidates = await db
+      .select({
+        id: recipesTable.id,
+        title: recipesTable.title,
+        category: recipesTable.category,
+        createdAt: recipesTable.createdAt,
+        sourceDocumentUrl: recipesTable.sourceDocumentUrl,
+      })
+      .from(recipesTable)
+      .where(
+        and(
+          isNull(recipesTable.deletedAt),
+          sql`${recipesTable.sourceDocumentUrl} IS NOT NULL`,
+          sql`(${recipesTable.imageSource} IS DISTINCT FROM 'original')`
+        )
+      )
+      .orderBy(recipesTable.id);
+
+    res.json(candidates);
+  } catch (err) {
+    req.log.error({ err }, "Failed to fetch recipes without scan photo");
+    res.status(500).json({ error: "internal_error" });
+  }
+});
+
+router.post("/admin/extract-scan-photos", authMiddleware, async (req, res) => {
+  if (!isAdmin(req.authUser!.email)) {
+    res.status(403).json({ error: "forbidden", message: "Nur Admins erlaubt" });
+    return;
+  }
+
+  res.setHeader("Content-Type", "text/event-stream");
+  res.setHeader("Cache-Control", "no-cache");
+  res.setHeader("Connection", "keep-alive");
+  res.flushHeaders();
+
+  const sendEvent = (data: object) => {
+    res.write(`data: ${JSON.stringify(data)}\n\n`);
+  };
+
+  try {
+    const bodySchema = z.object({
+      ids: z.array(z.number().int().positive()).optional(),
+    });
+    const parseResult = bodySchema.safeParse(req.body);
+    if (!parseResult.success) {
+      sendEvent({ error: "Ungültige Eingabe: ids muss eine Liste positiver ganzer Zahlen sein" });
+      res.end();
+      return;
+    }
+    const requestedIds =
+      parseResult.data.ids && parseResult.data.ids.length > 0 ? parseResult.data.ids : null;
+
+    const allCandidates = await db
+      .select({
+        id: recipesTable.id,
+        sourceDocumentUrl: recipesTable.sourceDocumentUrl,
+      })
+      .from(recipesTable)
+      .where(
+        and(
+          isNull(recipesTable.deletedAt),
+          sql`${recipesTable.sourceDocumentUrl} IS NOT NULL`,
+          sql`(${recipesTable.imageSource} IS DISTINCT FROM 'original')`
+        )
+      );
+    const recipesToProcess = requestedIds
+      ? allCandidates.filter((r) => requestedIds.includes(r.id))
+      : allCandidates;
+
+    const total = recipesToProcess.length;
+    let done = 0;
+    let errors = 0;
+    let skipped = 0;
+
+    sendEvent({ done, total, errors, skipped });
+
+    const { ObjectStorageService } = await import("../lib/objectStorage");
+    const storageService = new ObjectStorageService();
+    const sharp = (await import("sharp")).default;
+
+    const FOOD_CROP_SYSTEM_PROMPT = `Du bist ein Bildanalyse-Assistent. Prüfe das Bild: Ist ein verwertbares Lebensmittelfoto erkennbar (Foto des fertigen Gerichts oder der Zutaten, das als Rezeptbild geeignet wäre)? Falls ja, gib die Koordinaten des besten Bildausschnitts als Prozentwerte zurück. Falls kein geeignetes Lebensmittelfoto erkennbar ist, gib null zurück. Antworte NUR mit reinem JSON ohne Markdown, ohne Backticks: {"foodImageCrop": {"x": number, "y": number, "width": number, "height": number} | null}`;
+
+    const renderPdfToImages = async (pdfBuffer: Buffer): Promise<Buffer[]> => {
+      const pdfjsLib = await import("pdfjs-dist/legacy/build/pdf.mjs");
+      const { createCanvas } = (await import("canvas"));
+      const uint8Array = new Uint8Array(pdfBuffer);
+      const pdfDoc = await (pdfjsLib as unknown as { getDocument: (opts: object) => { promise: Promise<{ numPages: number; getPage: (n: number) => Promise<{ getViewport: (opts: object) => { width: number; height: number }; render: (opts: object) => { promise: Promise<void> } }> }> } }).getDocument({ data: uint8Array, verbosity: 0 }).promise;
+      const pages: Buffer[] = [];
+      for (let i = 1; i <= pdfDoc.numPages; i++) {
+        const page = await pdfDoc.getPage(i);
+        const viewport = page.getViewport({ scale: 1.5 });
+        const canvas = createCanvas(Math.ceil(viewport.width), Math.ceil(viewport.height));
+        const ctx = canvas.getContext("2d");
+        await page.render({ canvasContext: ctx as unknown as Parameters<typeof page.render>[0]["canvasContext"], viewport }).promise;
+        pages.push(canvas.toBuffer("image/jpeg", { quality: 0.85 }));
+      }
+      return pages;
+    };
+
+    for (const recipe of recipesToProcess) {
+      try {
+        const sourceDocUrl = recipe.sourceDocumentUrl!;
+        const objectPath = sourceDocUrl.startsWith("/api/storage")
+          ? sourceDocUrl.replace("/api/storage", "")
+          : sourceDocUrl;
+
+        let file = null;
+        if (objectPath.startsWith("/objects/")) {
+          file = await storageService.getObjectEntityFile(objectPath).catch(() => null);
+        }
+        if (!file) {
+          file = await storageService.searchPublicObject(objectPath.replace(/^\/objects\//, "")).catch(() => null);
+        }
+
+        if (!file) {
+          skipped++;
+          done++;
+          sendEvent({ done, total, errors, skipped });
+          continue;
+        }
+
+        const [rawBuffer] = await file.download();
+        const [fileMeta] = await file.getMetadata();
+        const contentType = (fileMeta.contentType as string) ?? "";
+        const isPdf = contentType === "application/pdf" || sourceDocUrl.toLowerCase().includes(".pdf");
+
+        type ImageEntry = { buffer: Buffer; mimeType: string };
+        let imagesToScan: ImageEntry[];
+
+        if (isPdf) {
+          const pageBuffers = await renderPdfToImages(rawBuffer);
+          if (pageBuffers.length === 0) {
+            skipped++;
+            done++;
+            sendEvent({ done, total, errors, skipped });
+            continue;
+          }
+          imagesToScan = pageBuffers.map((buf) => ({ buffer: buf, mimeType: "image/jpeg" }));
+        } else {
+          const mimeType = ["image/jpeg", "image/png", "image/webp", "image/gif"].includes(contentType)
+            ? contentType
+            : "image/jpeg";
+          imagesToScan = [{ buffer: rawBuffer, mimeType }];
+        }
+
+        const isCropCoords = (c: unknown): c is { x: number; y: number; width: number; height: number } =>
+          c !== null &&
+          typeof c === "object" &&
+          Number.isFinite((c as { x: unknown }).x) &&
+          Number.isFinite((c as { y: unknown }).y) &&
+          Number.isFinite((c as { width: unknown }).width) &&
+          Number.isFinite((c as { height: unknown }).height) &&
+          (c as { x: number }).x >= 0 && (c as { y: number }).y >= 0 &&
+          (c as { width: number }).width > 0 && (c as { height: number }).height > 0 &&
+          (c as { x: number; width: number }).x + (c as { x: number; width: number }).width <= 100 &&
+          (c as { y: number; height: number }).y + (c as { y: number; height: number }).height <= 100;
+
+        let foundCrop: { x: number; y: number; width: number; height: number } | null = null;
+        let foundPageBuffer: Buffer | null = null;
+
+        for (const entry of imagesToScan) {
+          const aiResponse = await openai.chat.completions.create({
+            model: "gpt-4o",
+            max_completion_tokens: 256,
+            messages: [
+              { role: "system", content: FOOD_CROP_SYSTEM_PROMPT },
+              {
+                role: "user",
+                content: [
+                  {
+                    type: "image_url" as const,
+                    image_url: {
+                      url: `data:${entry.mimeType};base64,${entry.buffer.toString("base64")}`,
+                      detail: "high" as const,
+                    },
+                  },
+                  { type: "text" as const, text: "Erkenne und lokalisiere das Lebensmittelfoto in diesem Scan." },
+                ],
+              },
+            ],
+          });
+
+          let rawJson = aiResponse.choices[0]?.message?.content ?? "";
+          rawJson = rawJson.replace(/^```(?:json)?\s*/i, "").replace(/\s*```$/i, "").trim();
+
+          try {
+            const parsed = JSON.parse(rawJson) as { foodImageCrop?: unknown };
+            if (isCropCoords(parsed.foodImageCrop)) {
+              foundCrop = parsed.foodImageCrop;
+              foundPageBuffer = entry.buffer;
+              break;
+            }
+          } catch {
+            // continue to next page
+          }
+        }
+
+        if (!foundCrop || !foundPageBuffer) {
+          skipped++;
+          done++;
+          sendEvent({ done, total, errors, skipped });
+          continue;
+        }
+
+        const crop = foundCrop;
+        const meta = await sharp(foundPageBuffer).metadata();
+        const imgWidth = meta.width ?? 1024;
+        const imgHeight = meta.height ?? 1024;
+
+        const cropX = Math.max(0, Math.round((crop.x / 100) * imgWidth));
+        const cropY = Math.max(0, Math.round((crop.y / 100) * imgHeight));
+        const cropW = Math.min(imgWidth - cropX, Math.max(1, Math.round((crop.width / 100) * imgWidth)));
+        const cropH = Math.min(imgHeight - cropY, Math.max(1, Math.round((crop.height / 100) * imgHeight)));
+
+        const croppedBuffer = await sharp(foundPageBuffer)
+          .extract({ left: cropX, top: cropY, width: cropW, height: cropH })
+          .resize(800, 800, { fit: "inside", withoutEnlargement: true })
+          .webp({ quality: 82 })
+          .toBuffer();
+
+        const storagePath = await storageService.uploadBuffer(croppedBuffer, "image/webp", "recipe-images");
+        const extractedImageUrl = `/api/storage${storagePath}`;
+
+        await db
+          .update(recipesTable)
+          .set({ imageUrl: extractedImageUrl, isAiGenerated: false, imageSource: "original" })
+          .where(eq(recipesTable.id, recipe.id));
+        await syncMainPhotoLink(recipe.id, extractedImageUrl, null, "original");
+        invalidateRecipeListCache();
+      } catch (err) {
+        req.log.error({ err, recipeId: recipe.id }, "Failed to extract scan photo");
+        errors++;
+      }
+      done++;
+      sendEvent({ done, total, errors, skipped });
+    }
+
+    sendEvent({ done: total, total, errors, skipped, finished: true });
+  } catch (err) {
+    req.log.error({ err }, "Failed to run scan photo extraction");
+    sendEvent({ error: "Fehler bei der Scan-Foto-Extraktion" });
+  } finally {
+    res.end();
+  }
+});
+
 router.get("/admin/image-stats", authMiddleware, async (req, res) => {
   if (!isAdmin(req.authUser!.email)) {
     res.status(403).json({ error: "forbidden", message: "Nur Admins erlaubt" });

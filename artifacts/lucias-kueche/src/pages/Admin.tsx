@@ -1257,6 +1257,259 @@ function TagsAdmin() {
 }
 
 type RecipeWithoutImage = { id: number; title: string; category: string; createdAt: string | null; photoCount: number };
+type ScanCandidate = { id: number; title: string; category: string; createdAt: string | null; sourceDocumentUrl: string };
+
+function ScanPhotoCard() {
+  const [status, setStatus] = useState<"idle" | "running" | "done" | "error">("idle");
+  const [progress, setProgress] = useState<{ done: number; total: number; errors: number; skipped: number } | null>(null);
+
+  const [recipes, setRecipes] = useState<ScanCandidate[]>([]);
+  const [loadingRecipes, setLoadingRecipes] = useState(false);
+  const [loadError, setLoadError] = useState(false);
+  const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set());
+  const [categoryFilter, setCategoryFilter] = useState<string>("all");
+
+  const loadRecipes = useCallback(() => {
+    setLoadingRecipes(true);
+    setLoadError(false);
+    fetch("/api/admin/recipes-without-scan-photo", { headers: { ...authHeaders() } })
+      .then((r) => { if (!r.ok) throw new Error(); return r.json(); })
+      .then((data: ScanCandidate[]) => { setRecipes(data); setLoadingRecipes(false); })
+      .catch(() => { setLoadingRecipes(false); setLoadError(true); });
+  }, []);
+
+  useEffect(() => { loadRecipes(); }, [loadRecipes]);
+
+  const categories = Array.from(new Set(recipes.map((r) => r.category))).sort();
+  const filteredRecipes = categoryFilter === "all" ? recipes : recipes.filter((r) => r.category === categoryFilter);
+  const allFilteredSelected = filteredRecipes.length > 0 && filteredRecipes.every((r) => selectedIds.has(r.id));
+
+  const toggleOne = (id: number) => {
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id); else next.add(id);
+      return next;
+    });
+  };
+
+  const selectAll = () => {
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      filteredRecipes.forEach((r) => next.add(r.id));
+      return next;
+    });
+  };
+
+  const deselectAll = () => {
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      filteredRecipes.forEach((r) => next.delete(r.id));
+      return next;
+    });
+  };
+
+  const runSSE = async (ids?: number[]) => {
+    setStatus("running");
+    setProgress({ done: 0, total: 0, errors: 0, skipped: 0 });
+
+    let succeeded = false;
+    try {
+      const res = await fetch("/api/admin/extract-scan-photos", {
+        method: "POST",
+        headers: { ...authHeaders(), "Content-Type": "application/json" },
+        body: JSON.stringify(ids ? { ids } : {}),
+      });
+      if (!res.ok) { setStatus("error"); return; }
+
+      const reader = res.body?.getReader();
+      if (!reader) { setStatus("error"); return; }
+
+      const decoder = new TextDecoder();
+      let buffer = "";
+
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        buffer += decoder.decode(value, { stream: true });
+        const lines = buffer.split("\n");
+        buffer = lines.pop() ?? "";
+        for (const line of lines) {
+          if (line.startsWith("data: ")) {
+            try {
+              const data = JSON.parse(line.slice(6));
+              if (data.error) { setStatus("error"); return; }
+              setProgress({ done: data.done ?? 0, total: data.total ?? 0, errors: data.errors ?? 0, skipped: data.skipped ?? 0 });
+              if (data.finished) { succeeded = true; setStatus("done"); return; }
+            } catch {}
+          }
+        }
+      }
+      setStatus("done");
+    } catch {
+      setStatus("error");
+    } finally {
+      if (succeeded) {
+        setSelectedIds(new Set());
+        loadRecipes();
+      }
+    }
+  };
+
+  return (
+    <AdminActionCard
+      title="🔍 Scan-Fotos nachträglich extrahieren"
+      description="Rezepte, die per Foto- oder PDF-Scan importiert wurden, haben manchmal noch kein ausgeschnittenes Essensfoto. Diese Funktion analysiert das Original-Scan-Dokument erneut und extrahiert ein passendes Rezeptbild – falls im Scan ein Lebensmittelfoto erkennbar ist."
+    >
+      {progress && (
+        <div className="space-y-2">
+          <div className="flex items-center justify-between text-sm text-foreground">
+            <span>{progress.done} von {progress.total} verarbeitet</span>
+            <span className="flex gap-3 text-xs">
+              {progress.skipped > 0 && (
+                <span className="text-muted-foreground">{progress.skipped} ohne Foto</span>
+              )}
+              {progress.errors > 0 && (
+                <span className="text-red-600 font-medium">{progress.errors} Fehler</span>
+              )}
+            </span>
+          </div>
+          {progress.total > 0 && (
+            <div className="w-full bg-[#f5ede0] rounded-full h-2">
+              <div
+                className="bg-[#4A7C59] h-2 rounded-full transition-all"
+                style={{ width: `${Math.round((progress.done / progress.total) * 100)}%` }}
+              />
+            </div>
+          )}
+          {status === "done" && (
+            <div className="flex items-center justify-between gap-2">
+              <div className="flex items-center gap-2 text-sm text-[#4A7C59] font-medium">
+                <Check className="w-4 h-4" /> Fertig! {progress.done - progress.skipped - progress.errors} Fotos extrahiert.
+              </div>
+              <button
+                onClick={() => { setStatus("idle"); setProgress(null); }}
+                className="text-xs px-3 py-1 rounded-lg border border-[#4A7C59] text-[#4A7C59] hover:bg-[#4A7C59]/10 transition-colors"
+              >
+                Neue Auswahl
+              </button>
+            </div>
+          )}
+          {status === "error" && (
+            <div className="flex items-center gap-2 text-sm text-red-600 font-medium">
+              <AlertTriangle className="w-4 h-4" /> Fehler bei der Foto-Extraktion.
+            </div>
+          )}
+        </div>
+      )}
+
+      <div className="border border-border rounded-xl overflow-hidden">
+        <div className="bg-secondary/50 px-4 py-3 flex flex-wrap items-center gap-3 border-b border-border">
+          <span className="text-sm font-medium text-foreground">
+            {loadingRecipes ? "Lade Rezepte…" : `${recipes.length} Rezepte mit Scan-Original`}
+          </span>
+
+          {categories.length > 0 && (
+            <select
+              value={categoryFilter}
+              onChange={(e) => setCategoryFilter(e.target.value)}
+              className="text-sm border border-border rounded-lg px-2 py-1 bg-white focus:outline-none focus:ring-1 focus:ring-[#4A7C59]"
+            >
+              <option value="all">Alle Kategorien</option>
+              {categories.map((c) => (
+                <option key={c} value={c}>{c}</option>
+              ))}
+            </select>
+          )}
+
+          <div className="flex gap-2 ml-auto">
+            <button
+              onClick={selectAll}
+              disabled={status === "running" || allFilteredSelected}
+              className="text-xs px-3 py-1 rounded-lg border border-[#4A7C59] text-[#4A7C59] hover:bg-[#4A7C59]/10 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+            >
+              Alle auswählen
+            </button>
+            <button
+              onClick={deselectAll}
+              disabled={status === "running" || selectedIds.size === 0}
+              className="text-xs px-3 py-1 rounded-lg border border-border text-foreground hover:bg-secondary transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+            >
+              Auswahl aufheben
+            </button>
+          </div>
+        </div>
+
+        <div className="max-h-72 overflow-y-auto divide-y divide-border">
+          {loadingRecipes ? (
+            <div className="flex items-center justify-center py-8 gap-2 text-sm text-muted-foreground">
+              <Loader2 className="w-4 h-4 animate-spin" /> Wird geladen…
+            </div>
+          ) : loadError ? (
+            <div className="flex items-center justify-center py-8 gap-2 text-sm text-red-600">
+              <AlertTriangle className="w-4 h-4" /> Rezepte konnten nicht geladen werden.
+              <button onClick={loadRecipes} className="underline hover:no-underline ml-1">Erneut versuchen</button>
+            </div>
+          ) : filteredRecipes.length === 0 ? (
+            <div className="py-8 text-center text-sm text-muted-foreground">
+              {recipes.length === 0
+                ? "Keine Scan-Rezepte ohne Foto gefunden."
+                : "Keine Rezepte für diese Kategorie."}
+            </div>
+          ) : (
+            filteredRecipes.map((recipe) => (
+              <label key={recipe.id} className="flex items-center gap-3 px-4 py-2.5 hover:bg-secondary/40 cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={selectedIds.has(recipe.id)}
+                  readOnly
+                  onClick={(e) => { e.stopPropagation(); if (status !== "running") toggleOne(recipe.id); }}
+                  disabled={status === "running"}
+                  className="w-4 h-4 accent-[#4A7C59] cursor-pointer"
+                />
+                <span className="flex-1 text-sm text-foreground truncate">{recipe.title}</span>
+                <span className="text-xs text-muted-foreground bg-secondary px-2 py-0.5 rounded-full shrink-0">{recipe.category}</span>
+                {recipe.createdAt && (
+                  <span className="text-xs text-muted-foreground shrink-0 hidden sm:block">
+                    {new Date(recipe.createdAt).toLocaleDateString("de-DE")}
+                  </span>
+                )}
+              </label>
+            ))
+          )}
+        </div>
+      </div>
+
+      <div className="flex flex-wrap gap-3">
+        <button
+          onClick={() => runSSE(Array.from(selectedIds))}
+          disabled={status === "running" || selectedIds.size === 0}
+          className="flex items-center gap-2 px-5 py-2.5 bg-[#4A7C59] text-white rounded-xl text-sm font-semibold hover:bg-[#3d6849] transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+        >
+          {status === "running" ? (
+            <>
+              <Loader2 className="w-4 h-4 animate-spin" />
+              Fotos werden extrahiert…
+            </>
+          ) : (
+            <>
+              <Check className="w-4 h-4" />
+              {selectedIds.size > 0 ? `${selectedIds.size} ausgewählte extrahieren` : "Ausgewählte extrahieren"}
+            </>
+          )}
+        </button>
+
+        <button
+          onClick={() => runSSE()}
+          disabled={status === "running" || recipes.length === 0}
+          className="flex items-center gap-2 px-5 py-2.5 bg-white border border-border text-foreground rounded-xl text-sm font-semibold hover:border-[#4A7C59]/40 hover:bg-secondary transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+        >
+          <Images className="w-4 h-4" />
+          Alle extrahieren
+        </button>
+      </div>
+    </AdminActionCard>
+  );
+}
 
 function RecipeImagesTab() {
   const [status, setStatus] = useState<"idle" | "running" | "done" | "error">("idle");
@@ -1538,6 +1791,8 @@ function RecipeImagesTab() {
         Vorhandene Fotos nutzen
       </button>
     </AdminActionCard>
+
+    <ScanPhotoCard />
     </div>
   );
 }

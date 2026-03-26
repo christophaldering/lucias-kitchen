@@ -753,15 +753,15 @@ async function handleInviteRemindOrResend(req: any, res: any) {
       .where(eq(usersTable.id, userId))
       .then((r) => r[0]);
 
+    const inviteLink = `${getAppBaseUrl()}/invite/${newToken}`;
     let emailSent = false;
     if (sender && targetMember.invitedEmail) {
       if (!isEmailConfigured()) {
         if (!targetMember.userId) {
-          res.status(503).json({ error: "email_not_configured", message: "E-Mail-Versand ist nicht konfiguriert. Erinnerung kann nicht versendet werden." });
+          res.json({ notified: false, reason: "email_not_configured", inviteLink });
           return;
         }
       } else {
-        const inviteLink = `${getAppBaseUrl()}/invite/${newToken}`;
         try {
           await sendEmail(
             targetMember.invitedEmail,

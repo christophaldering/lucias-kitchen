@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from "react";
-import { X, Loader2, UserPlus, Trash2, Users, Pencil, Check, Bell } from "lucide-react";
+import { X, Loader2, UserPlus, Trash2, Users, Pencil, Check, Bell, Copy, Link2 } from "lucide-react";
 import { useGroups, type Group, type GroupMember } from "@/hooks/useGroups";
 
 function toast(msg: string, type: "ok" | "err" = "ok") {
@@ -26,6 +26,8 @@ export default function GroupMembersModal({ group, onClose, isOwner }: Props) {
   const [inviting, setBusy] = useState(false);
   const [remindingIds, setRemindingIds] = useState<Set<number>>(new Set());
   const [remindedIds, setRemindedIds] = useState<Set<number>>(new Set());
+  const [inviteLinkDialog, setInviteLinkDialog] = useState<{ link: string; name: string } | null>(null);
+  const [linkCopied, setLinkCopied] = useState(false);
 
   const isAlreadyMember = inviteInput.trim().length > 0 && members.some((m) => {
     const needle = inviteInput.trim().toLowerCase();
@@ -96,15 +98,23 @@ export default function GroupMembersModal({ group, onClose, isOwner }: Props) {
     setRemindingIds((prev) => new Set(prev).add(member.id));
     try {
       const result = await remindMember(group.id, member.id);
-      toast(`Erinnerung an „${member.displayName ?? member.invitedEmail ?? "Eingeladene Person"}" versandt ✉️`);
-      setRemindedIds((prev) => new Set(prev).add(member.id));
-      setTimeout(() => {
-        setRemindedIds((prev) => {
-          const next = new Set(prev);
-          next.delete(member.id);
-          return next;
+      if (result.reason === "email_not_configured" && result.inviteLink) {
+        setLinkCopied(false);
+        setInviteLinkDialog({
+          link: result.inviteLink,
+          name: member.displayName ?? member.invitedEmail ?? "Eingeladene Person",
         });
-      }, 3000);
+      } else {
+        toast(`Erinnerung an „${member.displayName ?? member.invitedEmail ?? "Eingeladene Person"}" versandt ✉️`);
+        setRemindedIds((prev) => new Set(prev).add(member.id));
+        setTimeout(() => {
+          setRemindedIds((prev) => {
+            const next = new Set(prev);
+            next.delete(member.id);
+            return next;
+          });
+        }, 3000);
+      }
     } catch {
       toast("Erinnerung konnte nicht gesendet werden", "err");
     } finally {
@@ -113,6 +123,17 @@ export default function GroupMembersModal({ group, onClose, isOwner }: Props) {
         next.delete(member.id);
         return next;
       });
+    }
+  };
+
+  const handleCopyLink = async () => {
+    if (!inviteLinkDialog) return;
+    try {
+      await navigator.clipboard.writeText(inviteLinkDialog.link);
+      setLinkCopied(true);
+      setTimeout(() => setLinkCopied(false), 2000);
+    } catch {
+      toast("Link konnte nicht kopiert werden", "err");
     }
   };
 
@@ -164,6 +185,46 @@ export default function GroupMembersModal({ group, onClose, isOwner }: Props) {
 
   return (
     <div className="fixed inset-0 z-[200] flex items-center justify-center bg-black/50 p-4">
+      {inviteLinkDialog && (
+        <div className="fixed inset-0 z-[210] flex items-center justify-center bg-black/60 p-4">
+          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-sm p-6 flex flex-col gap-4">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <Link2 className="w-5 h-5 text-[#4A7C59]" />
+                <h3 className="font-serif text-base font-semibold">Einladungslink</h3>
+              </div>
+              <button
+                onClick={() => setInviteLinkDialog(null)}
+                className="p-1.5 rounded-full hover:bg-gray-100 transition-colors"
+              >
+                <X className="w-4 h-4 text-muted-foreground" />
+              </button>
+            </div>
+            <p className="text-sm text-muted-foreground">
+              Kein E-Mail-Versand konfiguriert. Schick diesen Link per WhatsApp oder SMS an <span className="font-medium text-foreground">{inviteLinkDialog.name}</span>:
+            </p>
+            <div className="flex items-center gap-2 bg-gray-50 border border-border rounded-xl px-3 py-2">
+              <span className="flex-1 text-xs text-muted-foreground break-all select-all">{inviteLinkDialog.link}</span>
+              <button
+                onClick={handleCopyLink}
+                className="flex-shrink-0 p-1.5 rounded-lg bg-[#4A7C59] text-white hover:bg-[#3d6849] transition-colors"
+                title="Link kopieren"
+              >
+                {linkCopied ? <Check className="w-3.5 h-3.5" /> : <Copy className="w-3.5 h-3.5" />}
+              </button>
+            </div>
+            {linkCopied && (
+              <p className="text-xs text-[#4A7C59] font-medium text-center">Link kopiert!</p>
+            )}
+            <button
+              onClick={() => setInviteLinkDialog(null)}
+              className="w-full py-2 border border-border rounded-xl text-sm hover:bg-secondary transition-colors"
+            >
+              Schließen
+            </button>
+          </div>
+        </div>
+      )}
       <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md max-h-[80vh] flex flex-col">
         <div className="flex items-center justify-between px-6 pt-6 pb-4 border-b border-border">
           <div className="flex items-center gap-2 flex-1 min-w-0">

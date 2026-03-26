@@ -146,7 +146,7 @@ export function useGroups() {
         headers: authHeaders(),
       });
       if (!res.ok) throw new Error("Erinnerung konnte nicht gesendet werden");
-      return res.json() as Promise<{ notified: boolean; reason?: string }>;
+      return res.json() as Promise<{ notified: boolean; reason?: string; inviteLink?: string }>;
     },
   });
 
@@ -180,7 +180,7 @@ export function useGroups() {
     return removeMemberMutation.mutateAsync({ groupId, memberId });
   }
 
-  async function remindMember(groupId: number, memberId: number): Promise<{ notified: boolean; reason?: string }> {
+  async function remindMember(groupId: number, memberId: number): Promise<{ notified: boolean; reason?: string; inviteLink?: string }> {
     return remindMemberMutation.mutateAsync({ groupId, memberId });
   }
 

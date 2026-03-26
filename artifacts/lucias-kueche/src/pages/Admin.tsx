@@ -25,6 +25,7 @@ const SECTION_TABS = [
   { id: "bulk-import", label: "Massen-Import", icon: FolderOpen },
   { id: "tags", label: "Tags", icon: Tag },
   { id: "recipe-images", label: "Rezeptbilder", icon: Upload },
+  { id: "image-optimization", label: "Bildoptimierung", icon: RefreshCw },
   { id: "trash", label: "Papierkorb", icon: Trash2 },
   { id: "settings", label: "App-Einstellungen", icon: Sliders },
 ] as const;
@@ -1476,6 +1477,159 @@ function RecipeImagesTab() {
   );
 }
 
+function ImageOptimizationTab() {
+  const [stats, setStats] = useState<{ total: number; totalSizeBytes: number | null } | null>(null);
+  const [loadingStats, setLoadingStats] = useState(false);
+  const [statsError, setStatsError] = useState(false);
+  const [status, setStatus] = useState<"idle" | "running" | "done" | "error">("idle");
+  const [progress, setProgress] = useState<{ done: number; total: number; errors: number } | null>(null);
+
+  const loadStats = useCallback(() => {
+    setLoadingStats(true);
+    setStatsError(false);
+    fetch("/api/admin/image-stats", { headers: { ...authHeaders() } })
+      .then((r) => { if (!r.ok) throw new Error(); return r.json(); })
+      .then((data) => { setStats(data); setLoadingStats(false); })
+      .catch(() => { setLoadingStats(false); setStatsError(true); });
+  }, []);
+
+  useEffect(() => { loadStats(); }, [loadStats]);
+
+  const startOptimization = async () => {
+    setStatus("running");
+    setProgress({ done: 0, total: stats?.total ?? 0, errors: 0 });
+
+    try {
+      const res = await fetch("/api/admin/optimize-existing-images", {
+        method: "POST",
+        headers: { ...authHeaders() },
+      });
+      if (!res.ok) { setStatus("error"); return; }
+
+      const reader = res.body?.getReader();
+      if (!reader) { setStatus("error"); return; }
+
+      const decoder = new TextDecoder();
+      let buffer = "";
+
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        buffer += decoder.decode(value, { stream: true });
+        const lines = buffer.split("\n");
+        buffer = lines.pop() ?? "";
+        for (const line of lines) {
+          if (line.startsWith("data: ")) {
+            try {
+              const data = JSON.parse(line.slice(6));
+              if (data.error) { setStatus("error"); return; }
+              setProgress({ done: data.done ?? 0, total: data.total ?? 0, errors: data.errors ?? 0 });
+              if (data.finished) { setStatus("done"); loadStats(); return; }
+            } catch {}
+          }
+        }
+      }
+      setStatus("done");
+      loadStats();
+    } catch {
+      setStatus("error");
+    }
+  };
+
+  const formatBytes = (bytes: number) => {
+    if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+    return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+  };
+
+  return (
+    <div className="bg-white rounded-2xl border border-border shadow-sm p-6 space-y-5">
+      <div className="flex items-center gap-3 mb-2">
+        <RefreshCw className="w-5 h-5 text-[#4A7C59]" />
+        <h3 className="font-serif text-lg font-semibold text-foreground">Bildoptimierung</h3>
+      </div>
+
+      <p className="text-sm text-muted-foreground">
+        Konvertiert alle KI-generierten Rezeptbilder (im Object Storage gespeichert) einmalig von PNG zu WebP
+        (max. 800×800px, Qualität 80). Manuell hochgeladene Fotos werden übersprungen.
+      </p>
+
+      <div className="bg-secondary/40 rounded-xl p-4 space-y-2">
+        <div className="text-sm font-medium text-foreground mb-3">Aktuelle Statistiken</div>
+        {loadingStats ? (
+          <div className="flex items-center gap-2 text-sm text-muted-foreground">
+            <Loader2 className="w-4 h-4 animate-spin" /> Wird geladen…
+          </div>
+        ) : statsError ? (
+          <div className="flex items-center gap-2 text-sm text-red-600">
+            <AlertTriangle className="w-4 h-4" /> Statistiken konnten nicht geladen werden.
+            <button onClick={loadStats} className="underline hover:no-underline ml-1">Erneut versuchen</button>
+          </div>
+        ) : stats ? (
+          <div className="grid grid-cols-2 gap-3">
+            <div className="bg-white rounded-lg border border-border p-3">
+              <div className="text-xs text-muted-foreground mb-1">Bilder im Object Storage</div>
+              <div className="text-2xl font-semibold text-foreground">{stats.total}</div>
+            </div>
+            <div className="bg-white rounded-lg border border-border p-3">
+              <div className="text-xs text-muted-foreground mb-1">Geschätzte Gesamtgröße</div>
+              <div className="text-2xl font-semibold text-foreground">
+                {stats.totalSizeBytes != null ? formatBytes(stats.totalSizeBytes) : "–"}
+              </div>
+            </div>
+          </div>
+        ) : null}
+      </div>
+
+      {progress && (
+        <div className="space-y-2">
+          <div className="flex items-center justify-between text-sm text-foreground">
+            <span>{progress.done} von {progress.total} verarbeitet</span>
+            {progress.errors > 0 && (
+              <span className="text-red-600 font-medium">{progress.errors} Fehler</span>
+            )}
+          </div>
+          {progress.total > 0 && (
+            <div className="w-full bg-[#f5ede0] rounded-full h-2">
+              <div
+                className="bg-[#4A7C59] h-2 rounded-full transition-all"
+                style={{ width: `${Math.round((progress.done / progress.total) * 100)}%` }}
+              />
+            </div>
+          )}
+          {status === "done" && (
+            <div className="flex items-center gap-2 text-sm text-[#4A7C59] font-medium">
+              <Check className="w-4 h-4" /> Fertig! Alle Bilder wurden optimiert.
+            </div>
+          )}
+          {status === "error" && (
+            <div className="flex items-center gap-2 text-sm text-red-600 font-medium">
+              <AlertTriangle className="w-4 h-4" /> Fehler bei der Bildoptimierung.
+            </div>
+          )}
+        </div>
+      )}
+
+      <button
+        onClick={startOptimization}
+        disabled={status === "running" || (stats?.total ?? 0) === 0}
+        className="flex items-center gap-2 px-5 py-2.5 bg-[#4A7C59] text-white rounded-xl text-sm font-semibold hover:bg-[#3d6849] transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+      >
+        {status === "running" ? (
+          <>
+            <Loader2 className="w-4 h-4 animate-spin" />
+            Optimierung läuft…
+          </>
+        ) : (
+          <>
+            <RefreshCw className="w-4 h-4" />
+            {stats?.total ? `${stats.total} Bilder optimieren` : "Optimierung starten"}
+          </>
+        )}
+      </button>
+    </div>
+  );
+}
+
 export default function Admin({ initialTab, navToken, onTabInitialized }: { initialTab?: string; navToken?: number; onTabInitialized?: () => void }) {
   const validTabs = SECTION_TABS.map((t) => t.id);
   const resolvedTab: SectionTab = (validTabs.includes(initialTab as SectionTab) ? initialTab : "categories") as SectionTab;
@@ -1577,6 +1731,8 @@ export default function Admin({ initialTab, navToken, onTabInitialized }: { init
       {section === "tags" && <TagsAdmin />}
 
       {section === "recipe-images" && <RecipeImagesTab />}
+
+      {section === "image-optimization" && <ImageOptimizationTab />}
 
       {section === "trash" && <TrashTab />}
 

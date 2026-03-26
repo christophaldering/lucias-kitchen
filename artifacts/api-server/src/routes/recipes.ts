@@ -1712,6 +1712,149 @@ router.get("/admin/recipes-without-images", authMiddleware, async (req, res) => 
   }
 });
 
+router.get("/admin/image-stats", authMiddleware, async (req, res) => {
+  if (!isAdmin(req.authUser!.email)) {
+    res.status(403).json({ error: "forbidden", message: "Nur Admins erlaubt" });
+    return;
+  }
+
+  try {
+    const allRecipes = await db
+      .select({ id: recipesTable.id, imageUrl: recipesTable.imageUrl })
+      .from(recipesTable)
+      .where(isNull(recipesTable.deletedAt));
+
+    const storageRecipes = allRecipes.filter(
+      (r) => r.imageUrl && r.imageUrl.startsWith("/api/storage/")
+    );
+
+    const { ObjectStorageService } = await import("../lib/objectStorage");
+    const storageService = new ObjectStorageService();
+
+    let totalSizeBytes = 0;
+    let sizeKnown = true;
+
+    for (const recipe of storageRecipes) {
+      try {
+        const objectPath = recipe.imageUrl!.replace("/api/storage", "");
+        let file = null;
+        if (objectPath.startsWith("/objects/")) {
+          file = await storageService.getObjectEntityFile(objectPath).catch(() => null);
+        }
+        if (!file) {
+          file = await storageService.searchPublicObject(objectPath.replace(/^\/objects\//, "")).catch(() => null);
+        }
+        if (file) {
+          const [metadata] = await file.getMetadata();
+          totalSizeBytes += Number(metadata.size ?? 0);
+        } else {
+          sizeKnown = false;
+        }
+      } catch {
+        sizeKnown = false;
+      }
+    }
+
+    res.json({
+      total: storageRecipes.length,
+      totalSizeBytes: sizeKnown ? totalSizeBytes : null,
+    });
+  } catch (err) {
+    req.log.error({ err }, "Failed to get image stats");
+    res.status(500).json({ error: "internal_error", message: "Fehler beim Abrufen der Bildstatistiken" });
+  }
+});
+
+router.post("/admin/optimize-existing-images", authMiddleware, async (req, res) => {
+  if (!isAdmin(req.authUser!.email)) {
+    res.status(403).json({ error: "forbidden", message: "Nur Admins erlaubt" });
+    return;
+  }
+
+  res.setHeader("Content-Type", "text/event-stream");
+  res.setHeader("Cache-Control", "no-cache");
+  res.setHeader("Connection", "keep-alive");
+  res.flushHeaders();
+
+  const sendEvent = (data: object) => {
+    res.write(`data: ${JSON.stringify(data)}\n\n`);
+  };
+
+  try {
+    const sharp = (await import("sharp")).default;
+    const { ObjectStorageService } = await import("../lib/objectStorage");
+    const storageService = new ObjectStorageService();
+
+    const allRecipes = await db
+      .select({ id: recipesTable.id, imageUrl: recipesTable.imageUrl })
+      .from(recipesTable)
+      .where(isNull(recipesTable.deletedAt));
+
+    const recipesToProcess = allRecipes.filter(
+      (r) => r.imageUrl && r.imageUrl.startsWith("/api/storage/")
+    );
+
+    const total = recipesToProcess.length;
+    let done = 0;
+    let errors = 0;
+
+    sendEvent({ done, total, errors });
+
+    for (const recipe of recipesToProcess) {
+      try {
+        const objectPath = recipe.imageUrl!.replace("/api/storage", "");
+
+        const file = await storageService.getObjectEntityFile(objectPath).catch(async () => {
+          const publicPath = objectPath.replace(/^\/objects\//, "");
+          return storageService.searchPublicObject(publicPath);
+        });
+
+        if (!file) {
+          errors++;
+          done++;
+          sendEvent({ done, total, errors });
+          continue;
+        }
+
+        const [originalBuffer] = await file.download();
+
+        const webpBuffer = await sharp(originalBuffer)
+          .resize({ width: 800, height: 800, fit: "inside", withoutEnlargement: true })
+          .webp({ quality: 80 })
+          .toBuffer();
+
+        const newStoragePath = await storageService.uploadBuffer(webpBuffer, "image/webp", "recipe-images");
+        const newImageUrl = `/api/storage${newStoragePath}`;
+
+        await db.update(recipesTable).set({ imageUrl: newImageUrl }).where(eq(recipesTable.id, recipe.id));
+        invalidateRecipeListCache();
+
+        try {
+          await file.delete();
+        } catch (deleteErr) {
+          req.log.warn({ deleteErr, recipeId: recipe.id }, "Failed to delete old image after optimization");
+          errors++;
+        }
+
+        done++;
+        sendEvent({ done, total, errors });
+      } catch (err) {
+        req.log.error({ err, recipeId: recipe.id }, "Failed to optimize image");
+        errors++;
+        done++;
+        sendEvent({ done, total, errors });
+      }
+    }
+
+    sendEvent({ done: total, total, errors, finished: true });
+  } catch (err) {
+    req.log.error({ err }, "Failed to run image optimization");
+    sendEvent({ error: "Fehler bei der Bildoptimierung" });
+  } finally {
+    res.end();
+  }
+});
+
 router.post("/admin/generate-recipe-images/selected", authMiddleware, async (req, res) => {
   if (!isAdmin(req.authUser!.email)) {
     res.status(403).json({ error: "forbidden", message: "Nur Admins können Bilder generieren" });

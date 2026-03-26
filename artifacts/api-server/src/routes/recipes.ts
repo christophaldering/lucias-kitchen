@@ -79,6 +79,8 @@ const recipeBodySchema = z.object({
     z.array(ingredientSchema).default([])
   ),
   imageUrl: z.string().optional().nullable(),
+  extractedImageUrl: z.string().optional().nullable(),
+  imageSource: z.enum(["ai", "web"]).optional().nullable(),
   seasons: z.array(z.enum(VALID_SEASONS)).default([]),
   parentRecipeId: z.coerce.number().int().positive().optional().nullable(),
   variantName: z.string().optional().nullable(),
@@ -120,6 +122,7 @@ async function getRecipesWithIngredients(currentUserId?: number, filter?: string
       r.variant_name    AS "variantName",
       r.source_document_url AS "sourceDocumentUrl",
       r.is_ai_generated     AS "isAiGenerated",
+      r.image_source        AS "imageSource",
       (
         SELECT p.image_url
         FROM recipe_photo_links rpl
@@ -179,6 +182,7 @@ async function getRecipesWithIngredients(currentUserId?: number, filter?: string
     variantName: string | null;
     sourceDocumentUrl: string | null;
     isAiGenerated: boolean;
+    imageSource: string | null;
     ingredients: Array<{ id: number; recipeId: number; amount: string; unit: string; name: string; note: string | null }>;
     isFavorite: boolean;
     isOwner: boolean;
@@ -214,6 +218,7 @@ async function getRecipesWithIngredients(currentUserId?: number, filter?: string
     variantName: r.variantName,
     sourceDocumentUrl: r.sourceDocumentUrl,
     isAiGenerated: r.isAiGenerated ?? false,
+    imageSource: r.imageSource ?? null,
     ingredients: r.ingredients,
     isFavorite: r.isFavorite,
     isOwner: r.isOwner,
@@ -757,6 +762,7 @@ router.post("/recipes", authMiddleware, async (req, res) => {
     const created = [];
     for (const data of parsed) {
       const { ingredients, ...recipeData } = data;
+      const effectiveImageUrl = recipeData.imageUrl ?? recipeData.extractedImageUrl ?? null;
       const [recipe] = await db.insert(recipesTable).values({
         title: recipeData.title,
         servings: recipeData.servings ?? null,
@@ -772,7 +778,8 @@ router.post("/recipes", authMiddleware, async (req, res) => {
         notes: recipeData.notes ?? null,
         personalNotes: recipeData.personalNotes ?? null,
         steps: recipeData.steps,
-        imageUrl: recipeData.imageUrl ?? null,
+        imageUrl: effectiveImageUrl,
+        imageSource: recipeData.imageSource ?? null,
         seasons: recipeData.seasons ?? [],
         createdBy: req.authUser!.id,
         parentRecipeId: recipeData.parentRecipeId ?? null,
@@ -792,8 +799,8 @@ router.post("/recipes", authMiddleware, async (req, res) => {
         );
       }
 
-      if (recipeData.imageUrl) {
-        await syncMainPhotoLink(recipe.id, recipeData.imageUrl, req.authUser!.id);
+      if (effectiveImageUrl) {
+        await syncMainPhotoLink(recipe.id, effectiveImageUrl, req.authUser!.id);
       }
 
       const recipeIngredients = await db
@@ -1666,7 +1673,7 @@ export async function generateAndSaveRecipeImage(recipeId: number, title: string
     const storagePath = await storageService.uploadBuffer(imageBuffer, "image/webp", "recipe-images");
     const imageUrl = `/api/storage${storagePath}`;
 
-    await db.update(recipesTable).set({ imageUrl, isAiGenerated: true }).where(eq(recipesTable.id, recipeId));
+    await db.update(recipesTable).set({ imageUrl, isAiGenerated: true, imageSource: "ai" }).where(eq(recipesTable.id, recipeId));
     invalidateRecipeListCache();
 
     try {
@@ -1899,6 +1906,67 @@ router.post("/recipes/:id/generate-image", authMiddleware, async (req, res) => {
   } catch (err) {
     req.log.error({ err }, "Failed to generate recipe image");
     res.status(500).json({ error: "internal_error", message: "Failed to generate recipe image" });
+  }
+});
+
+router.post("/recipes/:id/extract-image-from-source", authMiddleware, async (req, res) => {
+  try {
+    const id = Number(req.params.id);
+    if (isNaN(id)) {
+      res.status(400).json({ error: "bad_request", message: "Ungültige Rezept-ID" });
+      return;
+    }
+
+    const [recipe] = await db
+      .select({ id: recipesTable.id, title: recipesTable.title, source: recipesTable.source, createdBy: recipesTable.createdBy, imageUrl: recipesTable.imageUrl })
+      .from(recipesTable)
+      .where(and(eq(recipesTable.id, id), isNull(recipesTable.deletedAt)))
+      .limit(1);
+
+    if (!recipe) {
+      res.status(404).json({ error: "not_found", message: "Rezept nicht gefunden" });
+      return;
+    }
+
+    const isOwner = recipe.createdBy == null || recipe.createdBy === req.authUser!.id;
+    if (!isOwner && !isAdmin(req.authUser!.email)) {
+      res.status(403).json({ error: "forbidden", message: "Nur der Eigentümer kann ein Bild für dieses Rezept setzen" });
+      return;
+    }
+
+    if (!recipe.source) {
+      res.status(422).json({ error: "no_source_url", message: "Dieses Rezept hat keine Quell-URL" });
+      return;
+    }
+
+    try {
+      const parsedSource = new URL(recipe.source);
+      if (!["http:", "https:"].includes(parsedSource.protocol)) throw new Error("not http");
+    } catch {
+      res.status(422).json({ error: "no_source_url", message: "Die Quell-URL ist keine gültige Webadresse" });
+      return;
+    }
+
+    const { extractAndSaveImageFromUrl } = await import("./extractUrl");
+    const imageUrl = await extractAndSaveImageFromUrl(recipe.source);
+
+    if (!imageUrl) {
+      res.status(422).json({
+        error: "no_image_found",
+        message: "Auf der Originalseite konnte kein Bild gefunden werden. Möglicherweise erlaubt die Seite keinen Zugriff.",
+      });
+      return;
+    }
+
+    await db.update(recipesTable).set({ imageUrl, isAiGenerated: false, imageSource: "web" }).where(eq(recipesTable.id, id));
+    invalidateRecipeListCache();
+
+    await syncMainPhotoLink(id, imageUrl, req.authUser!.id);
+
+    res.json({ imageUrl, imageSource: "web" });
+  } catch (err) {
+    req.log.error({ err }, "Failed to extract image from source URL");
+    res.status(500).json({ error: "internal_error", message: "Bild-Extraktion fehlgeschlagen" });
   }
 });
 

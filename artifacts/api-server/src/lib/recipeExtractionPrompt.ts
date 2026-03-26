@@ -18,7 +18,8 @@ JSON-Struktur:
       ],
       "steps": ["string"],
       "notes": "string - handschriftliche Anmerkungen falls vorhanden",
-      "source": "string - Rezeptautor falls angegeben"
+      "source": "string - Rezeptautor falls angegeben",
+      "extractedImageUrl": "string | null - falls im Dokument eine direkte Bild-URL (http/https) erkennbar ist, sonst null"
     }
   ]
 }`;

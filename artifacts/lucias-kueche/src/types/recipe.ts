@@ -85,8 +85,8 @@ export interface Recipe {
   parentRecipeId?: number | null;
   variantName?: string | null;
   sourceDocumentUrl?: string | null;
-  tags?: string[] | null;
   isAiGenerated?: boolean;
+  imageSource?: "ai" | "web" | null;
 }
 
 export const ALL_CATEGORIES = [

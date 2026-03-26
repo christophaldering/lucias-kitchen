@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback } from "react";
 import type { Recipe } from "@/types/recipe";
 import type { RecipePhoto } from "@/types/recipe";
-import { X, Clock, ChefHat, CalendarPlus, Users, Flame, BookOpen, Check, Printer, UtensilsCrossed, Minus, Plus, Star, ChevronDown, Copy, Share2, Trash2, Loader2, FileText, Sparkles, Images } from "lucide-react";
+import { X, Clock, ChefHat, CalendarPlus, Users, Flame, BookOpen, Check, Printer, UtensilsCrossed, Minus, Plus, Star, ChevronDown, Copy, Share2, Trash2, Loader2, FileText, Sparkles, Images, Globe } from "lucide-react";
 import { SEASON_ICONS, SEASON_LABELS } from "@/types/recipe";
 import type { Season } from "@/types/recipe";
 import { addMealPlanEntry } from "@/hooks/useMealPlans";
@@ -194,8 +194,11 @@ export default function RecipeModal({ recipe, onClose, onAddToWeek, onToggleFavo
   const [deleting, setDeleting] = useState(false);
   const [showOriginalModal, setShowOriginalModal] = useState(false);
   const [generatingImage, setGeneratingImage] = useState(false);
+  const [extractingSourceImage, setExtractingSourceImage] = useState(false);
+  const [extractSourceImageError, setExtractSourceImageError] = useState<string | null>(null);
   const [localImageUrl, setLocalImageUrl] = useState<string | null>(recipe.imageUrl ?? null);
   const [localIsAiGenerated, setLocalIsAiGenerated] = useState(recipe.isAiGenerated ?? false);
+  const [localImageSource, setLocalImageSource] = useState<"ai" | "web" | null>(recipe.imageSource ?? null);
   const [showPhotoPickerDialog, setShowPhotoPickerDialog] = useState(false);
   const [galleryPhotos, setGalleryPhotos] = useState<RecipePhoto[]>([]);
   const [loadingGallery, setLoadingGallery] = useState(false);
@@ -204,7 +207,9 @@ export default function RecipeModal({ recipe, onClose, onAddToWeek, onToggleFavo
   useEffect(() => {
     setLocalImageUrl(recipe.imageUrl ?? null);
     setLocalIsAiGenerated(recipe.isAiGenerated ?? false);
-  }, [recipe.id, recipe.imageUrl, recipe.isAiGenerated]);
+    setLocalImageSource(recipe.imageSource ?? null);
+    setExtractSourceImageError(null);
+  }, [recipe.id, recipe.imageUrl, recipe.isAiGenerated, recipe.imageSource]);
 
   const [hasPhotosForRecipe, setHasPhotosForRecipe] = useState<boolean | null>(null);
 
@@ -237,7 +242,8 @@ export default function RecipeModal({ recipe, onClose, onAddToWeek, onToggleFavo
       const result = await usePhotoAsMain(recipe.id, photo.id);
       setLocalImageUrl(result.imageUrl);
       setLocalIsAiGenerated(false);
-      if (onRecipeUpdated) onRecipeUpdated({ ...recipe, imageUrl: result.imageUrl, isAiGenerated: false });
+      setLocalImageSource(null);
+      if (onRecipeUpdated) onRecipeUpdated({ ...recipe, imageUrl: result.imageUrl, isAiGenerated: false, imageSource: null });
       setShowPhotoPickerDialog(false);
       showToast("Hauptbild gesetzt!");
     } catch {
@@ -250,7 +256,8 @@ export default function RecipeModal({ recipe, onClose, onAddToWeek, onToggleFavo
   const handleSetAsMainFromGallery = async (imageUrl: string) => {
     setLocalImageUrl(imageUrl);
     setLocalIsAiGenerated(false);
-    if (onRecipeUpdated) onRecipeUpdated({ ...recipe, imageUrl, isAiGenerated: false });
+    setLocalImageSource(null);
+    if (onRecipeUpdated) onRecipeUpdated({ ...recipe, imageUrl, isAiGenerated: false, imageSource: null });
   };
 
   const handleGenerateImage = async () => {
@@ -268,11 +275,38 @@ export default function RecipeModal({ recipe, onClose, onAddToWeek, onToggleFavo
       const data = await res.json();
       setLocalImageUrl(data.imageUrl);
       setLocalIsAiGenerated(true);
-      if (onRecipeUpdated) onRecipeUpdated({ ...recipe, imageUrl: data.imageUrl, isAiGenerated: true });
+      setLocalImageSource("ai");
+      if (onRecipeUpdated) onRecipeUpdated({ ...recipe, imageUrl: data.imageUrl, isAiGenerated: true, imageSource: "ai" });
     } catch {
       showToast("Bildgenerierung fehlgeschlagen", "error");
     } finally {
       setGeneratingImage(false);
+    }
+  };
+
+  const handleExtractSourceImage = async () => {
+    setExtractingSourceImage(true);
+    setExtractSourceImageError(null);
+    try {
+      const res = await authFetch(`${API_BASE}/recipes/${recipe.id}/extract-image-from-source`, {
+        method: "POST",
+        headers: { ...authHeaders() },
+      });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        setExtractSourceImageError((err as { message?: string }).message ?? "Bild konnte nicht extrahiert werden");
+        return;
+      }
+      const data = await res.json();
+      setLocalImageUrl(data.imageUrl);
+      setLocalIsAiGenerated(false);
+      setLocalImageSource("web");
+      setExtractSourceImageError(null);
+      if (onRecipeUpdated) onRecipeUpdated({ ...recipe, imageUrl: data.imageUrl, isAiGenerated: false, imageSource: "web" });
+    } catch {
+      setExtractSourceImageError("Bild konnte nicht extrahiert werden");
+    } finally {
+      setExtractingSourceImage(false);
     }
   };
 
@@ -489,6 +523,26 @@ export default function RecipeModal({ recipe, onClose, onAddToWeek, onToggleFavo
                 KI generiert
               </span>
             )}
+            {localImageSource === "web" && !localIsAiGenerated && (
+              <span
+                style={{
+                  position: "absolute",
+                  bottom: "8px",
+                  right: "10px",
+                  background: "rgba(0,0,0,0.55)",
+                  color: "#fff",
+                  fontSize: "10px",
+                  fontFamily: "Arial, Helvetica, sans-serif",
+                  padding: "2px 7px",
+                  borderRadius: "999px",
+                  letterSpacing: "0.03em",
+                  pointerEvents: "none",
+                  userSelect: "none",
+                }}
+              >
+                Von Originalseite
+              </span>
+            )}
           </div>
         )}
 
@@ -671,16 +725,43 @@ export default function RecipeModal({ recipe, onClose, onAddToWeek, onToggleFavo
                 </button>
               )}
 
-              {isOwner && !localImageUrl && !recipe.mainPhotoUrl && (
-                <button
-                  onClick={handleGenerateImage}
-                  disabled={generatingImage}
-                  className="flex items-center gap-2 px-4 py-2.5 bg-amber-50 border border-amber-200 text-amber-700 rounded-xl text-sm font-semibold hover:bg-amber-100 transition-colors disabled:opacity-60"
-                >
-                  {generatingImage ? <Loader2 className="w-4 h-4 animate-spin" /> : <Sparkles className="w-4 h-4" />}
-                  {generatingImage ? "Bild wird generiert…" : "KI-Bild generieren"}
-                </button>
-              )}
+              {isOwner && !localImageUrl && !recipe.mainPhotoUrl && (() => {
+                const isSourceUrl = recipe.source ? (() => { try { const u = new URL(recipe.source); return u.protocol === "http:" || u.protocol === "https:"; } catch { return false; } })() : false;
+                return (
+                  <>
+                    {isSourceUrl && (
+                      <button
+                        onClick={handleExtractSourceImage}
+                        disabled={extractingSourceImage || generatingImage}
+                        className="flex items-center gap-2 px-4 py-2.5 bg-blue-50 border border-blue-200 text-blue-700 rounded-xl text-sm font-semibold hover:bg-blue-100 transition-colors disabled:opacity-60"
+                      >
+                        {extractingSourceImage ? <Loader2 className="w-4 h-4 animate-spin" /> : <Globe className="w-4 h-4" />}
+                        {extractingSourceImage ? "Bild wird geholt…" : "Bild aus Originalseite"}
+                      </button>
+                    )}
+                    <button
+                      onClick={handleGenerateImage}
+                      disabled={generatingImage || extractingSourceImage}
+                      className="flex items-center gap-2 px-4 py-2.5 bg-amber-50 border border-amber-200 text-amber-700 rounded-xl text-sm font-semibold hover:bg-amber-100 transition-colors disabled:opacity-60"
+                    >
+                      {generatingImage ? <Loader2 className="w-4 h-4 animate-spin" /> : <Sparkles className="w-4 h-4" />}
+                      {generatingImage ? "Bild wird generiert…" : "KI-Bild generieren"}
+                    </button>
+                    {extractSourceImageError && (
+                      <div className="w-full flex items-center gap-2 text-xs text-red-600 bg-red-50 border border-red-200 rounded-lg px-3 py-2">
+                        <span>{extractSourceImageError}</span>
+                        <button
+                          onClick={handleGenerateImage}
+                          disabled={generatingImage}
+                          className="ml-auto underline font-medium hover:no-underline disabled:opacity-50 whitespace-nowrap"
+                        >
+                          {generatingImage ? "Wird generiert…" : "Stattdessen KI-Bild"}
+                        </button>
+                      </div>
+                    )}
+                  </>
+                );
+              })()}
 
               {isOwner && onDeleteRecipe && !showDeleteConfirm && (
                 <button

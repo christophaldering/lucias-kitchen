@@ -3,7 +3,7 @@ import { Recipe } from "@/types/recipe";
 import type { Season } from "@/types/recipe";
 import { SEASON_LABELS, SEASON_ICONS, getCurrentSeason } from "@/types/recipe";
 import { useRecipes } from "@/hooks/useRecipes";
-import { Clock, Search, ChefHat, Upload, Link, Camera, Loader2, LayoutGrid, Table, Settings2, Plus, ArrowUp, ArrowDown, ArrowUpDown, UtensilsCrossed, MessageCircle, Star, BookOpen, Share2 } from "lucide-react";
+import { Clock, Search, ChefHat, Upload, Link, Camera, Loader2, LayoutGrid, Table, Settings2, Plus, ArrowUp, ArrowDown, ArrowUpDown, UtensilsCrossed, MessageCircle, Star, BookOpen, Share2, Sparkles } from "lucide-react";
 import type { RecipeFilter } from "@/hooks/useRecipes";
 import RecipeModal from "@/components/RecipeModal";
 import RecipeSuggestModal from "@/components/RecipeSuggestModal";
@@ -25,6 +25,43 @@ async function searchRecipesApi(q: string, filter: RecipeFilter): Promise<Recipe
   const res = await authFetch(`${API_BASE}/recipes/search?q=${encodeURIComponent(q)}${filterParam}`, { headers: authHeaders() });
   if (!res.ok) throw new Error(`HTTP ${res.status}`);
   return res.json();
+}
+
+async function aiSearchRecipesApi(query: string, filter: RecipeFilter): Promise<{ recipes: Recipe[]; summary: string }> {
+  const filterParam = filter !== "all" ? filter : undefined;
+  const res = await authFetch(`${API_BASE}/recipes/ai-search`, {
+    method: "POST",
+    headers: { ...authHeaders(), "Content-Type": "application/json" },
+    body: JSON.stringify({ query, filter: filterParam }),
+  });
+  if (!res.ok) throw new Error(`HTTP ${res.status}`);
+  return res.json();
+}
+
+function isAiQuery(query: string): boolean {
+  const trimmed = query.trim();
+  if (!trimmed) return false;
+  const wordCount = trimmed.split(/\s+/).length;
+  if (wordCount > 3) return true;
+  if (/[?,!]/.test(trimmed)) return true;
+  return false;
+}
+
+const AI_SEARCH_PLACEHOLDERS = [
+  "Was Schnelles für Kinder…",
+  "Vegetarisch ohne Käse…",
+  "Etwas Festliches für Gäste…",
+  "Schnelles Abendessen mit Zucchini…",
+  "Pasta ohne Fleisch unter 30 Min…",
+];
+
+function useCyclingPlaceholder(placeholders: string[], intervalMs = 3000): string {
+  const [index, setIndex] = useState(0);
+  useEffect(() => {
+    const id = setInterval(() => setIndex((i) => (i + 1) % placeholders.length), intervalMs);
+    return () => clearInterval(id);
+  }, [placeholders.length, intervalMs]);
+  return `Suche nach '${placeholders[index]}'`;
 }
 
 const CATEGORY_EMOJIS: Record<string, string> = {
@@ -411,7 +448,10 @@ export default function MeineRezepte({ onNavigate: _onNavigate, initialOpenRecip
   const [search, setSearch] = useState("");
   const [searchResults, setSearchResults] = useState<Recipe[] | null>(null);
   const [searchLoading, setSearchLoading] = useState(false);
+  const [aiSearchSummary, setAiSearchSummary] = useState<string | null>(null);
+  const [isAiSearch, setIsAiSearch] = useState(false);
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const cyclingPlaceholder = useCyclingPlaceholder(AI_SEARCH_PLACEHOLDERS);
   const [activeCategory, setActiveCategory] = useState("Alle");
   const [timeFilter, setTimeFilter] = useState("Alle");
   const [seasonFilter, setSeasonFilter] = useState<Season | "Alle">("Alle");
@@ -494,19 +534,32 @@ export default function MeineRezepte({ onNavigate: _onNavigate, initialOpenRecip
     if (!trimmed) {
       setSearchResults(null);
       setSearchLoading(false);
+      setAiSearchSummary(null);
+      setIsAiSearch(false);
       return;
     }
+    const useAi = isAiQuery(trimmed);
+    setIsAiSearch(useAi);
     setSearchLoading(true);
+    const debounceMs = useAi ? 700 : 300;
     debounceRef.current = setTimeout(async () => {
       try {
-        const results = await searchRecipesApi(trimmed, recipeFilter);
-        setSearchResults(results);
+        if (useAi) {
+          const { recipes, summary } = await aiSearchRecipesApi(trimmed, recipeFilter);
+          setSearchResults(recipes);
+          setAiSearchSummary(summary);
+        } else {
+          const results = await searchRecipesApi(trimmed, recipeFilter);
+          setSearchResults(results);
+          setAiSearchSummary(null);
+        }
       } catch {
         setSearchResults(null);
+        setAiSearchSummary(null);
       } finally {
         setSearchLoading(false);
       }
-    }, 300);
+    }, debounceMs);
     return () => {
       if (debounceRef.current) clearTimeout(debounceRef.current);
     };
@@ -515,6 +568,8 @@ export default function MeineRezepte({ onNavigate: _onNavigate, initialOpenRecip
   useEffect(() => {
     setSearchResults(null);
     setSearch("");
+    setAiSearchSummary(null);
+    setIsAiSearch(false);
   }, [recipeFilter]);
 
   const allCategories = useMemo(() => {
@@ -717,11 +772,16 @@ export default function MeineRezepte({ onNavigate: _onNavigate, initialOpenRecip
                   <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
                   <input
                     type="text"
-                    placeholder="Rezept suchen…"
+                    placeholder={cyclingPlaceholder}
                     value={search}
                     onChange={(e) => setSearch(e.target.value)}
-                    className="w-full pl-10 pr-4 py-3 rounded-xl border border-border bg-white text-sm focus:outline-none focus:ring-2 focus:ring-[#4A7C59]/30 min-h-[48px]"
+                    className="w-full pl-10 pr-10 py-3 rounded-xl border border-border bg-white text-sm focus:outline-none focus:ring-2 focus:ring-[#4A7C59]/30 min-h-[48px] transition-all"
                   />
+                  {isAiSearch && search.trim() && (
+                    <span className="absolute right-3 top-1/2 -translate-y-1/2 text-amber-500" title="KI-Suche aktiv">
+                      <Sparkles className="w-4 h-4" />
+                    </span>
+                  )}
                 </div>
               </div>
 
@@ -788,25 +848,39 @@ export default function MeineRezepte({ onNavigate: _onNavigate, initialOpenRecip
           {!loading && !error && (
             <>
               {(searchLoading || isFiltered) && (
-                <p className="text-sm mb-4 flex items-center gap-2">
+                <div className="mb-4">
                   {searchLoading ? (
-                    <>
-                      <Loader2 className="w-3.5 h-3.5 animate-spin text-[#4A7C59]" />
-                      <span className="text-muted-foreground">Suche läuft…</span>
-                    </>
+                    <div className="flex items-center gap-2 text-sm">
+                      {isAiSearch ? (
+                        <>
+                          <Sparkles className="w-3.5 h-3.5 animate-pulse text-amber-500" />
+                          <span className="text-muted-foreground">KI sucht passende Rezepte…</span>
+                        </>
+                      ) : (
+                        <>
+                          <Loader2 className="w-3.5 h-3.5 animate-spin text-[#4A7C59]" />
+                          <span className="text-muted-foreground">Suche läuft…</span>
+                        </>
+                      )}
+                    </div>
+                  ) : aiSearchSummary ? (
+                    <div className="flex items-center gap-2 px-3 py-2 rounded-xl bg-amber-50 border border-amber-200 text-sm">
+                      <Sparkles className="w-4 h-4 text-amber-500 flex-shrink-0" />
+                      <span className="font-medium text-amber-800">{aiSearchSummary}</span>
+                    </div>
                   ) : filtered.length === 0 ? (
-                    <span className="text-muted-foreground">Keine Treffer</span>
+                    <p className="text-sm text-muted-foreground">Keine Treffer</p>
                   ) : (
-                    <>
+                    <p className="text-sm flex items-center gap-2">
                       <span className="font-semibold text-[#C1693A]">{filtered.length} Treffer</span>
                       {savedSortOrder !== "alphabetisch" && (
                         <span className="text-xs text-muted-foreground/70">
                           (sortiert: {savedSortOrder === "kategorie" ? "nach Kategorie" : savedSortOrder === "bewertung" ? "nach Bewertung" : savedSortOrder === "zuletzt_gekocht" ? "zuletzt gekocht" : "am häufigsten gekocht"})
                         </span>
                       )}
-                    </>
+                    </p>
                   )}
-                </p>
+                </div>
               )}
 
               {/* Seasonal hint banner */}
@@ -828,7 +902,20 @@ export default function MeineRezepte({ onNavigate: _onNavigate, initialOpenRecip
                 </div>
               )}
 
-              {!searchLoading && filtered.length === 0 ? (
+              {searchLoading && isAiSearch ? (
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-5">
+                  {[1, 2, 3, 4].map((i) => (
+                    <div key={i} className="bg-white rounded-2xl border border-border overflow-hidden animate-pulse" style={{ boxShadow: "0 2px 12px rgba(120,70,30,0.10)" }}>
+                      <div className="w-full bg-gray-200" style={{ paddingTop: "75%" }} />
+                      <div className="p-4 space-y-2">
+                        <div className="h-4 bg-gray-200 rounded w-3/4" />
+                        <div className="h-3 bg-gray-100 rounded w-1/2" />
+                        <div className="h-3 bg-gray-100 rounded w-2/3" />
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              ) : !searchLoading && filtered.length === 0 ? (
                 <div className="text-center py-16 text-muted-foreground">
                   <p className="text-4xl mb-4">🔍</p>
                   <p className="font-serif text-lg">Kein Rezept gefunden.</p>

@@ -10,6 +10,7 @@ import path from "path";
 import fs from "fs";
 import { createHash } from "crypto";
 import { generateTagsForRecipe } from "../lib/generateRecipeTags";
+import { openai } from "@workspace/integrations-openai-ai-server";
 
 const ADMIN_EMAIL = "lucia.aldering@googlemail.com";
 function isAdmin(email: string) {
@@ -227,6 +228,165 @@ router.get("/recipes/count", async (req, res) => {
   } catch (err) {
     req.log.error({ err }, "Failed to count recipes");
     res.status(500).json({ error: "internal_error" });
+  }
+});
+
+const AI_SEARCH_SYSTEM_PROMPT = `Du bist ein Rezept-Suchassistent. Deine Aufgabe ist es, eine natürlichsprachliche Anfrage zu analysieren und daraus strukturierte Filterkriterien zu extrahieren.
+
+Gib IMMER reines JSON zurück (kein Markdown), folgendes Format:
+{
+  "ingredients": ["Zutat1", "Zutat2"],
+  "exclusions": ["ausgeschlosseneZutat1"],
+  "diet": "vegetarisch" | "vegan" | "fleisch" | null,
+  "maxMinutes": 30 | 60 | null,
+  "mood": "schnell" | "festlich" | "leicht" | "herzhaft" | null,
+  "cuisine": "italienisch" | "deutsch" | "asiatisch" | null,
+  "keywords": ["keyword1", "keyword2"],
+  "summary": "Kurze deutsche Zusammenfassung was gesucht wird"
+}
+
+Extrahiere alle relevanten Felder aus der Anfrage. keywords sind zusätzliche Begriffe die im Titel oder in Notizen vorkommen könnten. summary ist eine sehr kurze Beschreibung der Suche (max. 8 Wörter) für die Ergebnisanzeige.`;
+
+router.post("/recipes/ai-search", async (req, res) => {
+  try {
+    const schema = z.object({
+      query: z.string().min(1).max(500),
+      filter: z.string().optional(),
+    });
+
+    const { query, filter } = schema.parse(req.body);
+    const currentUserId = req.authUser?.id;
+
+    const aiResponse = await openai.chat.completions.create({
+      model: "gpt-4o",
+      max_completion_tokens: 400,
+      messages: [
+        { role: "system", content: AI_SEARCH_SYSTEM_PROMPT },
+        { role: "user", content: query },
+      ],
+    });
+
+    let rawJson = aiResponse.choices[0]?.message?.content ?? "{}";
+    rawJson = rawJson.replace(/^```(?:json)?\s*/i, "").replace(/\s*```$/i, "").trim();
+
+    let criteria: {
+      ingredients: string[];
+      exclusions: string[];
+      diet: string | null;
+      maxMinutes: number | null;
+      mood: string | null;
+      cuisine: string | null;
+      keywords: string[];
+      summary: string;
+    };
+
+    try {
+      criteria = JSON.parse(rawJson);
+    } catch {
+      req.log.error({ rawJson }, "Failed to parse AI search response");
+      res.status(502).json({ error: "parse_error", message: "KI-Antwort konnte nicht verarbeitet werden" });
+      return;
+    }
+
+    const allRecipes = await getRecipesWithIngredients(currentUserId, filter);
+
+    const matchedRecipes = allRecipes.filter((recipe) => {
+      const ingNames = (recipe.ingredients as Array<{ name: string }>).map((i) => i.name.toLowerCase());
+      const titleLower = recipe.title.toLowerCase();
+      const notesLower = (recipe.notes ?? "").toLowerCase();
+      const categoryLower = recipe.category.toLowerCase();
+
+      if (criteria.exclusions && criteria.exclusions.length > 0) {
+        const hasExcluded = criteria.exclusions.some((excl) => {
+          const exclLower = excl.toLowerCase();
+          return (
+            ingNames.some((n) => n.includes(exclLower)) ||
+            titleLower.includes(exclLower) ||
+            categoryLower.includes(exclLower)
+          );
+        });
+        if (hasExcluded) return false;
+      }
+
+      if (criteria.diet) {
+        const dietLower = criteria.diet.toLowerCase();
+        if (dietLower === "vegetarisch" || dietLower === "vegan") {
+          const meatKeywords = ["fleisch", "schwein", "rind", "lamm", "hähnchen", "huhn", "pute", "wurst", "speck", "schinken", "steak", "hackfleisch", "filet"];
+          const hasMeat = meatKeywords.some((kw) =>
+            ingNames.some((n) => n.includes(kw)) || titleLower.includes(kw) || categoryLower.includes(kw)
+          );
+          if (hasMeat) return false;
+        } else if (dietLower === "fleisch") {
+          const meatCategories = ["fleisch", "geflügel", "fisch"];
+          if (!meatCategories.some((mc) => categoryLower.includes(mc))) {
+            const meatKeywords = ["hähnchen", "huhn", "schwein", "rind", "lamm", "steak", "hackfleisch", "wurst", "speck", "schinken"];
+            const hasMeat = meatKeywords.some((kw) =>
+              ingNames.some((n) => n.includes(kw)) || titleLower.includes(kw)
+            );
+            if (!hasMeat) return false;
+          }
+        }
+      }
+
+      if (criteria.maxMinutes) {
+        if (recipe.totalTime) {
+          const match = recipe.totalTime.match(/(\d+)/g);
+          if (match) {
+            const nums = match.map(Number);
+            const minutes = nums.length === 1 ? nums[0] : nums[0] * 60 + (nums[1] ?? 0);
+            if (minutes > criteria.maxMinutes) return false;
+          }
+        } else if (recipe.prepTime) {
+          const match = recipe.prepTime.match(/(\d+)/g);
+          if (match) {
+            const nums = match.map(Number);
+            const minutes = nums.length === 1 ? nums[0] : nums[0] * 60 + (nums[1] ?? 0);
+            if (minutes > criteria.maxMinutes) return false;
+          }
+        }
+      }
+
+      const searchTerms = [
+        ...(criteria.ingredients ?? []),
+        ...(criteria.keywords ?? []),
+      ];
+
+      if (criteria.cuisine) searchTerms.push(criteria.cuisine);
+      if (criteria.mood) searchTerms.push(criteria.mood);
+
+      if (searchTerms.length === 0) return true;
+
+      return searchTerms.some((term) => {
+        const termLower = term.toLowerCase();
+        return (
+          titleLower.includes(termLower) ||
+          notesLower.includes(termLower) ||
+          categoryLower.includes(termLower) ||
+          ingNames.some((n) => n.includes(termLower))
+        );
+      });
+    });
+
+    const ingredientCount = (criteria.ingredients ?? []).length;
+    const exclusionCount = (criteria.exclusions ?? []).length;
+    const parts: string[] = [];
+    if (ingredientCount > 0) parts.push(`mit ${criteria.ingredients.slice(0, 2).join(" & ")}`);
+    if (exclusionCount > 0) parts.push(`ohne ${criteria.exclusions.slice(0, 2).join(" & ")}`);
+    if (criteria.maxMinutes) parts.push(`unter ${criteria.maxMinutes} Min.`);
+    if (criteria.diet && criteria.diet !== "fleisch") parts.push(criteria.diet);
+
+    const resultSummary = matchedRecipes.length === 0
+      ? "Keine passenden Rezepte gefunden"
+      : `${matchedRecipes.length} ${matchedRecipes.length === 1 ? "Rezept" : "Rezepte"}${parts.length > 0 ? " " + parts.join(", ") : ""} gefunden`;
+
+    res.json({
+      recipes: matchedRecipes,
+      summary: resultSummary,
+      criteria,
+    });
+  } catch (err) {
+    req.log.error({ err }, "Failed to process AI recipe search");
+    res.status(500).json({ error: "internal_error", message: "KI-Suche fehlgeschlagen" });
   }
 });
 

@@ -208,6 +208,7 @@ export default function ImageImportModal({ onClose, onAdd }: Props) {
   const currentIndexRef = useRef(0);
   const savedCountRef = useRef(0);
   const skippedCountRef = useRef(0);
+  const onAddRef = useRef(onAdd);
 
   const setCurrentIndexSync = (index: number) => {
     currentIndexRef.current = index;
@@ -238,6 +239,10 @@ export default function ImageImportModal({ onClose, onAdd }: Props) {
   useEffect(() => {
     autoSaveRef.current = autoSave;
   }, [autoSave]);
+
+  useEffect(() => {
+    onAddRef.current = onAdd;
+  }, [onAdd]);
 
   useEffect(() => {
     return () => {
@@ -351,7 +356,7 @@ export default function ImageImportModal({ onClose, onAdd }: Props) {
           prev.map((it, i) => (i === index ? { ...it, status: "saving" } : it))
         );
         try {
-          const newIds = await onAdd([{ ...firstRecipe, sourceDocumentUrl: sourceDocumentUrl ?? undefined, imageUrl: extractedImageUrl ?? undefined }]);
+          const newIds = await onAddRef.current([{ ...firstRecipe, sourceDocumentUrl: sourceDocumentUrl ?? undefined, imageUrl: extractedImageUrl ?? undefined }]);
           appendSavedRecipeIds(newIds);
           setQueueAndSync((prev) =>
             prev.map((it, i) => (i === index ? { ...it, status: "saved" } : it))
@@ -388,7 +393,7 @@ export default function ImageImportModal({ onClose, onAdd }: Props) {
         await processNextItem(index + 1, savedSoFar, skippedSoFar + 1);
       }
     }
-  }, [onAdd]);
+  }, []);
 
   const handleAutoSaveToggle = useCallback(async () => {
     const newValue = !autoSaveRef.current;
@@ -406,7 +411,7 @@ export default function ImageImportModal({ onClose, onAdd }: Props) {
     );
 
     try {
-      const newIds = await onAdd([{ ...currentItem.extracted, sourceDocumentUrl: currentItem.sourceDocumentUrl ?? undefined, imageUrl: currentItem.extractedImageUrl ?? undefined }]);
+      const newIds = await onAddRef.current([{ ...currentItem.extracted, sourceDocumentUrl: currentItem.sourceDocumentUrl ?? undefined, imageUrl: currentItem.extractedImageUrl ?? undefined }]);
       appendSavedRecipeIds(newIds);
       setQueueAndSync((prev) =>
         prev.map((it, i) => (i === idx ? { ...it, status: "saved" } : it))
@@ -441,7 +446,7 @@ export default function ImageImportModal({ onClose, onAdd }: Props) {
         prev.map((it, i) => (i === idx ? { ...it, status: "error", errorMsg: msg } : it))
       );
     }
-  }, [onAdd, processNextItem]);
+  }, [processNextItem]);
 
   const startQueue = useCallback(async (items: QueueItem[]) => {
     if (processingRef.current) return;
@@ -515,7 +520,7 @@ export default function ImageImportModal({ onClose, onAdd }: Props) {
     );
 
     try {
-      const newIds = await onAdd([{ ...item.extracted, sourceDocumentUrl: item.sourceDocumentUrl ?? undefined, imageUrl: item.extractedImageUrl ?? undefined }]);
+      const newIds = await onAddRef.current([{ ...item.extracted, sourceDocumentUrl: item.sourceDocumentUrl ?? undefined, imageUrl: item.extractedImageUrl ?? undefined }]);
       appendSavedRecipeIds(newIds);
       setQueueAndSync((prev) =>
         prev.map((it, i) => (i === idx ? { ...it, status: "saved" } : it))

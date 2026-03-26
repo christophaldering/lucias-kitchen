@@ -1816,12 +1816,12 @@ router.post("/admin/extract-recipe-images", authMiddleware, async (req, res) => 
     const recipeIdsWithPhotos = new Set(recipesWithPhotos.map((r) => r.recipeId));
 
     const allRecipes = await db
-      .select({ id: recipesTable.id, imageUrl: recipesTable.imageUrl })
+      .select({ id: recipesTable.id, imageUrl: recipesTable.imageUrl, isAiGenerated: recipesTable.isAiGenerated })
       .from(recipesTable)
       .where(isNull(recipesTable.deletedAt));
 
     const recipesToProcess = allRecipes.filter(
-      (r) => recipeIdsWithPhotos.has(r.id) && !r.imageUrl
+      (r) => recipeIdsWithPhotos.has(r.id) && (!r.imageUrl || r.isAiGenerated === true)
     );
 
     const total = recipesToProcess.length;

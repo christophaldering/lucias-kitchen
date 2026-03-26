@@ -1334,7 +1334,7 @@ function RecipeImagesTab() {
       </div>
 
       <p className="text-sm text-muted-foreground">
-        Verarbeitet Rezepte ohne Hauptbild. Rezepte mit vorhandenen Fotos bekommen das erste Foto als Hauptbild gesetzt; Rezepte ohne jegliche Fotos erhalten ein KI-generiertes Bild.
+        Verarbeitet Rezepte ohne Hauptbild oder mit KI-generiertem Bild. Rezepte mit vorhandenen Fotos bekommen das erste Foto als Hauptbild gesetzt (auch wenn bereits ein KI-Bild vorhanden ist); Rezepte ohne jegliche Fotos erhalten ein KI-generiertes Bild.
         Neue Rezepte erhalten automatisch ein Bild im Hintergrund – diese Optionen sind für bestehende Rezepte gedacht.
       </p>
 
@@ -1487,7 +1487,7 @@ function RecipeImagesTab() {
           onClick={startPhotoExtraction}
           disabled={status === "running"}
           className="flex items-center gap-2 px-5 py-2.5 bg-white border border-[#4A7C59]/40 text-[#4A7C59] rounded-xl text-sm font-semibold hover:bg-[#4A7C59]/5 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-          title="Setzt das erste vorhandene Kochfoto als Hauptbild für Rezepte ohne Bild"
+          title="Setzt das erste vorhandene Kochfoto als Hauptbild – auch wenn bereits ein KI-generiertes Bild vorhanden ist"
         >
           <Images className="w-4 h-4" />
           Vorhandene Fotos nutzen

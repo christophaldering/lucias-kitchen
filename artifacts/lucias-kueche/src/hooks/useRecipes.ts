@@ -345,3 +345,15 @@ export async function usePhotoAsMain(recipeId: number, photoId: number): Promise
   }
   return res.json();
 }
+
+export async function setPhotoAsMain(recipeId: number, photoId: number): Promise<{ imageUrl: string }> {
+  const res = await authFetch(`${API_BASE}/recipes/${recipeId}/photos/${photoId}/set-main`, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json", ...authHeaders() },
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error(err.message ?? `HTTP ${res.status}`);
+  }
+  return res.json();
+}

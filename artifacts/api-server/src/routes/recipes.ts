@@ -713,7 +713,12 @@ router.get("/recipes/duplicates", authMiddleware, async (req, res) => {
   }
 });
 
-async function syncMainPhotoLink(recipeId: number, imageUrl: string | null | undefined, uploadedBy?: number | null) {
+async function syncMainPhotoLink(
+  recipeId: number,
+  imageUrl: string | null | undefined,
+  uploadedBy?: number | null,
+  source?: "original" | "upload" | "ai" | "cooked" | "web" | null,
+) {
   if (!imageUrl) {
     await db
       .delete(recipePhotoLinksTable)
@@ -730,7 +735,7 @@ async function syncMainPhotoLink(recipeId: number, imageUrl: string | null | und
   if (!photo) {
     [photo] = await db
       .insert(photosTable)
-      .values({ imageUrl, uploadedBy: uploadedBy ?? null })
+      .values({ imageUrl, uploadedBy: uploadedBy ?? null, source: source ?? null })
       .returning();
   }
 
@@ -800,7 +805,8 @@ router.post("/recipes", authMiddleware, async (req, res) => {
       }
 
       if (effectiveImageUrl) {
-        await syncMainPhotoLink(recipe.id, effectiveImageUrl, req.authUser!.id);
+        const photoSource = recipeData.imageSource === "ai" ? "ai" : recipeData.imageSource === "web" ? "web" : effectiveImageUrl.startsWith("/api/uploads/") ? "upload" : "original";
+        await syncMainPhotoLink(recipe.id, effectiveImageUrl, req.authUser!.id, photoSource);
       }
 
       const recipeIngredients = await db
@@ -914,7 +920,8 @@ router.put("/recipes/:id", authMiddleware, async (req, res) => {
       return;
     }
 
-    await syncMainPhotoLink(id, recipeData.imageUrl, req.authUser!.id);
+    const updatePhotoSource = recipeData.imageSource === "ai" ? "ai" : recipeData.imageSource === "web" ? "web" : recipeData.imageUrl?.startsWith("/api/uploads/") ? "upload" : "original";
+    await syncMainPhotoLink(id, recipeData.imageUrl, req.authUser!.id, updatePhotoSource);
 
     await db.delete(recipeIngredientsTable).where(eq(recipeIngredientsTable.recipeId, id));
     if (ingredients.length > 0) {
@@ -1457,6 +1464,7 @@ router.get("/recipes/:id/photos", async (req, res) => {
         imageUrl: photosTable.imageUrl,
         caption: photosTable.caption,
         uploadedBy: photosTable.uploadedBy,
+        source: photosTable.source,
         createdAt: photosTable.createdAt,
         linkId: recipePhotoLinksTable.id,
         recipeId: recipePhotoLinksTable.recipeId,
@@ -1490,7 +1498,7 @@ router.post("/recipes/:id/photos", singleImageUploadMiddleware, async (req, res)
 
     const [photo] = await db
       .insert(photosTable)
-      .values({ imageUrl, uploadedBy })
+      .values({ imageUrl, uploadedBy, source: "cooked" })
       .returning();
 
     const [link] = await db
@@ -1524,6 +1532,7 @@ router.post("/recipes/:id/photos", singleImageUploadMiddleware, async (req, res)
       imageUrl: photo.imageUrl,
       caption: photo.caption,
       uploadedBy: photo.uploadedBy,
+      source: photo.source,
       createdAt: photo.createdAt,
       linkId: link.id,
       recipeId: link.recipeId,
@@ -1584,6 +1593,78 @@ router.delete("/recipes/:id/photos/:photoId", async (req, res) => {
   }
 });
 
+router.patch("/recipes/:id/photos/:photoId/set-main", authMiddleware, async (req, res) => {
+  try {
+    const id = Number(req.params.id);
+    const photoId = Number(req.params.photoId);
+    if (isNaN(id) || isNaN(photoId)) {
+      res.status(400).json({ error: "bad_request", message: "Invalid id" });
+      return;
+    }
+
+    const [recipe] = await db
+      .select({ id: recipesTable.id, createdBy: recipesTable.createdBy, imageUrl: recipesTable.imageUrl })
+      .from(recipesTable)
+      .where(and(eq(recipesTable.id, id), isNull(recipesTable.deletedAt)))
+      .limit(1);
+
+    if (!recipe) {
+      res.status(404).json({ error: "not_found", message: "Rezept nicht gefunden" });
+      return;
+    }
+
+    const isOwner = recipe.createdBy == null || recipe.createdBy === req.authUser!.id;
+    if (!isOwner && !isAdmin(req.authUser!.email)) {
+      res.status(403).json({ error: "forbidden", message: "Nur der Eigentümer kann das Hauptbild setzen" });
+      return;
+    }
+
+    const [link] = await db
+      .select({ photoId: recipePhotoLinksTable.photoId })
+      .from(recipePhotoLinksTable)
+      .where(and(eq(recipePhotoLinksTable.recipeId, id), eq(recipePhotoLinksTable.photoId, photoId)))
+      .limit(1);
+
+    if (!link) {
+      res.status(404).json({ error: "not_found", message: "Foto nicht in dieser Rezept-Galerie gefunden" });
+      return;
+    }
+
+    const [photo] = await db
+      .select({ id: photosTable.id, imageUrl: photosTable.imageUrl })
+      .from(photosTable)
+      .where(eq(photosTable.id, photoId))
+      .limit(1);
+
+    if (!photo) {
+      res.status(404).json({ error: "not_found", message: "Foto nicht gefunden" });
+      return;
+    }
+
+    await db
+      .update(recipePhotoLinksTable)
+      .set({ isMain: false })
+      .where(eq(recipePhotoLinksTable.recipeId, id));
+
+    await db
+      .update(recipePhotoLinksTable)
+      .set({ isMain: true })
+      .where(and(eq(recipePhotoLinksTable.recipeId, id), eq(recipePhotoLinksTable.photoId, photoId)));
+
+    await db
+      .update(recipesTable)
+      .set({ imageUrl: photo.imageUrl, isAiGenerated: false })
+      .where(eq(recipesTable.id, id));
+
+    invalidateRecipeListCache();
+
+    res.json({ imageUrl: photo.imageUrl });
+  } catch (err) {
+    req.log.error({ err }, "Failed to set main photo");
+    res.status(500).json({ error: "internal_error", message: "Fehler beim Setzen des Hauptbilds" });
+  }
+});
+
 router.post("/photos/:photoId/link", authMiddleware, async (req, res) => {
   try {
     const photoId = Number(req.params.photoId);
@@ -1639,6 +1720,7 @@ router.post("/photos/:photoId/link", authMiddleware, async (req, res) => {
       imageUrl: photo.imageUrl,
       caption: photo.caption,
       uploadedBy: photo.uploadedBy,
+      source: photo.source,
       createdAt: photo.createdAt,
       linkId: link.id,
       recipeId: link.recipeId,
@@ -1679,7 +1761,7 @@ export async function generateAndSaveRecipeImage(recipeId: number, title: string
     try {
       const [photo] = await db
         .insert(photosTable)
-        .values({ imageUrl, uploadedBy: null })
+        .values({ imageUrl, uploadedBy: null, source: "ai" })
         .returning();
       await db
         .insert(recipePhotoLinksTable)
@@ -1713,7 +1795,7 @@ router.post("/recipes/:id/use-photo", authMiddleware, async (req, res) => {
     const { photoId } = parseResult.data;
 
     const [recipe] = await db
-      .select({ id: recipesTable.id, createdBy: recipesTable.createdBy, imageUrl: recipesTable.imageUrl })
+      .select({ id: recipesTable.id, createdBy: recipesTable.createdBy, imageUrl: recipesTable.imageUrl, imageSource: recipesTable.imageSource })
       .from(recipesTable)
       .where(and(eq(recipesTable.id, id), isNull(recipesTable.deletedAt)))
       .limit(1);
@@ -1741,7 +1823,7 @@ router.post("/recipes/:id/use-photo", authMiddleware, async (req, res) => {
     }
 
     const [photo] = await db
-      .select({ id: photosTable.id, imageUrl: photosTable.imageUrl })
+      .select({ id: photosTable.id, imageUrl: photosTable.imageUrl, source: photosTable.source })
       .from(photosTable)
       .where(eq(photosTable.id, photoId))
       .limit(1);
@@ -1759,9 +1841,10 @@ router.post("/recipes/:id/use-photo", authMiddleware, async (req, res) => {
         .where(and(eq(recipePhotoLinksTable.recipeId, id), eq(photosTable.imageUrl, recipe.imageUrl)))
         .limit(1);
       if (existingLink.length === 0) {
+        const prevSource = recipe.imageSource === "ai" ? "ai" as const : recipe.imageSource === "web" ? "web" as const : "original" as const;
         const [savedPhoto] = await db
           .insert(photosTable)
-          .values({ imageUrl: recipe.imageUrl, uploadedBy: null })
+          .values({ imageUrl: recipe.imageUrl, uploadedBy: null, source: prevSource })
           .returning();
         await db
           .insert(recipePhotoLinksTable)
@@ -1770,9 +1853,10 @@ router.post("/recipes/:id/use-photo", authMiddleware, async (req, res) => {
       }
     }
 
+    const newImageSource = photo.source === "ai" ? "ai" : photo.source === "web" ? "web" : null;
     await db
       .update(recipesTable)
-      .set({ imageUrl: photo.imageUrl, isAiGenerated: false })
+      .set({ imageUrl: photo.imageUrl, isAiGenerated: photo.source === "ai", imageSource: newImageSource })
       .where(eq(recipesTable.id, id));
 
     await db
@@ -1961,7 +2045,7 @@ router.post("/recipes/:id/extract-image-from-source", authMiddleware, async (req
     await db.update(recipesTable).set({ imageUrl, isAiGenerated: false, imageSource: "web" }).where(eq(recipesTable.id, id));
     invalidateRecipeListCache();
 
-    await syncMainPhotoLink(id, imageUrl, req.authUser!.id);
+    await syncMainPhotoLink(id, imageUrl, req.authUser!.id, "web");
 
     res.json({ imageUrl, imageSource: "web" });
   } catch (err) {

@@ -71,11 +71,14 @@ export const recipePhotosTable = pgTable("recipe_photos", {
 export type RecipePhoto = typeof recipePhotosTable.$inferSelect;
 export type InsertRecipePhoto = typeof recipePhotosTable.$inferInsert;
 
+export const photoSourceEnum = pgEnum("photo_source", ["original", "upload", "ai", "cooked", "web"]);
+
 export const photosTable = pgTable("photos", {
   id: serial("id").primaryKey(),
   imageUrl: text("image_url").notNull(),
   uploadedBy: integer("uploaded_by").references(() => usersTable.id, { onDelete: "set null" }),
   caption: text("caption"),
+  source: photoSourceEnum("source"),
   createdAt: timestamp("created_at").defaultNow().notNull(),
 });
 

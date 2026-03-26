@@ -953,6 +953,7 @@ export default function RecipeModal({ recipe, onClose, onAddToWeek, onToggleFavo
               allRecipes={allRecipes}
               currentImageUrl={localImageUrl}
               onSetAsMain={isOwner ? handleSetAsMainFromGallery : undefined}
+              isOwner={isOwner}
             />
           </div>
 

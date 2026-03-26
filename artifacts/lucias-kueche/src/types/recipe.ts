@@ -1,8 +1,19 @@
+export type PhotoSource = "original" | "upload" | "ai" | "cooked" | "web";
+
+export const PHOTO_SOURCE_LABELS: Record<PhotoSource, string> = {
+  original: "Original",
+  upload: "Hochgeladen",
+  ai: "KI-generiert",
+  cooked: "Kochfoto",
+  web: "Web-Import",
+};
+
 export interface RecipePhoto {
   id: number;
   imageUrl: string;
   caption: string | null;
   uploadedBy: number | null;
+  source: PhotoSource | null;
   createdAt: string;
   linkId: number;
   recipeId: number;

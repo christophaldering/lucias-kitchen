@@ -1,13 +1,16 @@
 import { useState, useEffect, useRef, useCallback } from "react";
+import { useQueryClient } from "@tanstack/react-query";
 import { Camera, Image, Loader2, Trash2, X, Link, Star } from "lucide-react";
 import type { RecipePhoto, Recipe } from "@/types/recipe";
-import { fetchRecipePhotos, uploadRecipePhoto, deleteRecipePhoto, linkPhotoToRecipe, usePhotoAsMain } from "@/hooks/useRecipes";
+import { PHOTO_SOURCE_LABELS } from "@/types/recipe";
+import { fetchRecipePhotos, uploadRecipePhoto, deleteRecipePhoto, linkPhotoToRecipe, setPhotoAsMain } from "@/hooks/useRecipes";
 
 interface Props {
   recipeId: number;
   allRecipes?: Recipe[];
   currentImageUrl?: string | null;
   onSetAsMain?: (imageUrl: string) => void;
+  isOwner?: boolean;
 }
 
 function formatDateTime(isoString: string): string {
@@ -25,7 +28,16 @@ function formatDateTime(isoString: string): string {
   }
 }
 
-export default function RecipePhotoGallery({ recipeId, allRecipes, currentImageUrl, onSetAsMain }: Props) {
+const SOURCE_COLORS: Record<string, string> = {
+  original: "bg-amber-100 text-amber-700",
+  upload: "bg-blue-100 text-blue-700",
+  ai: "bg-purple-100 text-purple-700",
+  cooked: "bg-green-100 text-green-700",
+  web: "bg-sky-100 text-sky-700",
+};
+
+export default function RecipePhotoGallery({ recipeId, allRecipes, currentImageUrl, onSetAsMain, isOwner }: Props) {
+  const queryClient = useQueryClient();
   const [photos, setPhotos] = useState<RecipePhoto[]>([]);
   const [loading, setLoading] = useState(true);
   const [uploading, setUploading] = useState(false);
@@ -114,8 +126,12 @@ export default function RecipePhotoGallery({ recipeId, allRecipes, currentImageU
     setSettingMainPhotoId(photo.id);
     setError(null);
     try {
-      const result = await usePhotoAsMain(recipeId, photo.id);
+      const result = await setPhotoAsMain(recipeId, photo.id);
+      setPhotos((prev) =>
+        prev.map((p) => ({ ...p, isMain: p.id === photo.id }))
+      );
       if (onSetAsMain) onSetAsMain(result.imageUrl);
+      await queryClient.invalidateQueries({ queryKey: ["recipes"] });
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : "Fehler beim Setzen des Hauptbilds.");
     } finally {
@@ -128,45 +144,47 @@ export default function RecipePhotoGallery({ recipeId, allRecipes, currentImageU
   return (
     <div>
       <div className="flex items-center justify-between mb-3">
-        <h3 className="font-serif font-semibold text-lg text-foreground">📸 Meine Kochfotos</h3>
-        <div className="flex gap-2">
-          <input
-            ref={galleryInputRef}
-            type="file"
-            accept="image/*"
-            className="hidden"
-            onChange={(e) => { const f = e.target.files?.[0]; if (f) handleFileSelected(f); }}
-          />
-          <input
-            ref={cameraInputRef}
-            type="file"
-            accept="image/*"
-            capture="environment"
-            className="hidden"
-            onChange={(e) => { const f = e.target.files?.[0]; if (f) handleFileSelected(f); }}
-          />
-          <button
-            type="button"
-            onClick={() => galleryInputRef.current?.click()}
-            disabled={uploading}
-            className="flex items-center gap-1.5 px-3 py-1.5 border border-border rounded-xl text-xs font-medium hover:bg-secondary transition-colors disabled:opacity-50"
-            title="Foto aus Galerie"
-          >
-            <Image className="w-3.5 h-3.5 text-[#C1693A]" />
-            Galerie
-          </button>
-          <button
-            type="button"
-            onClick={() => cameraInputRef.current?.click()}
-            disabled={uploading}
-            className="md:hidden flex items-center gap-1.5 px-3 py-1.5 border border-border rounded-xl text-xs font-medium hover:bg-secondary transition-colors disabled:opacity-50"
-            title="Foto aufnehmen"
-          >
-            <Camera className="w-3.5 h-3.5 text-[#C1693A]" />
-            Kamera
-          </button>
-          {uploading && <Loader2 className="w-4 h-4 animate-spin text-[#C1693A] self-center" />}
-        </div>
+        <h3 className="font-serif font-semibold text-lg text-foreground">📸 Alle Fotos</h3>
+        {isOwner && (
+          <div className="flex gap-2">
+            <input
+              ref={galleryInputRef}
+              type="file"
+              accept="image/*"
+              className="hidden"
+              onChange={(e) => { const f = e.target.files?.[0]; if (f) handleFileSelected(f); }}
+            />
+            <input
+              ref={cameraInputRef}
+              type="file"
+              accept="image/*"
+              capture="environment"
+              className="hidden"
+              onChange={(e) => { const f = e.target.files?.[0]; if (f) handleFileSelected(f); }}
+            />
+            <button
+              type="button"
+              onClick={() => galleryInputRef.current?.click()}
+              disabled={uploading}
+              className="flex items-center gap-1.5 px-3 py-1.5 border border-border rounded-xl text-xs font-medium hover:bg-secondary transition-colors disabled:opacity-50"
+              title="Foto aus Galerie"
+            >
+              <Image className="w-3.5 h-3.5 text-[#C1693A]" />
+              Galerie
+            </button>
+            <button
+              type="button"
+              onClick={() => cameraInputRef.current?.click()}
+              disabled={uploading}
+              className="md:hidden flex items-center gap-1.5 px-3 py-1.5 border border-border rounded-xl text-xs font-medium hover:bg-secondary transition-colors disabled:opacity-50"
+              title="Foto aufnehmen"
+            >
+              <Camera className="w-3.5 h-3.5 text-[#C1693A]" />
+              Kamera
+            </button>
+            {uploading && <Loader2 className="w-4 h-4 animate-spin text-[#C1693A] self-center" />}
+          </div>
+        )}
       </div>
 
       {error && (
@@ -181,23 +199,36 @@ export default function RecipePhotoGallery({ recipeId, allRecipes, currentImageU
         </div>
       ) : photos.length === 0 ? (
         <p className="text-sm text-muted-foreground text-center py-6">
-          Noch keine Kochfotos. Mach ein Foto beim nächsten Kochen!
+          Noch keine Fotos für dieses Rezept.
         </p>
       ) : (
         <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
           {photos.map((photo) => {
-            const isCurrentMain = currentImageUrl === photo.imageUrl;
+            const isCurrentMain = photo.isMain || currentImageUrl === photo.imageUrl;
+            const sourceLabel = photo.source ? PHOTO_SOURCE_LABELS[photo.source] : null;
+            const sourceColor = photo.source ? SOURCE_COLORS[photo.source] : "";
             return (
               <div key={photo.id} className="relative group rounded-xl overflow-hidden border border-border bg-white flex flex-col">
                 {isCurrentMain && (
-                  <span className="absolute top-1 left-1 z-10 bg-[#4A7C59] text-white text-[9px] font-semibold px-1.5 py-0.5 rounded-full">
+                  <span className="absolute top-1 left-1 z-10 bg-[#4A7C59] text-white text-[9px] font-semibold px-1.5 py-0.5 rounded-full flex items-center gap-0.5">
+                    <Star className="w-2.5 h-2.5 fill-white" />
                     Hauptbild
+                  </span>
+                )}
+                {sourceLabel && !isCurrentMain && (
+                  <span className={`absolute top-1 left-1 z-10 text-[9px] font-semibold px-1.5 py-0.5 rounded-full ${sourceColor}`}>
+                    {sourceLabel}
+                  </span>
+                )}
+                {sourceLabel && isCurrentMain && (
+                  <span className={`absolute top-1 right-1 z-10 text-[9px] font-semibold px-1.5 py-0.5 rounded-full ${sourceColor}`}>
+                    {sourceLabel}
                   </span>
                 )}
                 <div className="aspect-square overflow-hidden">
                   <img
                     src={photo.imageUrl}
-                    alt="Kochfoto"
+                    alt="Foto"
                     className="w-full h-full object-cover cursor-pointer hover:scale-105 transition-transform duration-200"
                     onClick={() => setLightboxPhoto(photo)}
                   />
@@ -205,7 +236,7 @@ export default function RecipePhotoGallery({ recipeId, allRecipes, currentImageU
                 <div className="flex items-center justify-between px-2 py-1 bg-white gap-1">
                   <p className="text-muted-foreground text-[10px] leading-tight truncate flex-1">{formatDateTime(photo.createdAt)}</p>
                   <div className="flex gap-1 flex-shrink-0">
-                    {onSetAsMain && !isCurrentMain && (
+                    {isOwner && onSetAsMain && !isCurrentMain && (
                       <button
                         type="button"
                         onClick={(e) => { e.stopPropagation(); handleSetAsMain(photo); }}
@@ -220,7 +251,7 @@ export default function RecipePhotoGallery({ recipeId, allRecipes, currentImageU
                         Hauptbild
                       </button>
                     )}
-                    {otherRecipes.length > 0 && (
+                    {isOwner && otherRecipes.length > 0 && (
                       <button
                         type="button"
                         onClick={(e) => { e.stopPropagation(); openLinkDialog(photo); }}
@@ -230,14 +261,16 @@ export default function RecipePhotoGallery({ recipeId, allRecipes, currentImageU
                         <Link className="w-3 h-3" />
                       </button>
                     )}
-                    <button
-                      type="button"
-                      onClick={(e) => { e.stopPropagation(); setConfirmDeleteId(photo.id); }}
-                      className="p-0.5 hover:bg-red-50 text-red-400 hover:text-red-600 rounded transition-colors"
-                      title="Foto löschen"
-                    >
-                      <Trash2 className="w-3 h-3" />
-                    </button>
+                    {isOwner && (
+                      <button
+                        type="button"
+                        onClick={(e) => { e.stopPropagation(); setConfirmDeleteId(photo.id); }}
+                        className="p-0.5 hover:bg-red-50 text-red-400 hover:text-red-600 rounded transition-colors"
+                        title="Foto löschen"
+                      >
+                        <Trash2 className="w-3 h-3" />
+                      </button>
+                    )}
                   </div>
                 </div>
               </div>
@@ -250,7 +283,7 @@ export default function RecipePhotoGallery({ recipeId, allRecipes, currentImageU
         <div className="fixed inset-0 z-[60] flex items-center justify-center p-4 bg-black/50" onClick={() => setConfirmDeleteId(null)}>
           <div className="bg-white rounded-2xl shadow-xl p-6 max-w-sm w-full" onClick={(e) => e.stopPropagation()}>
             <h4 className="font-semibold text-foreground mb-2">Foto löschen?</h4>
-            <p className="text-sm text-muted-foreground mb-4">Dieses Kochfoto wird dauerhaft gelöscht. Fortfahren?</p>
+            <p className="text-sm text-muted-foreground mb-4">Dieses Foto wird dauerhaft gelöscht. Fortfahren?</p>
             <div className="flex gap-2 justify-end">
               <button
                 onClick={() => setConfirmDeleteId(null)}
@@ -333,10 +366,17 @@ export default function RecipePhotoGallery({ recipeId, allRecipes, currentImageU
           <div className="max-w-[90vw] max-h-[90vh] flex flex-col items-center gap-2" onClick={(e) => e.stopPropagation()}>
             <img
               src={lightboxPhoto.imageUrl}
-              alt="Kochfoto"
+              alt="Foto"
               className="max-w-full max-h-[80vh] rounded-xl object-contain"
             />
-            <p className="text-white/70 text-sm">{formatDateTime(lightboxPhoto.createdAt)}</p>
+            <div className="flex items-center gap-2">
+              <p className="text-white/70 text-sm">{formatDateTime(lightboxPhoto.createdAt)}</p>
+              {lightboxPhoto.source && (
+                <span className={`text-[10px] font-semibold px-1.5 py-0.5 rounded-full ${SOURCE_COLORS[lightboxPhoto.source] ?? "bg-gray-100 text-gray-600"}`}>
+                  {PHOTO_SOURCE_LABELS[lightboxPhoto.source]}
+                </span>
+              )}
+            </div>
           </div>
         </div>
       )}

@@ -167,21 +167,36 @@ function RecipeCard({
     >
       {/* 4:3 image area */}
       <div className="relative w-full overflow-hidden" style={{ paddingTop: "75%" }}>
-        {recipe.imageUrl ? (
-          <img
-            src={recipe.imageUrl}
-            alt={recipe.title}
-            className="absolute inset-0 w-full h-full object-cover transition-transform duration-300"
-            style={{ transform: hovered ? "scale(1.04)" : "scale(1)" }}
-          />
-        ) : (
-          <div
-            className="absolute inset-0 flex items-center justify-center text-6xl"
-            style={{ background: "linear-gradient(135deg, #f5ede0, #f0e0c8)" }}
-          >
-            {emoji}
-          </div>
-        )}
+        {(() => {
+          const displayUrl = recipe.mainPhotoUrl ?? recipe.imageUrl ?? null;
+          const isGenerating = !recipe.mainPhotoUrl && !recipe.imageUrl;
+          if (displayUrl) {
+            return (
+              <img
+                src={displayUrl}
+                alt={recipe.title}
+                className="absolute inset-0 w-full h-full object-cover transition-transform duration-300"
+                style={{ transform: hovered ? "scale(1.04)" : "scale(1)" }}
+              />
+            );
+          }
+          if (isGenerating) {
+            return (
+              <div
+                className="absolute inset-0 shimmer-bg"
+                style={{ background: "linear-gradient(90deg, #f5ede0 25%, #f0e0c8 50%, #f5ede0 75%)", backgroundSize: "200% 100%", animation: "shimmer 1.6s infinite" }}
+              />
+            );
+          }
+          return (
+            <div
+              className="absolute inset-0 flex items-center justify-center text-6xl"
+              style={{ background: "linear-gradient(135deg, #f5ede0, #f0e0c8)" }}
+            >
+              {emoji}
+            </div>
+          );
+        })()}
 
         {/* Category badge overlay */}
         <div className="absolute top-2.5 left-2.5">
@@ -507,6 +522,17 @@ export default function MeineRezepte({ onNavigate: _onNavigate, initialOpenRecip
     refreshTokenRef.current = refreshToken;
     refetch();
   }, [refreshToken, refetch]);
+
+  const hasRecipesWithoutImages = useMemo(
+    () => recipes.some((r) => !r.mainPhotoUrl && !r.imageUrl),
+    [recipes]
+  );
+
+  useEffect(() => {
+    if (!hasRecipesWithoutImages) return;
+    const timer = setTimeout(() => { refetch(); }, 8000);
+    return () => clearTimeout(timer);
+  }, [hasRecipesWithoutImages, recipes.length, refetch]);
 
   const toggleSelect = (id: number) => setManagedSelected((prev) => {
     const next = new Set(prev);

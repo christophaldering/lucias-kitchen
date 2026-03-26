@@ -24,6 +24,7 @@ const SECTION_TABS = [
   { id: "backup", label: "Backup & Import", icon: Database },
   { id: "bulk-import", label: "Massen-Import", icon: FolderOpen },
   { id: "tags", label: "Tags", icon: Tag },
+  { id: "recipe-images", label: "Rezeptbilder", icon: Upload },
   { id: "trash", label: "Papierkorb", icon: Trash2 },
   { id: "settings", label: "App-Einstellungen", icon: Sliders },
 ] as const;
@@ -1213,6 +1214,118 @@ function TagsAdmin() {
   );
 }
 
+function RecipeImagesTab() {
+  const [status, setStatus] = useState<"idle" | "running" | "done" | "error">("idle");
+  const [progress, setProgress] = useState<{ done: number; total: number; errors: number } | null>(null);
+
+  const startBackfill = async () => {
+    setStatus("running");
+    setProgress({ done: 0, total: 0, errors: 0 });
+
+    try {
+      const res = await fetch("/api/admin/generate-recipe-images", {
+        method: "POST",
+        headers: { ...authHeaders() },
+      });
+
+      if (!res.ok) {
+        setStatus("error");
+        return;
+      }
+
+      const reader = res.body?.getReader();
+      if (!reader) { setStatus("error"); return; }
+
+      const decoder = new TextDecoder();
+      let buffer = "";
+
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        buffer += decoder.decode(value, { stream: true });
+        const lines = buffer.split("\n");
+        buffer = lines.pop() ?? "";
+        for (const line of lines) {
+          if (line.startsWith("data: ")) {
+            try {
+              const data = JSON.parse(line.slice(6));
+              if (data.error) { setStatus("error"); return; }
+              setProgress({ done: data.done ?? 0, total: data.total ?? 0, errors: data.errors ?? 0 });
+              if (data.finished) { setStatus("done"); return; }
+            } catch {}
+          }
+        }
+      }
+      setStatus("done");
+    } catch {
+      setStatus("error");
+    }
+  };
+
+  return (
+    <div className="bg-white rounded-2xl border border-border shadow-sm p-6 space-y-5">
+      <div className="flex items-center gap-3 mb-2">
+        <Upload className="w-5 h-5 text-[#4A7C59]" />
+        <h3 className="font-serif text-lg font-semibold text-foreground">Rezeptbilder</h3>
+      </div>
+
+      <p className="text-sm text-muted-foreground">
+        Generiert KI-Bilder für alle Rezepte, die noch kein Nutzerfoto und noch kein Bild haben.
+        Neue Rezepte erhalten automatisch ein Bild im Hintergrund – dieser Button ist für bestehende Rezepte gedacht.
+      </p>
+
+      {progress && (
+        <div className="space-y-2">
+          <div className="flex items-center justify-between text-sm text-foreground">
+            <span>{progress.done} von {progress.total} fertig</span>
+            {progress.errors > 0 && (
+              <span className="text-red-600 font-medium">{progress.errors} Fehler</span>
+            )}
+          </div>
+          {progress.total > 0 && (
+            <div className="w-full bg-[#f5ede0] rounded-full h-2">
+              <div
+                className="bg-[#4A7C59] h-2 rounded-full transition-all"
+                style={{ width: `${Math.round((progress.done / progress.total) * 100)}%` }}
+              />
+            </div>
+          )}
+          {status === "done" && (
+            <div className="flex items-center gap-2 text-sm text-[#4A7C59] font-medium">
+              <Check className="w-4 h-4" /> Fertig! Alle Rezepte wurden verarbeitet.
+            </div>
+          )}
+          {status === "error" && (
+            <div className="flex items-center gap-2 text-sm text-red-600 font-medium">
+              <AlertTriangle className="w-4 h-4" /> Fehler bei der Bildgenerierung.
+            </div>
+          )}
+        </div>
+      )}
+
+      <button
+        onClick={startBackfill}
+        disabled={status === "running"}
+        className="flex items-center gap-2 px-5 py-2.5 bg-[#4A7C59] text-white rounded-xl text-sm font-semibold hover:bg-[#3d6849] transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+      >
+        {status === "running" ? (
+          <>
+            <Loader2 className="w-4 h-4 animate-spin" />
+            Bilder werden generiert…
+          </>
+        ) : (
+          <>
+            <Upload className="w-4 h-4" />
+            KI-Bilder für alle Rezepte generieren
+          </>
+        )}
+      </button>
+    </div>
+  );
+}    </div>
+  );
+}
+
 export default function Admin({ initialTab, navToken, onTabInitialized }: { initialTab?: string; navToken?: number; onTabInitialized?: () => void }) {
   const validTabs = SECTION_TABS.map((t) => t.id);
   const resolvedTab: SectionTab = (validTabs.includes(initialTab as SectionTab) ? initialTab : "categories") as SectionTab;
@@ -1312,6 +1425,8 @@ export default function Admin({ initialTab, navToken, onTabInitialized }: { init
       {section === "bulk-import" && <BulkImportTab onUploadingChange={setIsBulkUploading} />}
 
       {section === "tags" && <TagsAdmin />}
+
+      {section === "recipe-images" && <RecipeImagesTab />}
 
       {section === "trash" && <TrashTab />}
 

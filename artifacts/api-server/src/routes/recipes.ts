@@ -119,6 +119,14 @@ async function getRecipesWithIngredients(currentUserId?: number, filter?: string
       r.parent_recipe_id AS "parentRecipeId",
       r.variant_name    AS "variantName",
       r.source_document_url AS "sourceDocumentUrl",
+      (
+        SELECT p.image_url
+        FROM recipe_photo_links rpl
+        INNER JOIN photos p ON p.id = rpl.photo_id
+        WHERE rpl.recipe_id = r.id AND rpl.is_main = true
+        ORDER BY rpl.sort_order, p.created_at DESC
+        LIMIT 1
+      ) AS "mainPhotoUrl",
       COALESCE(
         json_agg(
           json_build_object(
@@ -161,6 +169,7 @@ async function getRecipesWithIngredients(currentUserId?: number, filter?: string
     personalNotes: string | null;
     steps: unknown;
     imageUrl: string | null;
+    mainPhotoUrl: string | null;
     createdAt: Date | string | null;
     seasons: string[] | null;
     tags: string[] | null;
@@ -194,6 +203,7 @@ async function getRecipesWithIngredients(currentUserId?: number, filter?: string
     personalNotes: r.personalNotes,
     steps: r.steps,
     imageUrl: r.imageUrl,
+    mainPhotoUrl: r.mainPhotoUrl ?? null,
     createdAt: r.createdAt,
     seasons: r.seasons ?? [],
     tags: r.tags ?? [],
@@ -810,6 +820,30 @@ router.post("/recipes", authMiddleware, async (req, res) => {
         isOwner: true,
         isFavorite: false,
         owner: null,
+      });
+
+      if (!recipeData.imageUrl) {
+        setImmediate(() => {
+          generateAndSaveRecipeImage(recipe.id, recipe.title, recipe.category).catch(() => {});
+        });
+      }
+
+      setImmediate(() => {
+        generateTagsForRecipe({
+          title: recipe.title,
+          category: recipe.category,
+          ingredients: recipeIngredients,
+          seasons: recipe.seasons,
+          steps: recipeData.steps,
+          notes: recipe.notes,
+        }).then((tags) => {
+          if (tags.length > 0) {
+            db.update(recipesTable)
+              .set({ tags })
+              .where(eq(recipesTable.id, recipe.id))
+              .catch(() => {});
+          }
+        }).catch(() => {});
       });
     }
 
@@ -1584,6 +1618,129 @@ router.post("/photos/:photoId/link", authMiddleware, async (req, res) => {
     }
     req.log.error({ err }, "Failed to link photo to recipe");
     res.status(500).json({ error: "internal_error", message: "Failed to link photo to recipe" });
+  }
+});
+
+export async function generateAndSaveRecipeImage(recipeId: number, title: string, category: string): Promise<string | null> {
+  try {
+    const { generateImageBuffer } = await import("@workspace/integrations-openai-ai-server/image");
+    const { ObjectStorageService } = await import("../lib/objectStorage");
+
+    const prompt = `Ein appetitliches, professionelles Foodfoto des Gerichts "${title}" (Kategorie: ${category}). Realistisch, hell beleuchtet, auf einem schönen Teller angerichtet, weißer oder heller Hintergrund, keine Menschen, keine Schrift.`;
+    const imageBuffer = await generateImageBuffer(prompt, "1024x1024");
+
+    const storageService = new ObjectStorageService();
+    const storagePath = await storageService.uploadBuffer(imageBuffer, "image/png", "recipe-images");
+    const imageUrl = `/api/storage${storagePath}`;
+
+    await db.update(recipesTable).set({ imageUrl }).where(eq(recipesTable.id, recipeId));
+    invalidateRecipeListCache();
+
+    return imageUrl;
+  } catch (err) {
+    console.error(`Failed to generate image for recipe ${recipeId}:`, err);
+    return null;
+  }
+}
+
+router.post("/recipes/:id/generate-image", authMiddleware, async (req, res) => {
+  if (!isAdmin(req.authUser!.email)) {
+    res.status(403).json({ error: "forbidden", message: "Nur Admins können Bilder generieren" });
+    return;
+  }
+  try {
+    const id = Number(req.params.id);
+    if (isNaN(id)) {
+      res.status(400).json({ error: "bad_request", message: "Invalid recipe id" });
+      return;
+    }
+
+    const [recipe] = await db
+      .select({ id: recipesTable.id, title: recipesTable.title, category: recipesTable.category })
+      .from(recipesTable)
+      .where(and(eq(recipesTable.id, id), isNull(recipesTable.deletedAt)))
+      .limit(1);
+
+    if (!recipe) {
+      res.status(404).json({ error: "not_found", message: "Recipe not found" });
+      return;
+    }
+
+    const imageUrl = await generateAndSaveRecipeImage(recipe.id, recipe.title, recipe.category);
+    if (!imageUrl) {
+      res.status(500).json({ error: "generation_failed", message: "Bildgenerierung fehlgeschlagen" });
+      return;
+    }
+
+    res.json({ imageUrl });
+  } catch (err) {
+    req.log.error({ err }, "Failed to generate recipe image");
+    res.status(500).json({ error: "internal_error", message: "Failed to generate recipe image" });
+  }
+});
+
+router.post("/admin/generate-recipe-images", authMiddleware, async (req, res) => {
+  if (!isAdmin(req.authUser!.email)) {
+    res.status(403).json({ error: "forbidden", message: "Nur Admins können Bilder generieren" });
+    return;
+  }
+
+  res.setHeader("Content-Type", "text/event-stream");
+  res.setHeader("Cache-Control", "no-cache");
+  res.setHeader("Connection", "keep-alive");
+  res.flushHeaders();
+
+  const sendEvent = (data: object) => {
+    res.write(`data: ${JSON.stringify(data)}\n\n`);
+  };
+
+  try {
+    const recipesWithPhotos = await db
+      .selectDistinct({ recipeId: recipePhotoLinksTable.recipeId })
+      .from(recipePhotoLinksTable);
+
+    const recipeIdsWithPhotos = new Set(recipesWithPhotos.map((r) => r.recipeId));
+
+    const allRecipes = await db
+      .select({ id: recipesTable.id, title: recipesTable.title, category: recipesTable.category, imageUrl: recipesTable.imageUrl })
+      .from(recipesTable)
+      .where(isNull(recipesTable.deletedAt));
+
+    const recipesToProcess = allRecipes.filter(
+      (r) => !recipeIdsWithPhotos.has(r.id) && !r.imageUrl
+    );
+
+    const total = recipesToProcess.length;
+    let done = 0;
+    let errors = 0;
+
+    sendEvent({ done, total, errors });
+
+    const { batchProcessWithSSE } = await import("@workspace/integrations-openai-ai-server/batch");
+
+    await batchProcessWithSSE(
+      recipesToProcess,
+      async (recipe) => {
+        await generateAndSaveRecipeImage(recipe.id, recipe.title, recipe.category);
+      },
+      (event) => {
+        if (event.type === "progress") {
+          done++;
+          if (event.error) errors++;
+          sendEvent({ done, total, errors });
+        } else if (event.type === "complete") {
+          sendEvent({ done: total, total, errors: event.errors as number, finished: true });
+        }
+      },
+      { retries: 2 }
+    );
+
+    sendEvent({ done: total, total, errors, finished: true });
+  } catch (err) {
+    req.log.error({ err }, "Failed to run image backfill");
+    sendEvent({ error: "Fehler bei der Bildgenerierung" });
+  } finally {
+    res.end();
   }
 });
 

@@ -1,6 +1,8 @@
 import { Router, type IRouter } from "express";
 import multer from "multer";
 import { db } from "@workspace/db";
+import { generateAndSaveRecipeImage } from "./recipes";
+import { generateTagsForRecipe } from "../lib/generateRecipeTags";
 import {
   bulkImportSessionsTable,
   bulkImportFilesTable,
@@ -1546,6 +1548,28 @@ router.post("/bulk-import/:sessionId/save", authMiddleware, async (req, res) => 
         }).catch(() => {});
 
         savedCount++;
+
+        setImmediate(() => {
+          generateAndSaveRecipeImage(recipe.id, recipe.title, recipe.category ?? "Vegetarisch").catch(() => {});
+        });
+
+        setImmediate(() => {
+          generateTagsForRecipe({
+            title: rd.title ?? "Importiertes Rezept",
+            category: rd.category ?? null,
+            ingredients: (rd.ingredients ?? []).map((i) => ({ name: i.name })),
+            seasons: [],
+            steps: rd.steps ?? [],
+            notes: rd.notes ?? null,
+          }).then((tags) => {
+            if (tags.length > 0) {
+              db.update(recipesTable)
+                .set({ tags })
+                .where(eq(recipesTable.id, recipe.id))
+                .catch(() => {});
+            }
+          }).catch(() => {});
+        });
       } catch (err) {
         console.error(`Failed to save item ${item.id}:`, err);
       }

@@ -73,6 +73,7 @@ export interface Recipe {
   steps: string[];
   ingredients: RecipeIngredient[];
   imageUrl?: string | null;
+  mainPhotoUrl?: string | null;
   createdAt?: string | null;
   seasons?: Season[] | null;
   tags?: string[] | null;
@@ -83,6 +84,7 @@ export interface Recipe {
   parentRecipeId?: number | null;
   variantName?: string | null;
   sourceDocumentUrl?: string | null;
+  tags?: string[] | null;
 }
 
 export const ALL_CATEGORIES = [

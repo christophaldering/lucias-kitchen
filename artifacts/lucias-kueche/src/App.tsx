@@ -175,6 +175,22 @@ function BottomNav({ activeTab, onTabChange, unreadCount }: { activeTab: Tab; on
   );
 }
 
+function OnboardingWithMark({
+  todayLocalStr,
+  userUid,
+  onNavigate,
+}: {
+  todayLocalStr: string;
+  userUid: string;
+  onNavigate: (tab: string) => void;
+}) {
+  useEffect(() => {
+    localStorage.setItem(`landing_last_shown_${userUid}`, todayLocalStr);
+  }, [userUid, todayLocalStr]);
+
+  return <Onboarding onNavigate={onNavigate} />;
+}
+
 function getInviteTokenFromUrl(): string | null {
   const path = window.location.pathname;
   const match = path.match(/\/invite\/([a-f0-9-]{36})/i);
@@ -191,7 +207,25 @@ function AppShell() {
   const [adminNavToken, setAdminNavToken] = useState(0);
   const [recipesInitialSortOrder, setRecipesInitialSortOrder] = useState<string | null>(null);
   const [recipesRefreshToken, setRecipesRefreshToken] = useState(0);
-  const [sessionOnboardingDone, setSessionOnboardingDone] = useState(false);
+  const todayLocalStr = (() => {
+    const d = new Date();
+    const y = d.getFullYear();
+    const m = String(d.getMonth() + 1).padStart(2, "0");
+    const day = String(d.getDate()).padStart(2, "0");
+    return `${y}-${m}-${day}`;
+  })();
+
+  const [sessionOnboardingDone, setSessionOnboardingDone] = useState<boolean | null>(null);
+
+  useEffect(() => {
+    if (!user) {
+      setSessionOnboardingDone(null);
+      return;
+    }
+    const key = `landing_last_shown_${user.id}`;
+    setSessionOnboardingDone(localStorage.getItem(key) === todayLocalStr);
+  }, [user?.id, todayLocalStr]);
+
   const { data: notifications = [] } = useNotifications();
   const notificationUnreadCount = notifications.filter((n) => !n.readAt).length;
   const { suggestions: incomingSuggestions } = useIncomingSuggestions();
@@ -245,9 +279,24 @@ function AppShell() {
     return <Login />;
   }
 
+  if (sessionOnboardingDone === null) {
+    return (
+      <div className="min-h-screen flex items-center justify-center" style={{ background: "linear-gradient(160deg, #f9efe0 0%, #f5e8d0 50%, #f2e4c8 100%)" }}>
+        <div className="text-center">
+          <div className="w-16 h-16 mx-auto mb-4 rounded-full bg-[#4A7C59]/10 flex items-center justify-center animate-pulse">
+            <Utensils className="w-8 h-8 text-[#4A7C59]" />
+          </div>
+          <p className="font-script text-2xl text-[#4A7C59]">Lucias Küche wird geladen...</p>
+        </div>
+      </div>
+    );
+  }
+
   if (!sessionOnboardingDone) {
     return (
-      <Onboarding
+      <OnboardingWithMark
+        todayLocalStr={todayLocalStr}
+        userUid={String(user.id)}
         onNavigate={(tab) => {
           setSessionOnboardingDone(true);
           setActiveTab(tab as Tab);

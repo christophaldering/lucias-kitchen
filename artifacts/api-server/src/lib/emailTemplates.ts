@@ -147,6 +147,39 @@ export function addedToGroupEmail(opts: {
       </div>`);
 }
 
+export function mealReminderEmail(opts: {
+  hostName: string;
+  date: string;
+  time?: string | null;
+  appLink: string;
+  guestEmail: string;
+}): string {
+  const timeInfo = opts.time ? ` um <span class="highlight">${opts.time} Uhr</span>` : "";
+  return baseLayout(`
+      <div class="body">
+        <p>Hallo! 👋</p>
+        <p>
+          <span class="highlight">${opts.hostName}</span> erinnert dich an den gemeinsamen Kochabend:
+        </p>
+        <p>
+          📅 Datum: <span class="highlight">${opts.date}</span>${timeInfo}
+        </p>
+        <p>
+          Bitte teile noch mit, ob du dabei sein kannst – deine Antwort steht noch aus.
+        </p>
+        <p style="text-align:center; margin: 24px 0;">
+          <a href="${opts.appLink}" class="cta-btn" style="color:#ffffff;">Zur Einladung</a>
+        </p>
+        <p style="font-size:13px; color:${TEXT_MUTED};">
+          Wenn der Button nicht funktioniert, kopiere diesen Link in deinen Browser:<br/>
+          <a href="${opts.appLink}" style="color:${BRAND_GREEN}; word-break:break-all;">${opts.appLink}</a>
+        </p>
+      </div>
+      <div class="footer">
+        <p>Diese Erinnerung wurde an ${opts.guestEmail} gesendet.</p>
+      </div>`);
+}
+
 export function reminderEmail(opts: {
   inviterName: string;
   groupName: string;

@@ -11,6 +11,8 @@ import {
 import { eq, and, or, inArray } from "drizzle-orm";
 import { z } from "zod/v4";
 import { authMiddleware } from "./auth";
+import { sendEmail, isEmailConfigured } from "../lib/email";
+import { mealReminderEmail } from "../lib/emailTemplates";
 
 const router: IRouter = Router();
 
@@ -524,6 +526,22 @@ router.post("/meal-invitations/:id/remind", authMiddleware, async (req, res) => 
       return;
     }
 
+    const [host] = await db
+      .select({ displayName: usersTable.displayName })
+      .from(usersTable)
+      .where(eq(usersTable.id, userId));
+
+    const pendingUserIds = pendingMembers.map((m) => m.userId);
+    let pendingUsers: { id: number; email: string | null }[] = [];
+    if (pendingUserIds.length > 0) {
+      pendingUsers = await db
+        .select({ id: usersTable.id, email: usersTable.email })
+        .from(usersTable)
+        .where(inArray(usersTable.id, pendingUserIds));
+    }
+
+    const appLink = `${process.env["APP_BASE_URL"] ?? "https://lucias-kueche.replit.app"}/meal-invitations/${id}`;
+
     for (const member of pendingMembers) {
       await createNotification(
         member.userId,
@@ -531,6 +549,23 @@ router.post("/meal-invitations/:id/remind", authMiddleware, async (req, res) => 
         `Du wurdest an die Einladung zum Kochabend am ${invitation.date} erinnert – bitte antworte noch.`,
         id
       );
+
+      if (isEmailConfigured()) {
+        const guestUser = pendingUsers.find((u) => u.id === member.userId);
+        if (guestUser?.email) {
+          try {
+            const html = mealReminderEmail({
+              hostName: host?.displayName ?? "Dein Gastgeber",
+              date: invitation.date,
+              appLink,
+              guestEmail: guestUser.email,
+            });
+            await sendEmail(guestUser.email, `Erinnerung: Kochabend am ${invitation.date}`, html);
+          } catch (emailErr) {
+            req.log.warn({ err: emailErr, userId: member.userId }, "Failed to send reminder email to guest");
+          }
+        }
+      }
     }
 
     res.json({ success: true, reminded: pendingMembers.length });

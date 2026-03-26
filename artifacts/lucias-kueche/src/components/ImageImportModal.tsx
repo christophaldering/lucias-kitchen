@@ -298,33 +298,58 @@ export default function ImageImportModal({ onClose, onAdd }: Props) {
       reader.readAsDataURL(file);
     });
 
-  const processNextItem = useCallback(async (index: number, savedSoFar: number, skippedSoFar: number) => {
-    const snapshot = queueRef.current;
-    if (index >= snapshot.length) {
-      setSavedCountSync(savedSoFar);
-      setSkippedCountSync(skippedSoFar);
-      setStep("done");
-      processingRef.current = false;
-      return;
-    }
+  const runProcessingLoop = useCallback(async (startIndex: number, savedSoFar: number, skippedSoFar: number) => {
+    await Promise.resolve();
+    let index = startIndex;
+    let saved = savedSoFar;
+    let skipped = skippedSoFar;
 
-    const item = snapshot[index];
-    if (item.status !== "pending") {
-      await processNextItem(index + 1, savedSoFar, skippedSoFar);
-      return;
-    }
+    while (true) {
+      const queue = queueRef.current;
+      if (index >= queue.length) {
+        setSavedCountSync(saved);
+        setSkippedCountSync(skipped);
+        setStep("done");
+        processingRef.current = false;
+        return;
+      }
 
-    setCurrentIndexSync(index);
-    setExpandedEdit(false);
+      const item = queue[index];
 
-    setQueueAndSync((prev) =>
-      prev.map((it, i) => (i === index ? { ...it, status: "loading" } : it))
-    );
+      if (item.status !== "pending") {
+        index++;
+        continue;
+      }
 
-    try {
-      const { recipes, sourceDocumentUrl, extractedImageUrl } = await extractImageRecipes([
-        { base64: item.base64, mimeType: item.mimeType },
-      ]);
+      setCurrentIndexSync(index);
+      setExpandedEdit(false);
+
+      setQueueAndSync((prev) =>
+        prev.map((it, i) => (i === index ? { ...it, status: "loading" } : it))
+      );
+
+      let recipes: Partial<Recipe>[];
+      let sourceDocumentUrl: string | null;
+      let extractedImageUrl: string | null;
+
+      try {
+        const result = await extractImageRecipes([
+          { base64: item.base64, mimeType: item.mimeType },
+        ]);
+        recipes = result.recipes;
+        sourceDocumentUrl = result.sourceDocumentUrl;
+        extractedImageUrl = result.extractedImageUrl;
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : "Extraktion fehlgeschlagen.";
+        setQueueAndSync((prev) =>
+          prev.map((it, i) =>
+            i === index ? { ...it, status: "error", errorMsg: msg } : it
+          )
+        );
+        skipped++;
+        index++;
+        continue;
+      }
 
       const firstRecipe = recipes[0] ? sanitizeRecipe(recipes[0]) : null;
 
@@ -336,11 +361,9 @@ export default function ImageImportModal({ onClose, onAdd }: Props) {
               : it
           )
         );
-
-        if (autoSaveRef.current) {
-          await processNextItem(index + 1, savedSoFar, skippedSoFar + 1);
-        }
-        return;
+        skipped++;
+        index++;
+        continue;
       }
 
       setQueueAndSync((prev) =>
@@ -351,47 +374,46 @@ export default function ImageImportModal({ onClose, onAdd }: Props) {
         )
       );
 
-      if (autoSaveRef.current) {
-        setQueueAndSync((prev) =>
-          prev.map((it, i) => (i === index ? { ...it, status: "saving" } : it))
-        );
-        try {
-          const newIds = await onAddRef.current([{ ...firstRecipe, sourceDocumentUrl: sourceDocumentUrl ?? undefined, imageUrl: extractedImageUrl ?? undefined }]);
-          appendSavedRecipeIds(newIds);
-          setQueueAndSync((prev) =>
-            prev.map((it, i) => (i === index ? { ...it, status: "saved" } : it))
-          );
-          await processNextItem(index + 1, savedSoFar + 1, skippedSoFar);
-        } catch (err) {
-          let msg = "Rezept konnte nicht gespeichert werden.";
-          if (err instanceof Error) {
-            try {
-              const parsed = JSON.parse(err.message);
-              if (parsed?.issues && Array.isArray(parsed.issues)) {
-                msg = formatZodIssues(parsed.issues);
-              } else if (parsed?.message) {
-                msg = parsed.message;
-              }
-            } catch {
-              if (err.message && !err.message.startsWith("HTTP")) msg = err.message;
-            }
-          }
-          setQueueAndSync((prev) =>
-            prev.map((it, i) => (i === index ? { ...it, status: "error", errorMsg: msg } : it))
-          );
-          await processNextItem(index + 1, savedSoFar, skippedSoFar + 1);
-        }
+      if (!autoSaveRef.current) {
+        return;
       }
-    } catch (err) {
-      const msg = err instanceof Error ? err.message : "Extraktion fehlgeschlagen.";
+
       setQueueAndSync((prev) =>
-        prev.map((it, i) =>
-          i === index ? { ...it, status: "error", errorMsg: msg } : it
-        )
+        prev.map((it, i) => (i === index ? { ...it, status: "saving" } : it))
       );
-      if (autoSaveRef.current) {
-        await processNextItem(index + 1, savedSoFar, skippedSoFar + 1);
+
+      try {
+        const newIds = await onAddRef.current([{
+          ...firstRecipe,
+          sourceDocumentUrl: sourceDocumentUrl ?? undefined,
+          imageUrl: extractedImageUrl ?? undefined,
+        }]);
+        appendSavedRecipeIds(newIds);
+        setQueueAndSync((prev) =>
+          prev.map((it, i) => (i === index ? { ...it, status: "saved" } : it))
+        );
+        saved++;
+      } catch (err) {
+        let msg = "Rezept konnte nicht gespeichert werden.";
+        if (err instanceof Error) {
+          try {
+            const parsed = JSON.parse(err.message);
+            if (parsed?.issues && Array.isArray(parsed.issues)) {
+              msg = formatZodIssues(parsed.issues);
+            } else if (parsed?.message) {
+              msg = parsed.message;
+            }
+          } catch {
+            if (err.message && !err.message.startsWith("HTTP")) msg = err.message;
+          }
+        }
+        setQueueAndSync((prev) =>
+          prev.map((it, i) => (i === index ? { ...it, status: "error", errorMsg: msg } : it))
+        );
+        skipped++;
       }
+
+      index++;
     }
   }, []);
 
@@ -426,7 +448,7 @@ export default function ImageImportModal({ onClose, onAdd }: Props) {
         setCurrentIndexSync(nextIndex);
         setExpandedEdit(false);
         processingRef.current = true;
-        await processNextItem(nextIndex, newSaved, skippedCountRef.current);
+        await runProcessingLoop(nextIndex, newSaved, skippedCountRef.current);
       }
     } catch (err) {
       let msg = "Rezept konnte nicht gespeichert werden.";
@@ -446,7 +468,7 @@ export default function ImageImportModal({ onClose, onAdd }: Props) {
         prev.map((it, i) => (i === idx ? { ...it, status: "error", errorMsg: msg } : it))
       );
     }
-  }, [processNextItem]);
+  }, [runProcessingLoop]);
 
   const startQueue = useCallback(async (items: QueueItem[]) => {
     if (processingRef.current) return;
@@ -455,8 +477,8 @@ export default function ImageImportModal({ onClose, onAdd }: Props) {
     setCurrentIndexSync(0);
     setSavedCountSync(0);
     setSkippedCountSync(0);
-    await processNextItem(0, 0, 0);
-  }, [processNextItem]);
+    await runProcessingLoop(0, 0, 0);
+  }, [runProcessingLoop]);
 
   const handleFiles = async (files: FileList) => {
     const validFiles: File[] = [];
@@ -536,7 +558,7 @@ export default function ImageImportModal({ onClose, onAdd }: Props) {
         setExpandedEdit(false);
         if (queueRef.current[nextIndex].status === "pending") {
           processingRef.current = true;
-          await processNextItem(nextIndex, newSaved, skippedCountRef.current);
+          await runProcessingLoop(nextIndex, newSaved, skippedCountRef.current);
         }
       }
     } catch (err) {
@@ -575,7 +597,7 @@ export default function ImageImportModal({ onClose, onAdd }: Props) {
       setExpandedEdit(false);
       if (queueRef.current[nextIndex].status === "pending") {
         processingRef.current = true;
-        await processNextItem(nextIndex, savedCountRef.current, newSkipped);
+        await runProcessingLoop(nextIndex, savedCountRef.current, newSkipped);
       }
     }
   };

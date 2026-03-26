@@ -149,6 +149,11 @@ export default function RecipePrintView({ recipe }: Props) {
         }
 
         /* ── Image ── */
+        .print-image-wrap {
+          position: relative;
+          width: 100%;
+          margin-bottom: 16px;
+        }
         .print-image {
           width: 100%;
           max-height: 170px;
@@ -156,7 +161,22 @@ export default function RecipePrintView({ recipe }: Props) {
           border: 1px solid #ccc;
           border-radius: 0;
           display: block;
-          margin-bottom: 16px;
+          margin-bottom: 0;
+        }
+        .print-ai-badge {
+          position: absolute;
+          bottom: 6px;
+          right: 8px;
+          background: rgba(0,0,0,0.55);
+          color: #fff;
+          font-size: 9px;
+          font-family: Arial, Helvetica, sans-serif;
+          padding: 2px 7px;
+          border-radius: 999px;
+          letter-spacing: 0.03em;
+          pointer-events: none;
+          -webkit-print-color-adjust: exact;
+          print-color-adjust: exact;
         }
 
         /* ── Two-column body ── */
@@ -384,11 +404,16 @@ export default function RecipePrintView({ recipe }: Props) {
 
       {/* ── Image ── */}
       {recipe.imageUrl && (
-        <img
-          className="print-image"
-          src={recipe.imageUrl}
-          alt={recipe.title}
-        />
+        <div className="print-image-wrap">
+          <img
+            className="print-image"
+            src={recipe.imageUrl}
+            alt={recipe.title}
+          />
+          {recipe.isAiGenerated && !recipe.mainPhotoUrl && (
+            <span className="print-ai-badge">KI generiert</span>
+          )}
+        </div>
       )}
 
       {/* ── Tips (above columns, full width) ── */}

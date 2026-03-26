@@ -119,6 +119,7 @@ async function getRecipesWithIngredients(currentUserId?: number, filter?: string
       r.parent_recipe_id AS "parentRecipeId",
       r.variant_name    AS "variantName",
       r.source_document_url AS "sourceDocumentUrl",
+      r.is_ai_generated     AS "isAiGenerated",
       (
         SELECT p.image_url
         FROM recipe_photo_links rpl
@@ -177,6 +178,7 @@ async function getRecipesWithIngredients(currentUserId?: number, filter?: string
     parentRecipeId: number | null;
     variantName: string | null;
     sourceDocumentUrl: string | null;
+    isAiGenerated: boolean;
     ingredients: Array<{ id: number; recipeId: number; amount: string; unit: string; name: string; note: string | null }>;
     isFavorite: boolean;
     isOwner: boolean;
@@ -211,6 +213,7 @@ async function getRecipesWithIngredients(currentUserId?: number, filter?: string
     parentRecipeId: r.parentRecipeId,
     variantName: r.variantName,
     sourceDocumentUrl: r.sourceDocumentUrl,
+    isAiGenerated: r.isAiGenerated ?? false,
     ingredients: r.ingredients,
     isFavorite: r.isFavorite,
     isOwner: r.isOwner,
@@ -1600,6 +1603,14 @@ router.post("/photos/:photoId/link", authMiddleware, async (req, res) => {
       })
       .returning();
 
+    if (data.isMain) {
+      await db
+        .update(recipesTable)
+        .set({ imageUrl: photo.imageUrl, isAiGenerated: false })
+        .where(eq(recipesTable.id, data.recipeId));
+      invalidateRecipeListCache();
+    }
+
     res.status(201).json({
       id: photo.id,
       imageUrl: photo.imageUrl,
@@ -1639,7 +1650,7 @@ export async function generateAndSaveRecipeImage(recipeId: number, title: string
     const storagePath = await storageService.uploadBuffer(imageBuffer, "image/webp", "recipe-images");
     const imageUrl = `/api/storage${storagePath}`;
 
-    await db.update(recipesTable).set({ imageUrl }).where(eq(recipesTable.id, recipeId));
+    await db.update(recipesTable).set({ imageUrl, isAiGenerated: true }).where(eq(recipesTable.id, recipeId));
     invalidateRecipeListCache();
 
     return imageUrl;

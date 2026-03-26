@@ -28,6 +28,7 @@ export const recipesTable = pgTable("recipes", {
   variantName: text("variant_name"),
   sourceDocumentUrl: text("source_document_url"),
   deletedAt: timestamp("deleted_at"),
+  isAiGenerated: boolean("is_ai_generated").notNull().default(false),
 });
 
 export const recipeIngredientsTable = pgTable("recipe_ingredients", {

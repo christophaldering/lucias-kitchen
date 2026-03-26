@@ -85,6 +85,7 @@ export interface Recipe {
   variantName?: string | null;
   sourceDocumentUrl?: string | null;
   tags?: string[] | null;
+  isAiGenerated?: boolean;
 }
 
 export const ALL_CATEGORIES = [

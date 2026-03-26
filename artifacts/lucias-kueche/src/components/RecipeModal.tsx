@@ -379,12 +379,32 @@ export default function RecipeModal({ recipe, onClose, onAddToWeek, onToggleFavo
         </div>
 
         {recipe.imageUrl && (
-          <div className="w-full overflow-hidden max-h-56">
+          <div className="relative w-full overflow-hidden max-h-56">
             <img
               src={recipe.imageUrl}
               alt={recipe.title}
               className="w-full h-56 object-cover"
             />
+            {recipe.isAiGenerated && !recipe.mainPhotoUrl && (
+              <span
+                style={{
+                  position: "absolute",
+                  bottom: "8px",
+                  right: "10px",
+                  background: "rgba(0,0,0,0.55)",
+                  color: "#fff",
+                  fontSize: "10px",
+                  fontFamily: "Arial, Helvetica, sans-serif",
+                  padding: "2px 7px",
+                  borderRadius: "999px",
+                  letterSpacing: "0.03em",
+                  pointerEvents: "none",
+                  userSelect: "none",
+                }}
+              >
+                KI generiert
+              </span>
+            )}
           </div>
         )}
 

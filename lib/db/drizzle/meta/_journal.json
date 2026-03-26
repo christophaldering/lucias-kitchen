@@ -92,6 +92,13 @@
       "when": 1774560000000,
       "tag": "0012_add_tags_to_recipes",
       "breakpoints": true
+    },
+    {
+      "idx": 13,
+      "version": "7",
+      "when": 1774620000000,
+      "tag": "0013_add_ai_generated_flag",
+      "breakpoints": true
     }
   ]
 }

@@ -21,7 +21,7 @@ function singleImageUploadMiddlewareWithWebP(req: Request, res: Response, next: 
 
     try {
       const sharp = (await import("sharp")).default;
-      await sharp(originalPath).webp({ quality: 82 }).toFile(webpPath);
+      await sharp(originalPath).rotate().webp({ quality: 82 }).toFile(webpPath);
       fs.unlink(originalPath, () => {});
       req.file.filename = webpFilename;
       req.file.path = webpPath;

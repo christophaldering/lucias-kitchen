@@ -8,7 +8,7 @@ import { singleImageUploadMiddleware, UPLOADS_DIR } from "../lib/imageUpload";
 import { authMiddleware } from "./auth";
 import path from "path";
 import fs from "fs";
-import { createHash } from "crypto";
+import { createHash, randomUUID } from "crypto";
 import { generateTagsForRecipe } from "../lib/generateRecipeTags";
 import { openai } from "@workspace/integrations-openai-ai-server";
 
@@ -1572,6 +1572,140 @@ router.post("/recipes/:id/photos", singleImageUploadMiddleware, async (req, res)
   }
 });
 
+router.post("/recipes/:id/rotate-image", authMiddleware, async (req, res) => {
+  try {
+    const id = Number(req.params.id);
+    if (isNaN(id)) {
+      res.status(400).json({ error: "bad_request", message: "Invalid recipe id" });
+      return;
+    }
+
+    const { direction } = req.body as { direction?: string };
+    if (direction !== "cw" && direction !== "ccw") {
+      res.status(400).json({ error: "bad_request", message: "direction must be 'cw' or 'ccw'" });
+      return;
+    }
+
+    const [recipe] = await db
+      .select({ id: recipesTable.id, imageUrl: recipesTable.imageUrl, createdBy: recipesTable.createdBy })
+      .from(recipesTable)
+      .where(and(eq(recipesTable.id, id), isNull(recipesTable.deletedAt)))
+      .limit(1);
+
+    if (!recipe) {
+      res.status(404).json({ error: "not_found", message: "Rezept nicht gefunden" });
+      return;
+    }
+
+    const currentUserId = req.authUser!.id;
+    const isAdminUser = req.authUser?.email != null && isAdmin(req.authUser.email);
+    const isOwner = recipe.createdBy == null || recipe.createdBy === currentUserId;
+    if (!isOwner && !isAdminUser) {
+      res.status(403).json({ error: "forbidden", message: "Keine Berechtigung" });
+      return;
+    }
+
+    if (!recipe.imageUrl) {
+      res.status(400).json({ error: "no_image", message: "Rezept hat kein Bild" });
+      return;
+    }
+
+    const rotateDeg = direction === "cw" ? 90 : 270;
+    const sharp = (await import("sharp")).default;
+    const { ObjectStorageService } = await import("../lib/objectStorage");
+    const storageService = new ObjectStorageService();
+
+    let newImageUrl: string;
+    let oldLocalFilepath: string | null = null;
+    let oldObjectPath: string | null = null;
+    let shouldDeleteOldObject = false;
+
+    if (recipe.imageUrl.startsWith("/api/uploads/")) {
+      const filename = recipe.imageUrl.split("/").pop()!;
+      const filepath = path.join(UPLOADS_DIR, filename);
+      if (!fs.existsSync(filepath)) {
+        res.status(404).json({ error: "not_found", message: "Bilddatei nicht gefunden" });
+        return;
+      }
+      const inputBuffer = fs.readFileSync(filepath);
+      const rotatedBuffer = await sharp(inputBuffer).rotate(rotateDeg).webp({ quality: 82 }).toBuffer();
+      const newFilename = `${randomUUID()}.webp`;
+      const newFilepath = path.join(UPLOADS_DIR, newFilename);
+      fs.writeFileSync(newFilepath, rotatedBuffer);
+      newImageUrl = `/api/uploads/${newFilename}`;
+      oldLocalFilepath = filepath;
+    } else if (recipe.imageUrl.startsWith("/api/storage/objects/")) {
+      const objectPath = recipe.imageUrl.replace("/api/storage", "");
+      const objectFile = await storageService.getObjectEntityFile(objectPath);
+      const [contents] = await objectFile.download();
+      const rotatedBuffer = await sharp(contents as Buffer).rotate(rotateDeg).webp({ quality: 82 }).toBuffer();
+      const subPath = objectPath.startsWith("/objects/recipe-images")
+        ? "recipe-images"
+        : objectPath.startsWith("/objects/source-documents")
+        ? "source-documents"
+        : "recipe-images";
+      const storagePath = await storageService.uploadBuffer(rotatedBuffer, "image/webp", subPath);
+      newImageUrl = `/api/storage${storagePath}`;
+      oldObjectPath = objectPath;
+
+      // Only delete old object if no other recipe (besides this one) still references it
+      const otherReferences = await db
+        .select({ id: recipesTable.id })
+        .from(recipesTable)
+        .where(and(eq(recipesTable.imageUrl, recipe.imageUrl), sql`${recipesTable.id} != ${id}`, isNull(recipesTable.deletedAt)))
+        .limit(1);
+      shouldDeleteOldObject = otherReferences.length === 0;
+    } else {
+      res.status(400).json({ error: "unsupported_image", message: "Bildformat wird nicht unterstützt" });
+      return;
+    }
+
+    await db
+      .update(recipesTable)
+      .set({ imageUrl: newImageUrl })
+      .where(eq(recipesTable.id, id));
+
+    // Update the photo record that is the main photo for this recipe only
+    const [mainPhotoLink] = await db
+      .select({ photoId: recipePhotoLinksTable.photoId })
+      .from(recipePhotoLinksTable)
+      .innerJoin(photosTable, and(eq(photosTable.id, recipePhotoLinksTable.photoId), eq(photosTable.imageUrl, recipe.imageUrl)))
+      .where(and(eq(recipePhotoLinksTable.recipeId, id), eq(recipePhotoLinksTable.isMain, true)))
+      .limit(1);
+
+    if (mainPhotoLink) {
+      // Check if this photo is not linked to any other recipe before updating its URL
+      const otherPhotoLinks = await db
+        .select({ id: recipePhotoLinksTable.id })
+        .from(recipePhotoLinksTable)
+        .where(and(eq(recipePhotoLinksTable.photoId, mainPhotoLink.photoId), sql`${recipePhotoLinksTable.recipeId} != ${id}`))
+        .limit(1);
+
+      if (otherPhotoLinks.length === 0) {
+        await db
+          .update(photosTable)
+          .set({ imageUrl: newImageUrl })
+          .where(eq(photosTable.id, mainPhotoLink.photoId));
+      }
+    }
+
+    invalidateRecipeListCache();
+
+    // Clean up old file/object only after DB updates succeed
+    if (oldLocalFilepath) {
+      fs.unlink(oldLocalFilepath, () => {});
+    }
+    if (oldObjectPath && shouldDeleteOldObject) {
+      await storageService.deleteObject(oldObjectPath).catch(() => {});
+    }
+
+    res.json({ imageUrl: newImageUrl });
+  } catch (err) {
+    req.log.error({ err }, "Failed to rotate recipe image");
+    res.status(500).json({ error: "internal_error", message: "Bild konnte nicht gedreht werden" });
+  }
+});
+
 router.delete("/recipes/:id/photos/:photoId", async (req, res) => {
   try {
     const id = Number(req.params.id);
@@ -2099,6 +2233,26 @@ router.get("/admin/recipes-without-images", authMiddleware, async (req, res) => 
     res.json(result);
   } catch (err) {
     req.log.error({ err }, "Failed to fetch recipes without images");
+    res.status(500).json({ error: "internal_error" });
+  }
+});
+
+router.get("/admin/recipes-with-images", authMiddleware, async (req, res) => {
+  if (!isAdmin(req.authUser!.email)) {
+    res.status(403).json({ error: "forbidden", message: "Nur Admins können diese Daten abrufen" });
+    return;
+  }
+
+  try {
+    const recipes = await db
+      .select({ id: recipesTable.id, title: recipesTable.title, category: recipesTable.category, imageUrl: recipesTable.imageUrl })
+      .from(recipesTable)
+      .where(and(isNull(recipesTable.deletedAt), sql`${recipesTable.imageUrl} IS NOT NULL`))
+      .orderBy(recipesTable.title);
+
+    res.json(recipes);
+  } catch (err) {
+    req.log.error({ err }, "Failed to fetch recipes with images");
     res.status(500).json({ error: "internal_error" });
   }
 });

@@ -446,7 +446,7 @@ async function processPdfFile(
 
 async function convertHeicToJpeg(buffer: Buffer): Promise<Buffer> {
   const sharp = (await import("sharp")).default;
-  return sharp(buffer).jpeg({ quality: 90 }).toBuffer();
+  return sharp(buffer).rotate().jpeg({ quality: 90 }).toBuffer();
 }
 
 async function normalizeImageBuffer(buffer: Buffer, filename: string): Promise<{ jpeg: Buffer; mimeType: "image/jpeg" }> {
@@ -456,7 +456,7 @@ async function normalizeImageBuffer(buffer: Buffer, filename: string): Promise<{
     return { jpeg, mimeType: "image/jpeg" };
   }
   const sharp = (await import("sharp")).default;
-  const jpeg = await sharp(buffer).jpeg({ quality: 90 }).toBuffer();
+  const jpeg = await sharp(buffer).rotate().jpeg({ quality: 90 }).toBuffer();
   return { jpeg, mimeType: "image/jpeg" };
 }
 

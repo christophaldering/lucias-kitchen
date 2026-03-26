@@ -3,7 +3,7 @@ import * as XLSX from "xlsx";
 import {
   Loader2, Trash2, Edit2, Download, Tag, RefreshCw,
   Upload, Check, AlertTriangle, Settings, Database, Sliders,
-  X, Plus, ChevronsUpDown, Users, CheckCircle, XCircle, Clock, FolderOpen, Copy, RotateCcw, Images
+  X, Plus, ChevronsUpDown, Users, CheckCircle, XCircle, Clock, FolderOpen, Copy, RotateCcw, RotateCw, Images
 } from "lucide-react";
 import { AdminNeedBox, AdminActionCard } from "@/components/AdminUI";
 import { useRecipes } from "@/hooks/useRecipes";
@@ -1258,6 +1258,142 @@ function TagsAdmin() {
 
 type RecipeWithoutImage = { id: number; title: string; category: string; createdAt: string | null; photoCount: number };
 type ScanCandidate = { id: number; title: string; category: string; createdAt: string | null; sourceDocumentUrl: string };
+type RecipeWithImage = { id: number; title: string; category: string; imageUrl: string };
+
+function RotateImagesCard() {
+  const [recipes, setRecipes] = useState<RecipeWithImage[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [loadError, setLoadError] = useState(false);
+  const [categoryFilter, setCategoryFilter] = useState<string>("all");
+  const [rotating, setRotating] = useState<Record<number, "cw" | "ccw" | null>>({});
+  const [imageKeys, setImageKeys] = useState<Record<number, number>>({});
+
+  const loadRecipes = useCallback(() => {
+    setLoading(true);
+    setLoadError(false);
+    fetch("/api/admin/recipes-with-images", { headers: { ...authHeaders() } })
+      .then((r) => { if (!r.ok) throw new Error(); return r.json(); })
+      .then((data: RecipeWithImage[]) => { setRecipes(data); setLoading(false); })
+      .catch(() => { setLoading(false); setLoadError(true); });
+  }, []);
+
+  useEffect(() => { loadRecipes(); }, [loadRecipes]);
+
+  const categories = Array.from(new Set(recipes.map((r) => r.category))).sort();
+  const filteredRecipes = categoryFilter === "all" ? recipes : recipes.filter((r) => r.category === categoryFilter);
+
+  const rotate = async (recipe: RecipeWithImage, direction: "cw" | "ccw") => {
+    setRotating((prev) => ({ ...prev, [recipe.id]: direction }));
+    try {
+      const res = await fetch(`/api/recipes/${recipe.id}/rotate-image`, {
+        method: "POST",
+        headers: { ...authHeaders(), "Content-Type": "application/json" },
+        body: JSON.stringify({ direction }),
+      });
+      if (!res.ok) throw new Error();
+      const data = await res.json() as { imageUrl: string };
+      setRecipes((prev) => prev.map((r) => r.id === recipe.id ? { ...r, imageUrl: data.imageUrl } : r));
+      setImageKeys((prev) => ({ ...prev, [recipe.id]: (prev[recipe.id] ?? 0) + 1 }));
+      toast("Bild gedreht");
+    } catch {
+      toast("Fehler beim Drehen", "err");
+    } finally {
+      setRotating((prev) => ({ ...prev, [recipe.id]: null }));
+    }
+  };
+
+  return (
+    <AdminActionCard
+      title="↺ Bilder drehen"
+      description="Wenn ein Rezeptbild falsch ausgerichtet ist (z.B. beim iPhone-Hochformat), kannst du es hier um 90° nach links oder rechts drehen. Das Bild wird sofort aktualisiert gespeichert."
+    >
+      <div className="border border-border rounded-xl overflow-hidden">
+        <div className="bg-secondary/50 px-4 py-3 flex flex-wrap items-center gap-3 border-b border-border">
+          <span className="text-sm font-medium text-foreground">
+            {loading ? "Lade Rezepte…" : `${recipes.length} Rezepte mit Bild`}
+          </span>
+          {categories.length > 0 && (
+            <select
+              value={categoryFilter}
+              onChange={(e) => setCategoryFilter(e.target.value)}
+              className="text-sm border border-border rounded-lg px-2 py-1 bg-white focus:outline-none focus:ring-1 focus:ring-[#4A7C59]"
+            >
+              <option value="all">Alle Kategorien</option>
+              {categories.map((c) => (
+                <option key={c} value={c}>{c}</option>
+              ))}
+            </select>
+          )}
+          <button onClick={loadRecipes} className="ml-auto text-xs px-3 py-1 rounded-lg border border-border text-muted-foreground hover:bg-secondary transition-colors">
+            <RefreshCw className="w-3.5 h-3.5 inline mr-1" />Aktualisieren
+          </button>
+        </div>
+
+        <div className="max-h-[480px] overflow-y-auto">
+          {loading ? (
+            <div className="flex items-center justify-center py-8 gap-2 text-sm text-muted-foreground">
+              <Loader2 className="w-4 h-4 animate-spin" /> Wird geladen…
+            </div>
+          ) : loadError ? (
+            <div className="flex items-center justify-center py-8 gap-2 text-sm text-red-600">
+              <AlertTriangle className="w-4 h-4" /> Rezepte konnten nicht geladen werden.
+              <button onClick={loadRecipes} className="underline hover:no-underline ml-1">Erneut versuchen</button>
+            </div>
+          ) : filteredRecipes.length === 0 ? (
+            <div className="py-8 text-center text-sm text-muted-foreground">
+              Keine Rezepte mit Bild gefunden.
+            </div>
+          ) : (
+            <div className="divide-y divide-border">
+              {filteredRecipes.map((recipe) => {
+                const isRotating = rotating[recipe.id] != null;
+                const imgKey = imageKeys[recipe.id] ?? 0;
+                return (
+                  <div key={recipe.id} className="flex items-center gap-3 px-4 py-3 hover:bg-secondary/30">
+                    <div className="w-16 h-16 rounded-lg overflow-hidden bg-gray-100 flex-shrink-0">
+                      <img
+                        key={`${recipe.id}-${imgKey}`}
+                        src={recipe.imageUrl}
+                        alt={recipe.title}
+                        className="w-full h-full object-cover"
+                      />
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <p className="text-sm font-medium text-foreground truncate">{recipe.title}</p>
+                      <p className="text-xs text-muted-foreground">{recipe.category}</p>
+                    </div>
+                    <div className="flex gap-1 flex-shrink-0">
+                      <button
+                        onClick={() => rotate(recipe, "ccw")}
+                        disabled={isRotating}
+                        title="90° links drehen"
+                        className="p-2 rounded-lg border border-border hover:bg-secondary text-muted-foreground hover:text-foreground transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                      >
+                        {isRotating && rotating[recipe.id] === "ccw"
+                          ? <Loader2 className="w-4 h-4 animate-spin" />
+                          : <RotateCcw className="w-4 h-4" />}
+                      </button>
+                      <button
+                        onClick={() => rotate(recipe, "cw")}
+                        disabled={isRotating}
+                        title="90° rechts drehen"
+                        className="p-2 rounded-lg border border-border hover:bg-secondary text-muted-foreground hover:text-foreground transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                      >
+                        {isRotating && rotating[recipe.id] === "cw"
+                          ? <Loader2 className="w-4 h-4 animate-spin" />
+                          : <RotateCw className="w-4 h-4" />}
+                      </button>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </div>
+      </div>
+    </AdminActionCard>
+  );
+}
 
 function ScanPhotoCard() {
   const [status, setStatus] = useState<"idle" | "running" | "done" | "error">("idle");
@@ -1881,6 +2017,8 @@ function RecipeImagesTab() {
         )}
       </button>
     </AdminActionCard>
+
+    <RotateImagesCard />
 
     <ScanPhotoCard />
     </div>

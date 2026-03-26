@@ -39,7 +39,7 @@ router.post("/extract-image", async (req, res) => {
       const firstImage = imageEntries[0];
       const sharp = (await import("sharp")).default;
       const inputBuffer = Buffer.from(firstImage.base64, "base64");
-      const webpBuffer = await sharp(inputBuffer).webp({ quality: 82 }).toBuffer();
+      const webpBuffer = await sharp(inputBuffer).rotate().webp({ quality: 82 }).toBuffer();
       const storagePath = await storageService.uploadBuffer(webpBuffer, "image/webp", "source-documents");
       sourceDocumentUrl = `/api/storage${storagePath}`;
     } catch {
@@ -54,7 +54,7 @@ router.post("/extract-image", async (req, res) => {
         try {
           const sharp = (await import("sharp")).default;
           const inputBuf = Buffer.from(img.base64, "base64");
-          const jpegBuf = await sharp(inputBuf).jpeg({ quality: 90 }).toBuffer();
+          const jpegBuf = await sharp(inputBuf).rotate().jpeg({ quality: 90 }).toBuffer();
           visionEntries.push({ base64: jpegBuf.toString("base64"), mimeType: "image/jpeg" });
         } catch (convErr) {
           req.log.warn({ err: convErr }, "HEIC conversion failed, skipping image");
@@ -132,7 +132,7 @@ router.post("/extract-image", async (req, res) => {
         const firstImage = imageEntries[0];
         const inputBuffer = Buffer.from(firstImage.base64, "base64");
         const sharp = (await import("sharp")).default;
-        const meta = await sharp(inputBuffer).metadata();
+        const meta = await sharp(inputBuffer).rotate().metadata();
         const imgWidth = meta.width ?? 1024;
         const imgHeight = meta.height ?? 1024;
 
@@ -142,6 +142,7 @@ router.post("/extract-image", async (req, res) => {
         const cropH = Math.min(imgHeight - cropY, Math.max(1, Math.round((crop.height / 100) * imgHeight)));
 
         const croppedBuffer = await sharp(inputBuffer)
+          .rotate()
           .extract({ left: cropX, top: cropY, width: cropW, height: cropH })
           .resize(800, 800, { fit: "inside", withoutEnlargement: true })
           .webp({ quality: 82 })

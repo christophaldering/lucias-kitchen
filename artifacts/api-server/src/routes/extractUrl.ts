@@ -261,6 +261,7 @@ async function downloadAndSaveImage(imageUrl: string): Promise<string | null> {
 
     const sharp = (await import("sharp")).default;
     const webpBuffer = await sharp(imgBuffer)
+      .rotate()
       .resize(800, 800, { fit: "inside", withoutEnlargement: true })
       .webp({ quality: 82 })
       .toBuffer();

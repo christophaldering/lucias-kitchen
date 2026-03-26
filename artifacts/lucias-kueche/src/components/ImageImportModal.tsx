@@ -20,6 +20,7 @@ interface QueueItem {
   status: "pending" | "loading" | "review" | "saving" | "saved" | "skipped" | "error";
   extracted: Partial<Recipe> | null;
   sourceDocumentUrl: string | null;
+  extractedImageUrl: string | null;
   errorMsg: string | null;
 }
 
@@ -179,7 +180,7 @@ export default function ImageImportModal({ onClose, onAdd }: Props) {
     );
 
     try {
-      const { recipes, sourceDocumentUrl } = await extractImageRecipes([
+      const { recipes, sourceDocumentUrl, extractedImageUrl } = await extractImageRecipes([
         { base64: item.base64, mimeType: item.mimeType },
       ]);
 
@@ -204,7 +205,7 @@ export default function ImageImportModal({ onClose, onAdd }: Props) {
       setQueue((prev) =>
         prev.map((it, i) =>
           i === index
-            ? { ...it, status: "review", extracted: firstRecipe, sourceDocumentUrl }
+            ? { ...it, status: "review", extracted: firstRecipe, sourceDocumentUrl, extractedImageUrl }
             : it
         )
       );
@@ -214,7 +215,7 @@ export default function ImageImportModal({ onClose, onAdd }: Props) {
           prev.map((it, i) => (i === index ? { ...it, status: "saving" } : it))
         );
         try {
-          await onAdd([{ ...firstRecipe, sourceDocumentUrl: sourceDocumentUrl ?? undefined }]);
+          await onAdd([{ ...firstRecipe, sourceDocumentUrl: sourceDocumentUrl ?? undefined, imageUrl: extractedImageUrl ?? undefined }]);
           setQueue((prev) =>
             prev.map((it, i) => (i === index ? { ...it, status: "saved" } : it))
           );
@@ -270,7 +271,7 @@ export default function ImageImportModal({ onClose, onAdd }: Props) {
     );
 
     try {
-      await onAdd([{ ...currentItem.extracted, sourceDocumentUrl: currentItem.sourceDocumentUrl ?? undefined }]);
+      await onAdd([{ ...currentItem.extracted, sourceDocumentUrl: currentItem.sourceDocumentUrl ?? undefined, imageUrl: currentItem.extractedImageUrl ?? undefined }]);
       setQueue((prev) =>
         prev.map((it, i) => (i === currentIndex ? { ...it, status: "saved" } : it))
       );
@@ -350,6 +351,7 @@ export default function ImageImportModal({ onClose, onAdd }: Props) {
           status: "pending" as const,
           extracted: null,
           sourceDocumentUrl: null,
+          extractedImageUrl: null,
           errorMsg: null,
         };
       })
@@ -376,7 +378,7 @@ export default function ImageImportModal({ onClose, onAdd }: Props) {
     );
 
     try {
-      await onAdd([{ ...item.extracted, sourceDocumentUrl: item.sourceDocumentUrl ?? undefined }]);
+      await onAdd([{ ...item.extracted, sourceDocumentUrl: item.sourceDocumentUrl ?? undefined, imageUrl: item.extractedImageUrl ?? undefined }]);
       setQueue((prev) =>
         prev.map((it, i) => (i === currentIndex ? { ...it, status: "saved" } : it))
       );

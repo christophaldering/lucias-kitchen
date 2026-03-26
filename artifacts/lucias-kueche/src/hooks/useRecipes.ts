@@ -267,7 +267,7 @@ export async function extractUrlRecipes(
 export async function extractImageRecipes(
   images: Array<{ base64: string; mimeType: string }> | string,
   mimeType: string = "image/jpeg"
-): Promise<{ recipes: Partial<Recipe>[]; modelUsed: "openai"; sourceDocumentUrl: string | null }> {
+): Promise<{ recipes: Partial<Recipe>[]; modelUsed: "openai"; sourceDocumentUrl: string | null; extractedImageUrl: string | null }> {
   const body = Array.isArray(images)
     ? { images }
     : { image: images, mimeType };
@@ -288,7 +288,7 @@ export async function extractImageRecipes(
     throw new Error(err.message ?? `HTTP ${res.status}`);
   }
   const data = await res.json();
-  return { recipes: data.recipes ?? [], modelUsed: data.modelUsed, sourceDocumentUrl: data.sourceDocumentUrl ?? null };
+  return { recipes: data.recipes ?? [], modelUsed: data.modelUsed, sourceDocumentUrl: data.sourceDocumentUrl ?? null, extractedImageUrl: data.extractedImageUrl ?? null };
 }
 
 export async function fetchRecipePhotos(recipeId: number): Promise<RecipePhoto[]> {

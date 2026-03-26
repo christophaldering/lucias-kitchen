@@ -1,6 +1,6 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import type { Recipe } from "@/types/recipe";
-import { X, Clock, ChefHat, CalendarPlus, Users, Flame, BookOpen, Check, Printer, UtensilsCrossed, Minus, Plus, Star, ChevronDown, Copy, Share2, Trash2, Loader2, FileText } from "lucide-react";
+import { X, Clock, ChefHat, CalendarPlus, Users, Flame, BookOpen, Check, Printer, UtensilsCrossed, Minus, Plus, Star, ChevronDown, Copy, Share2, Trash2, Loader2, FileText, Sparkles } from "lucide-react";
 import { SEASON_ICONS, SEASON_LABELS } from "@/types/recipe";
 import type { Season } from "@/types/recipe";
 import { addMealPlanEntry } from "@/hooks/useMealPlans";
@@ -191,6 +191,37 @@ export default function RecipeModal({ recipe, onClose, onAddToWeek, onToggleFavo
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [deleting, setDeleting] = useState(false);
   const [showOriginalModal, setShowOriginalModal] = useState(false);
+  const [generatingImage, setGeneratingImage] = useState(false);
+  const [localImageUrl, setLocalImageUrl] = useState<string | null>(recipe.imageUrl ?? null);
+  const [localIsAiGenerated, setLocalIsAiGenerated] = useState(recipe.isAiGenerated ?? false);
+
+  useEffect(() => {
+    setLocalImageUrl(recipe.imageUrl ?? null);
+    setLocalIsAiGenerated(recipe.isAiGenerated ?? false);
+  }, [recipe.id, recipe.imageUrl, recipe.isAiGenerated]);
+
+  const handleGenerateImage = async () => {
+    setGeneratingImage(true);
+    try {
+      const res = await authFetch(`${API_BASE}/recipes/${recipe.id}/generate-image`, {
+        method: "POST",
+        headers: { ...authHeaders() },
+      });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        showToast((err as { message?: string }).message ?? "Bildgenerierung fehlgeschlagen", "error");
+        return;
+      }
+      const data = await res.json();
+      setLocalImageUrl(data.imageUrl);
+      setLocalIsAiGenerated(true);
+      if (onRecipeUpdated) onRecipeUpdated({ ...recipe, imageUrl: data.imageUrl, isAiGenerated: true });
+    } catch {
+      showToast("Bildgenerierung fehlgeschlagen", "error");
+    } finally {
+      setGeneratingImage(false);
+    }
+  };
 
   // Stock reduction modal
   const [stockReductionLoading, setStockReductionLoading] = useState(false);
@@ -378,14 +409,14 @@ export default function RecipeModal({ recipe, onClose, onAddToWeek, onToggleFavo
           </div>
         </div>
 
-        {recipe.imageUrl && (
+        {localImageUrl && (
           <div className="relative w-full overflow-hidden max-h-56">
             <img
-              src={recipe.imageUrl}
+              src={localImageUrl}
               alt={recipe.title}
               className="w-full h-56 object-cover"
             />
-            {recipe.isAiGenerated && !recipe.mainPhotoUrl && (
+            {localIsAiGenerated && !recipe.mainPhotoUrl && (
               <span
                 style={{
                   position: "absolute",
@@ -574,6 +605,17 @@ export default function RecipeModal({ recipe, onClose, onAddToWeek, onToggleFavo
                 >
                   <FileText className="w-4 h-4" />
                   Original ansehen
+                </button>
+              )}
+
+              {isOwner && !localImageUrl && !recipe.mainPhotoUrl && (
+                <button
+                  onClick={handleGenerateImage}
+                  disabled={generatingImage}
+                  className="flex items-center gap-2 px-4 py-2.5 bg-amber-50 border border-amber-200 text-amber-700 rounded-xl text-sm font-semibold hover:bg-amber-100 transition-colors disabled:opacity-60"
+                >
+                  {generatingImage ? <Loader2 className="w-4 h-4 animate-spin" /> : <Sparkles className="w-4 h-4" />}
+                  {generatingImage ? "Bild wird generiert…" : "KI-Bild generieren"}
                 </button>
               )}
 

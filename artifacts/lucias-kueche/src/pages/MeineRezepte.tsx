@@ -169,7 +169,6 @@ function RecipeCard({
       <div className="relative w-full overflow-hidden" style={{ paddingTop: "75%" }}>
         {(() => {
           const displayUrl = recipe.mainPhotoUrl ?? recipe.imageUrl ?? null;
-          const isGenerating = !recipe.mainPhotoUrl && !recipe.imageUrl;
           if (displayUrl) {
             return (
               <img
@@ -177,14 +176,6 @@ function RecipeCard({
                 alt={recipe.title}
                 className="absolute inset-0 w-full h-full object-cover transition-transform duration-300"
                 style={{ transform: hovered ? "scale(1.04)" : "scale(1)" }}
-              />
-            );
-          }
-          if (isGenerating) {
-            return (
-              <div
-                className="absolute inset-0 shimmer-bg"
-                style={{ background: "linear-gradient(90deg, #f5ede0 25%, #f0e0c8 50%, #f5ede0 75%)", backgroundSize: "200% 100%", animation: "shimmer 1.6s infinite" }}
               />
             );
           }
@@ -522,17 +513,6 @@ export default function MeineRezepte({ onNavigate: _onNavigate, initialOpenRecip
     refreshTokenRef.current = refreshToken;
     refetch();
   }, [refreshToken, refetch]);
-
-  const hasRecipesWithoutImages = useMemo(
-    () => recipes.some((r) => !r.mainPhotoUrl && !r.imageUrl),
-    [recipes]
-  );
-
-  useEffect(() => {
-    if (!hasRecipesWithoutImages) return;
-    const timer = setTimeout(() => { refetch(); }, 8000);
-    return () => clearTimeout(timer);
-  }, [hasRecipesWithoutImages, recipes.length, refetch]);
 
   const toggleSelect = (id: number) => setManagedSelected((prev) => {
     const next = new Set(prev);

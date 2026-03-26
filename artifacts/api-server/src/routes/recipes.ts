@@ -825,12 +825,6 @@ router.post("/recipes", authMiddleware, async (req, res) => {
         owner: null,
       });
 
-      if (!recipeData.imageUrl) {
-        setImmediate(() => {
-          generateAndSaveRecipeImage(recipe.id, recipe.title, recipe.category).catch(() => {});
-        });
-      }
-
       setImmediate(() => {
         generateTagsForRecipe({
           title: recipe.title,
@@ -1661,10 +1655,6 @@ export async function generateAndSaveRecipeImage(recipeId: number, title: string
 }
 
 router.post("/recipes/:id/generate-image", authMiddleware, async (req, res) => {
-  if (!isAdmin(req.authUser!.email)) {
-    res.status(403).json({ error: "forbidden", message: "Nur Admins können Bilder generieren" });
-    return;
-  }
   try {
     const id = Number(req.params.id);
     if (isNaN(id)) {
@@ -1673,13 +1663,19 @@ router.post("/recipes/:id/generate-image", authMiddleware, async (req, res) => {
     }
 
     const [recipe] = await db
-      .select({ id: recipesTable.id, title: recipesTable.title, category: recipesTable.category })
+      .select({ id: recipesTable.id, title: recipesTable.title, category: recipesTable.category, createdBy: recipesTable.createdBy, imageUrl: recipesTable.imageUrl })
       .from(recipesTable)
       .where(and(eq(recipesTable.id, id), isNull(recipesTable.deletedAt)))
       .limit(1);
 
     if (!recipe) {
       res.status(404).json({ error: "not_found", message: "Recipe not found" });
+      return;
+    }
+
+    const isOwner = recipe.createdBy == null || recipe.createdBy === req.authUser!.id;
+    if (!isOwner && !isAdmin(req.authUser!.email)) {
+      res.status(403).json({ error: "forbidden", message: "Nur der Eigentümer kann ein Bild für dieses Rezept generieren" });
       return;
     }
 

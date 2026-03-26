@@ -1,7 +1,6 @@
 import { Router, type IRouter } from "express";
 import multer from "multer";
 import { db } from "@workspace/db";
-import { generateAndSaveRecipeImage } from "./recipes";
 import { generateTagsForRecipe } from "../lib/generateRecipeTags";
 import {
   bulkImportSessionsTable,
@@ -1548,10 +1547,6 @@ router.post("/bulk-import/:sessionId/save", authMiddleware, async (req, res) => 
         }).catch(() => {});
 
         savedCount++;
-
-        setImmediate(() => {
-          generateAndSaveRecipeImage(recipe.id, recipe.title, recipe.category ?? "Vegetarisch").catch(() => {});
-        });
 
         setImmediate(() => {
           generateTagsForRecipe({

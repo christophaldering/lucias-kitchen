@@ -189,6 +189,34 @@ async function detectFoodPhotoPages(pageBuffers: Buffer[]): Promise<Set<number>>
   }
 }
 
+async function detectFoodPhotoForImage(imageBase64: string): Promise<boolean> {
+  try {
+    const response = await anthropic.messages.create({
+      model: "claude-opus-4-5",
+      max_tokens: 128,
+      system: `Du analysierst ein Foto. Erkenne, ob das Bild ein Foto eines fertig zubereiteten Gerichts zeigt. Ein brauchbares Rezeptfoto zeigt das fertige Essen deutlich und ansprechend. Kein Rezeptfoto sind: reine Textseiten, Zutaten-Listen, handgeschriebene Rezeptkarten ohne sichtbares Gericht, leere Seiten, oder Bilder ohne erkennbares Essen. Antworte NUR mit einem JSON-Objekt: {"isFoodPhoto": true} oder {"isFoodPhoto": false}.`,
+      messages: [
+        {
+          role: "user",
+          content: [
+            {
+              type: "image",
+              source: { type: "base64", media_type: "image/jpeg", data: imageBase64 },
+            },
+            { type: "text", text: "Zeigt dieses Bild ein Foto eines fertig zubereiteten Gerichts?" },
+          ],
+        },
+      ],
+    });
+    const rawText = response.content[0]?.type === "text" ? response.content[0].text : "{}";
+    const cleaned = rawText.replace(/^```(?:json)?\s*/i, "").replace(/\s*```$/i, "").trim();
+    const parsed = JSON.parse(cleaned);
+    return !!parsed.isFoodPhoto;
+  } catch {
+    return false;
+  }
+}
+
 async function processPdfFile(
   fileId: number,
   sessionId: number,
@@ -490,8 +518,9 @@ async function processImageFile(
       .where(eq(bulkImportFilesTable.id, fileId));
 
     let documentHasHandwriting = false;
-    try {
-      const handwritingResponse = await anthropic.messages.create({
+    let isFoodPhoto = false;
+    const [handwritingResponseResult, foodPhotoResult] = await Promise.allSettled([
+      anthropic.messages.create({
         model: "claude-opus-4-5",
         max_tokens: 256,
         system: "Du analysierst ein Foto. Antworte NUR mit einem JSON-Objekt: {\"hasHandwriting\": true/false}. Prüfe ob handschriftliche Anmerkungen, Notizen oder handgeschriebene Rezepte vorhanden sind.",
@@ -507,14 +536,20 @@ async function processImageFile(
             ],
           },
         ],
-      });
-      const rawText = handwritingResponse.content[0]?.type === "text" ? handwritingResponse.content[0].text : "{}";
-      const cleaned = rawText.replace(/^```(?:json)?\s*/i, "").replace(/\s*```$/i, "").trim();
-      const parsed = JSON.parse(cleaned);
-      documentHasHandwriting = !!parsed.hasHandwriting;
-    } catch {
-      documentHasHandwriting = false;
+      }),
+      detectFoodPhotoForImage(imageBase64),
+    ]);
+    if (handwritingResponseResult.status === "fulfilled") {
+      try {
+        const rawText = handwritingResponseResult.value.content[0]?.type === "text" ? handwritingResponseResult.value.content[0].text : "{}";
+        const cleaned = rawText.replace(/^```(?:json)?\s*/i, "").replace(/\s*```$/i, "").trim();
+        const parsed = JSON.parse(cleaned);
+        documentHasHandwriting = !!parsed.hasHandwriting;
+      } catch {
+        documentHasHandwriting = false;
+      }
     }
+    isFoodPhoto = foodPhotoResult.status === "fulfilled" ? foodPhotoResult.value : false;
 
     const systemPrompt = documentHasHandwriting
       ? BULK_IMPORT_HANDWRITING_PROMPT
@@ -624,7 +659,7 @@ async function processImageFile(
         recipeData: recipeData as unknown as string,
         pageNumbers: [1] as unknown as string[],
         pageImageUrls: pageImageUrls as unknown as string[],
-        photoPageUrls: pageImageUrls as unknown as string[],
+        photoPageUrls: (isFoodPhoto ? pageImageUrls : []) as unknown as string[],
         hasHandwriting: hasHw,
         errorText: null,
       });
@@ -1939,14 +1974,32 @@ router.post("/bulk-import/:sessionId/save", authMiddleware, async (req, res) => 
 
         // Use only detected food photo pages; if none were detected, save no photos
         const photoPageUrls = (item.photoPageUrls as string[] | null) ?? [];
-        const photosToSave = photoPageUrls;
-        if (photosToSave.length > 0) {
-          await db.insert(recipePhotosTable).values(
-            photosToSave.map((url) => ({
-              recipeId: recipe.id,
-              imageUrl: url,
-            }))
-          );
+        if (photoPageUrls.length > 0) {
+          const permanentPhotoUrls: string[] = [];
+          for (const tempUrl of photoPageUrls) {
+            try {
+              const storagePath = tempUrl.startsWith("/api/storage")
+                ? tempUrl.slice("/api/storage".length)
+                : tempUrl;
+              const imageBuffer = await downloadPdfFromStorage(storagePath);
+              const permanentPath = await storageService.uploadBuffer(imageBuffer, "image/jpeg", "recipe-images");
+              permanentPhotoUrls.push(`/api/storage${permanentPath}`);
+            } catch (err) {
+              console.error(`Failed to copy photo to permanent storage (${tempUrl}):`, err);
+            }
+          }
+          if (permanentPhotoUrls.length > 0) {
+            await db.insert(recipePhotosTable).values(
+              permanentPhotoUrls.map((url) => ({
+                recipeId: recipe.id,
+                imageUrl: url,
+              }))
+            );
+            await db
+              .update(recipesTable)
+              .set({ imageUrl: permanentPhotoUrls[0] })
+              .where(eq(recipesTable.id, recipe.id));
+          }
         }
 
         await db

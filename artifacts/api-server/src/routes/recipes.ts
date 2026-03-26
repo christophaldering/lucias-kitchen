@@ -1977,11 +1977,15 @@ router.get("/admin/recipes-without-images", authMiddleware, async (req, res) => 
   }
 
   try {
-    const recipesWithPhotos = await db
-      .selectDistinct({ recipeId: recipePhotoLinksTable.recipeId })
-      .from(recipePhotoLinksTable);
+    const photoCounts = await db
+      .select({
+        recipeId: recipePhotoLinksTable.recipeId,
+        count: sql<number>`cast(count(*) as int)`,
+      })
+      .from(recipePhotoLinksTable)
+      .groupBy(recipePhotoLinksTable.recipeId);
 
-    const recipeIdsWithPhotos = new Set(recipesWithPhotos.map((r) => r.recipeId));
+    const photoCountMap = new Map(photoCounts.map((r) => [r.recipeId, r.count]));
 
     const allRecipes = await db
       .select({ id: recipesTable.id, title: recipesTable.title, category: recipesTable.category, createdAt: recipesTable.createdAt })
@@ -1989,7 +1993,7 @@ router.get("/admin/recipes-without-images", authMiddleware, async (req, res) => 
       .where(and(isNull(recipesTable.deletedAt), isNull(recipesTable.imageUrl)))
       .orderBy(recipesTable.id);
 
-    const result = allRecipes.filter((r) => !recipeIdsWithPhotos.has(r.id));
+    const result = allRecipes.map((r) => ({ ...r, photoCount: photoCountMap.get(r.id) ?? 0 }));
     res.json(result);
   } catch (err) {
     req.log.error({ err }, "Failed to fetch recipes without images");
@@ -2170,41 +2174,71 @@ router.post("/admin/generate-recipe-images/selected", authMiddleware, async (req
       .from(recipesTable)
       .where(and(isNull(recipesTable.deletedAt), inArray(recipesTable.id, ids)));
 
-    const recipesWithPhotos = await db
-      .selectDistinct({ recipeId: recipePhotoLinksTable.recipeId })
-      .from(recipePhotoLinksTable)
-      .where(inArray(recipePhotoLinksTable.recipeId, ids));
+    const recipesNeedingImage = allRecipes.filter((r) => !r.imageUrl);
 
-    const recipeIdsWithPhotos = new Set(recipesWithPhotos.map((r) => r.recipeId));
+    const firstPhotoMap = new Map<number, string>();
+    if (recipesNeedingImage.length > 0) {
+      const firstPhotos = await db
+        .select({
+          recipeId: recipePhotoLinksTable.recipeId,
+          imageUrl: photosTable.imageUrl,
+        })
+        .from(recipePhotoLinksTable)
+        .innerJoin(photosTable, eq(photosTable.id, recipePhotoLinksTable.photoId))
+        .where(inArray(recipePhotoLinksTable.recipeId, recipesNeedingImage.map((r) => r.id)))
+        .orderBy(recipePhotoLinksTable.sortOrder, desc(photosTable.createdAt));
 
-    const recipesToProcess = allRecipes.filter(
-      (r) => !recipeIdsWithPhotos.has(r.id) && !r.imageUrl
-    );
+      for (const row of firstPhotos) {
+        if (!firstPhotoMap.has(row.recipeId)) {
+          firstPhotoMap.set(row.recipeId, row.imageUrl);
+        }
+      }
+    }
 
-    const total = recipesToProcess.length;
+    const recipesWithGalleryPhotos = recipesNeedingImage.filter((r) => firstPhotoMap.has(r.id));
+    const recipesNeedingAI = recipesNeedingImage.filter((r) => !firstPhotoMap.has(r.id));
+
+    const total = recipesNeedingImage.length;
     let done = 0;
     let errors = 0;
 
     sendEvent({ done, total, errors });
 
-    const { batchProcessWithSSE } = await import("@workspace/integrations-openai-ai-server/batch");
+    for (const recipe of recipesWithGalleryPhotos) {
+      try {
+        const photoUrl = firstPhotoMap.get(recipe.id)!;
+        await db.update(recipesTable).set({ imageUrl: photoUrl, isAiGenerated: false }).where(eq(recipesTable.id, recipe.id));
+        await syncMainPhotoLink(recipe.id, photoUrl);
+        invalidateRecipeListCache();
+      } catch {
+        errors++;
+      }
+      done++;
+      sendEvent({ done, total, errors });
+    }
 
-    await batchProcessWithSSE(
-      recipesToProcess,
-      async (recipe) => {
-        await generateAndSaveRecipeImage(recipe.id, recipe.title, recipe.category);
-      },
-      (event) => {
-        if (event.type === "progress") {
-          done++;
-          if (event.error) errors++;
-          sendEvent({ done, total, errors });
-        } else if (event.type === "complete") {
-          sendEvent({ done: total, total, errors: event.errors as number, finished: true });
-        }
-      },
-      { retries: 2 }
-    );
+    if (recipesNeedingAI.length > 0) {
+      const { batchProcessWithSSE } = await import("@workspace/integrations-openai-ai-server/batch");
+
+      await batchProcessWithSSE(
+        recipesNeedingAI,
+        async (recipe) => {
+          await generateAndSaveRecipeImage(recipe.id, recipe.title, recipe.category);
+        },
+        (event) => {
+          if (event.type === "progress") {
+            done++;
+            if (event.error) errors++;
+            sendEvent({ done, total, errors });
+          } else if (event.type === "complete") {
+            sendEvent({ done: total, total, errors, finished: true });
+          }
+        },
+        { retries: 2 }
+      );
+    } else {
+      sendEvent({ done: total, total, errors, finished: true });
+    }
   } catch (err) {
     req.log.error({ err }, "Failed to run selected image generation");
     sendEvent({ error: "Fehler bei der Bildgenerierung" });
@@ -2229,47 +2263,76 @@ router.post("/admin/generate-recipe-images", authMiddleware, async (req, res) =>
   };
 
   try {
-    const recipesWithPhotos = await db
-      .selectDistinct({ recipeId: recipePhotoLinksTable.recipeId })
-      .from(recipePhotoLinksTable);
-
-    const recipeIdsWithPhotos = new Set(recipesWithPhotos.map((r) => r.recipeId));
-
     const allRecipes = await db
       .select({ id: recipesTable.id, title: recipesTable.title, category: recipesTable.category, imageUrl: recipesTable.imageUrl })
       .from(recipesTable)
-      .where(isNull(recipesTable.deletedAt));
+      .where(and(isNull(recipesTable.deletedAt), isNull(recipesTable.imageUrl)));
 
-    const recipesToProcess = allRecipes.filter(
-      (r) => !recipeIdsWithPhotos.has(r.id) && !r.imageUrl
-    );
+    const recipesNeedingImage = allRecipes;
 
-    const total = recipesToProcess.length;
+    const firstPhotos = recipesNeedingImage.length > 0
+      ? await db
+          .select({
+            recipeId: recipePhotoLinksTable.recipeId,
+            imageUrl: photosTable.imageUrl,
+          })
+          .from(recipePhotoLinksTable)
+          .innerJoin(photosTable, eq(photosTable.id, recipePhotoLinksTable.photoId))
+          .where(inArray(recipePhotoLinksTable.recipeId, recipesNeedingImage.map((r) => r.id)))
+          .orderBy(recipePhotoLinksTable.sortOrder, desc(photosTable.createdAt))
+      : [];
+
+    const firstPhotoMap = new Map<number, string>();
+    for (const row of firstPhotos) {
+      if (!firstPhotoMap.has(row.recipeId)) {
+        firstPhotoMap.set(row.recipeId, row.imageUrl);
+      }
+    }
+
+    const recipesWithGalleryPhotos = recipesNeedingImage.filter((r) => firstPhotoMap.has(r.id));
+    const recipesNeedingAI = recipesNeedingImage.filter((r) => !firstPhotoMap.has(r.id));
+
+    const total = recipesNeedingImage.length;
     let done = 0;
     let errors = 0;
 
     sendEvent({ done, total, errors });
 
-    const { batchProcessWithSSE } = await import("@workspace/integrations-openai-ai-server/batch");
+    for (const recipe of recipesWithGalleryPhotos) {
+      try {
+        const photoUrl = firstPhotoMap.get(recipe.id)!;
+        await db.update(recipesTable).set({ imageUrl: photoUrl, isAiGenerated: false }).where(eq(recipesTable.id, recipe.id));
+        await syncMainPhotoLink(recipe.id, photoUrl);
+        invalidateRecipeListCache();
+      } catch {
+        errors++;
+      }
+      done++;
+      sendEvent({ done, total, errors });
+    }
 
-    await batchProcessWithSSE(
-      recipesToProcess,
-      async (recipe) => {
-        await generateAndSaveRecipeImage(recipe.id, recipe.title, recipe.category);
-      },
-      (event) => {
-        if (event.type === "progress") {
-          done++;
-          if (event.error) errors++;
-          sendEvent({ done, total, errors });
-        } else if (event.type === "complete") {
-          sendEvent({ done: total, total, errors: event.errors as number, finished: true });
-        }
-      },
-      { retries: 2 }
-    );
+    if (recipesNeedingAI.length > 0) {
+      const { batchProcessWithSSE } = await import("@workspace/integrations-openai-ai-server/batch");
 
-    sendEvent({ done: total, total, errors, finished: true });
+      await batchProcessWithSSE(
+        recipesNeedingAI,
+        async (recipe) => {
+          await generateAndSaveRecipeImage(recipe.id, recipe.title, recipe.category);
+        },
+        (event) => {
+          if (event.type === "progress") {
+            done++;
+            if (event.error) errors++;
+            sendEvent({ done, total, errors });
+          } else if (event.type === "complete") {
+            sendEvent({ done: total, total, errors, finished: true });
+          }
+        },
+        { retries: 2 }
+      );
+    } else {
+      sendEvent({ done: total, total, errors, finished: true });
+    }
   } catch (err) {
     req.log.error({ err }, "Failed to run image backfill");
     sendEvent({ error: "Fehler bei der Bildgenerierung" });

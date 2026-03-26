@@ -1215,7 +1215,7 @@ function TagsAdmin() {
   );
 }
 
-type RecipeWithoutImage = { id: number; title: string; category: string; createdAt: string | null };
+type RecipeWithoutImage = { id: number; title: string; category: string; createdAt: string | null; photoCount: number };
 
 function RecipeImagesTab() {
   const [status, setStatus] = useState<"idle" | "running" | "done" | "error">("idle");
@@ -1334,7 +1334,7 @@ function RecipeImagesTab() {
       </div>
 
       <p className="text-sm text-muted-foreground">
-        Generiert KI-Bilder für Rezepte, die noch kein Nutzerfoto und noch kein Bild haben.
+        Verarbeitet Rezepte ohne Hauptbild. Rezepte mit vorhandenen Fotos bekommen das erste Foto als Hauptbild gesetzt; Rezepte ohne jegliche Fotos erhalten ein KI-generiertes Bild.
         Neue Rezepte erhalten automatisch ein Bild im Hintergrund – diese Optionen sind für bestehende Rezepte gedacht.
       </p>
 
@@ -1438,6 +1438,11 @@ function RecipeImagesTab() {
                   className="w-4 h-4 accent-[#4A7C59] cursor-pointer"
                 />
                 <span className="flex-1 text-sm text-foreground truncate">{recipe.title}</span>
+                {recipe.photoCount > 0 && (
+                  <span className="text-xs text-[#4A7C59] bg-[#4A7C59]/10 px-2 py-0.5 rounded-full shrink-0">
+                    {recipe.photoCount} {recipe.photoCount === 1 ? "Foto" : "Fotos"}
+                  </span>
+                )}
                 <span className="text-xs text-muted-foreground bg-secondary px-2 py-0.5 rounded-full shrink-0">{recipe.category}</span>
                 {recipe.createdAt && (
                   <span className="text-xs text-muted-foreground shrink-0 hidden sm:block">

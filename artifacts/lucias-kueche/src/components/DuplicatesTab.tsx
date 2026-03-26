@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback } from "react";
+import { AdminNeedBox, AdminActionCard } from "@/components/AdminUI";
 import { Loader2, Trash2, Check, RefreshCw, Copy } from "lucide-react";
 import { authFetch, authHeaders } from "@/lib/authFetch";
 
@@ -108,6 +109,7 @@ function RecipeCard({ recipe, isKept, onKeep, busy }: {
   );
 }
 
+
 export default function DuplicatesTab() {
   const [groups, setGroups] = useState<DuplicateGroup[]>([]);
   const [loading, setLoading] = useState(true);
@@ -205,32 +207,27 @@ export default function DuplicatesTab() {
 
   return (
     <div className="space-y-6">
-      <div className="bg-white rounded-2xl border border-border shadow-sm p-5">
-        <div className="flex items-start justify-between gap-4 flex-wrap">
-          <div>
-            <h3 className="font-serif font-semibold text-lg mb-1 flex items-center gap-2">
-              <Copy className="w-5 h-5 text-amber-500" />
-              Duplikatanalyse
-            </h3>
-            <p className="text-sm text-muted-foreground">
-              Rezepte werden als Duplikat erkannt wenn sie denselben Titel, dieselbe Quell-URL oder
-              mehr als 80% übereinstimmende Zutaten haben.
-            </p>
-          </div>
-          <div className="flex items-center gap-3 flex-shrink-0">
-            {totalDeleted > 0 && (
-              <span className="text-sm font-medium text-[#4A7C59] bg-[#4A7C59]/10 px-3 py-1.5 rounded-xl">
-                <Trash2 className="w-3.5 h-3.5 inline mr-1" />
-                {totalDeleted} gelöscht
-              </span>
-            )}
-            <button onClick={fetchDuplicates}
-              className="flex items-center gap-2 px-3 py-1.5 bg-white border border-border rounded-xl text-sm font-medium hover:border-[#4A7C59]/40 transition-colors">
-              <RefreshCw className="w-3.5 h-3.5" /> Neu analysieren
-            </button>
-          </div>
+      <AdminNeedBox>
+        Ich vermute, dass manche Rezepte doppelt vorhanden sind und möchte Ordnung schaffen. Das Programm sucht nach Rezepten mit sehr ähnlichem Titel und zeigt sie paarweise an. Für jedes Paar kannst du entscheiden: <em>behalten</em> (dieses Rezept bleibt, das andere wird gelöscht) oder <em>ignorieren</em> (das Paar wird als kein Duplikat markiert und nicht mehr angezeigt).
+      </AdminNeedBox>
+
+      <AdminActionCard
+        title={<span className="flex items-center gap-2"><Copy className="w-5 h-5 text-amber-500" /> Duplikatanalyse</span>}
+        description="Das Programm vergleicht alle Rezepte miteinander und zeigt dir Paare, die wahrscheinlich dasselbe Gericht beschreiben – erkannt an gleichem Titel, gleicher Quell-URL oder mehr als 80% übereinstimmenden Zutaten."
+      >
+        <div className="flex items-center gap-3 flex-wrap">
+          {totalDeleted > 0 && (
+            <span className="text-sm font-medium text-[#4A7C59] bg-[#4A7C59]/10 px-3 py-1.5 rounded-xl">
+              <Trash2 className="w-3.5 h-3.5 inline mr-1" />
+              {totalDeleted} gelöscht
+            </span>
+          )}
+          <button onClick={fetchDuplicates}
+            className="flex items-center gap-2 px-3 py-1.5 bg-white border border-border rounded-xl text-sm font-medium hover:border-[#4A7C59]/40 transition-colors">
+            <RefreshCw className="w-3.5 h-3.5" /> Neu analysieren
+          </button>
         </div>
-      </div>
+      </AdminActionCard>
 
       {groups.length === 0 ? (
         <div className="bg-white rounded-2xl border border-border shadow-sm p-12 text-center">

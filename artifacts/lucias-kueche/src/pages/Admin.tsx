@@ -5,6 +5,7 @@ import {
   Upload, Check, AlertTriangle, Settings, Database, Sliders,
   X, Plus, ChevronsUpDown, Users, CheckCircle, XCircle, Clock, FolderOpen, Copy, RotateCcw, Images
 } from "lucide-react";
+import { AdminNeedBox, AdminActionCard } from "@/components/AdminUI";
 import { useRecipes } from "@/hooks/useRecipes";
 import { useAdminGroups, type AdminGroup } from "@/hooks/useGroups";
 import type { Recipe } from "@/types/recipe";
@@ -66,6 +67,7 @@ function loadCustomCategories(): string[] {
 function saveCustomCategories(cats: string[]) {
   localStorage.setItem(LK_CUSTOM_CATEGORIES_KEY, JSON.stringify(cats));
 }
+
 
 function CategoryManager({ recipes, patchRecipe, patchRecipeSilent, refetch }: {
   recipes: Recipe[];
@@ -153,6 +155,10 @@ function CategoryManager({ recipes, patchRecipe, patchRecipeSilent, refetch }: {
 
   return (
     <div className="space-y-6">
+      <AdminNeedBox>
+        Ich möchte meine Rezepte in Themengruppen einteilen oder bestehende Gruppen umbenennen.
+      </AdminNeedBox>
+
       {deleteCandidate && (
         <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/50 p-4">
           <div className="bg-white rounded-2xl shadow-2xl p-6 max-w-sm w-full">
@@ -203,11 +209,10 @@ function CategoryManager({ recipes, patchRecipe, patchRecipeSilent, refetch }: {
         </div>
       )}
 
-      <div className="bg-white rounded-2xl border border-border shadow-sm p-6">
-        <h3 className="font-serif font-semibold text-lg mb-4">➕ Neue Kategorie erstellen</h3>
-        <p className="text-sm text-muted-foreground mb-3">
-          Erstelle eine neue Kategorie, um Rezepte besser zu organisieren. Danach Rezepte in der Tabelle zuweisen.
-        </p>
+      <AdminActionCard
+        title="➕ Neue Kategorie erstellen"
+        description="Das Programm legt eine neue Themengruppe an. Du kannst ihr danach Rezepte zuweisen."
+      >
         <div className="flex gap-2">
           <input value={newCat} onChange={(e) => setNewCat(e.target.value)}
             onKeyDown={(e) => e.key === "Enter" && doAddCategory()}
@@ -218,10 +223,12 @@ function CategoryManager({ recipes, patchRecipe, patchRecipeSilent, refetch }: {
             <Plus className="w-4 h-4" /> Hinzufügen
           </button>
         </div>
-      </div>
+      </AdminActionCard>
 
-      <div className="bg-white rounded-2xl border border-border shadow-sm p-6">
-        <h3 className="font-serif font-semibold text-lg mb-4">🗂️ Vorhandene Kategorien</h3>
+      <AdminActionCard
+        title="🗂️ Kategorien umbenennen oder löschen"
+        description="Das Programm zeigt alle vorhandenen Themengruppen. Du kannst sie umbenennen – alle Rezepte darin werden automatisch angepasst. Beim Löschen einer Gruppe mit Rezepten fragt das Programm, wohin die Rezepte verschoben werden sollen."
+      >
         <div className="space-y-2">
           {allCategories.map((cat) => (
             <div key={cat} className="flex items-center gap-3 p-3 rounded-xl bg-gray-50 border border-border/50">
@@ -261,11 +268,12 @@ function CategoryManager({ recipes, patchRecipe, patchRecipeSilent, refetch }: {
             <p className="text-sm text-muted-foreground text-center py-4">Keine Kategorien vorhanden.</p>
           )}
         </div>
-      </div>
+      </AdminActionCard>
 
-      <div className="bg-white rounded-2xl border border-border shadow-sm p-6">
-        <h3 className="font-serif font-semibold text-lg mb-4">🔀 Kategorien zusammenführen</h3>
-        <p className="text-sm text-muted-foreground mb-4">Alle Rezepte einer Quelle werden in die Ziel-Kategorie verschoben.</p>
+      <AdminActionCard
+        title="🔀 Kategorien zusammenführen"
+        description="Das Programm verschiebt alle Rezepte aus der Quell-Kategorie in die Ziel-Kategorie. Die Quell-Kategorie wird danach automatisch entfernt."
+      >
         <div className="flex gap-3 flex-wrap items-end">
           <div className="flex-1 min-w-32">
             <label className="block text-xs font-semibold text-muted-foreground mb-1">Quelle</label>
@@ -289,7 +297,7 @@ function CategoryManager({ recipes, patchRecipe, patchRecipeSilent, refetch }: {
             {busy ? <Loader2 className="w-4 h-4 animate-spin" /> : "Zusammenführen"}
           </button>
         </div>
-      </div>
+      </AdminActionCard>
     </div>
   );
 }
@@ -405,6 +413,10 @@ function BackupSection({
 
   return (
     <div className="space-y-6">
+      <AdminNeedBox>
+        Ich möchte meine Rezepte sichern oder Daten aus einer früheren Sicherung wiederherstellen.
+      </AdminNeedBox>
+
       {importPreview && (
         <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/50 p-4">
           <div className="bg-white rounded-2xl shadow-2xl p-6 max-w-md w-full max-h-[80vh] flex flex-col">
@@ -457,11 +469,10 @@ function BackupSection({
       )}
 
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-        <div className="bg-white rounded-2xl border border-border shadow-sm p-6">
-          <h3 className="font-serif font-semibold text-lg mb-2">💾 Export</h3>
-          <p className="text-sm text-muted-foreground mb-4">
-            {displayCount} Rezepte als JSON-Datei herunterladen (vollständige Sicherung inkl. Zutaten und Schritte).
-          </p>
+        <AdminActionCard
+          title="💾 Rezepte exportieren"
+          description={`Das Programm erstellt eine Datei mit allen ${displayCount} Rezepten (inkl. Zutaten und Zubereitungsschritte) zum Herunterladen. Diese Datei kannst du als Sicherung aufbewahren oder auf einem anderen Gerät wieder einlesen.`}
+        >
           <div className="flex flex-wrap gap-2">
             <button onClick={doExport}
               className="flex items-center gap-2 px-4 py-2.5 bg-[#4A7C59] text-white rounded-xl text-sm font-semibold hover:bg-[#3d6849] transition-colors">
@@ -472,26 +483,24 @@ function BackupSection({
               <Download className="w-4 h-4" /> Alle exportieren (.xlsx)
             </button>
           </div>
-        </div>
+        </AdminActionCard>
 
-        <div className="bg-white rounded-2xl border border-border shadow-sm p-6">
-          <h3 className="font-serif font-semibold text-lg mb-2">📥 Import</h3>
-          <p className="text-sm text-muted-foreground mb-4">
-            Rezepte aus einer JSON-Datei importieren. Vorschau vor dem Hinzufügen.
-          </p>
+        <AdminActionCard
+          title="📥 Rezepte importieren"
+          description="Das Programm liest eine zuvor exportierte JSON-Datei ein und zeigt dir zuerst eine Vorschau der gefundenen Rezepte. Erst nach deiner Bestätigung werden sie gespeichert."
+        >
           <input ref={fileRef} type="file" accept=".json" className="hidden"
             onChange={(e) => e.target.files?.[0] && handleImportFile(e.target.files[0])} />
           <button onClick={() => fileRef.current?.click()}
             className="flex items-center gap-2 px-4 py-2.5 bg-[#C1693A] text-white rounded-xl text-sm font-semibold hover:bg-[#a8572f] transition-colors">
             <Upload className="w-4 h-4" /> JSON-Datei auswählen
           </button>
-        </div>
+        </AdminActionCard>
 
-        <div className="bg-white rounded-2xl border border-border shadow-sm p-6">
-          <h3 className="font-serif font-semibold text-lg mb-2">🔄 Demo-Rezepte wiederherstellen</h3>
-          <p className="text-sm text-muted-foreground mb-4">
-            Die 13 Original-Rezepte erneut hinzufügen (bestehende Rezepte bleiben erhalten).
-          </p>
+        <AdminActionCard
+          title="🔄 Demo-Rezepte wiederherstellen"
+          description="Das Programm fügt die 13 Original-Beispielrezepte erneut hinzu. Deine eigenen Rezepte bleiben dabei unverändert erhalten."
+        >
           {!showRestoreConfirm ? (
             <button onClick={() => setShowRestoreConfirm(true)} disabled={busy}
               className="flex items-center gap-2 px-4 py-2.5 bg-amber-600 text-white rounded-xl text-sm font-semibold hover:bg-amber-700 transition-colors disabled:opacity-60">
@@ -511,18 +520,18 @@ function BackupSection({
               </button>
             </div>
           )}
-        </div>
+        </AdminActionCard>
 
-        <div className="bg-white rounded-2xl border border-red-200 shadow-sm p-6">
-          <h3 className="font-serif font-semibold text-lg mb-2 text-red-700">⚠️ Alle Rezepte löschen</h3>
-          <p className="text-sm text-muted-foreground mb-4">
-            Löscht <strong>alle {displayCount} Rezepte</strong> unwiderruflich aus der Datenbank.
-          </p>
+        <AdminActionCard
+          title="⚠️ Alle Rezepte löschen"
+          description={`Das Programm löscht alle ${displayCount} Rezepte unwiderruflich aus der Datenbank. Diese Aktion kann nicht rückgängig gemacht werden – sichere deine Daten vorher mit dem Export.`}
+          variant="danger"
+        >
           <button onClick={() => setShowDeleteAll(true)}
             className="flex items-center gap-2 px-4 py-2.5 bg-red-600 text-white rounded-xl text-sm font-semibold hover:bg-red-700 transition-colors">
             <Trash2 className="w-4 h-4" /> Alle Rezepte löschen
           </button>
-        </div>
+        </AdminActionCard>
       </div>
     </div>
   );
@@ -649,14 +658,37 @@ function GroupsAdmin() {
 
   return (
     <div className="space-y-6">
-      <div className="bg-white rounded-2xl border border-border shadow-sm p-6">
-        <h3 className="font-serif font-semibold text-lg mb-1 flex items-center gap-2">
-          <Clock className="w-5 h-5 text-amber-500" /> Ausstehende Anfragen
-          {pending.length > 0 && (
-            <span className="ml-1 px-2 py-0.5 rounded-full bg-amber-100 text-amber-700 text-xs font-semibold">{pending.length}</span>
-          )}
-        </h3>
-        <p className="text-sm text-muted-foreground mb-4">Gruppen, die auf deine Freigabe warten.</p>
+      <AdminNeedBox>
+        Ich möchte Familienmitglieder oder Freunde einladen, gemeinsam Rezepte zu verwalten.
+      </AdminNeedBox>
+
+      <AdminActionCard
+        title="➕ Gruppe anlegen"
+        description={'Das Programm legt eine neue Gruppe an, sobald ein Nutzer sie im Bereich "Meine Küche" beantragt. Neue Gruppenanfragen erscheinen weiter unten unter "Ausstehende Anfragen" und warten auf deine Freigabe.'}
+      />
+
+      <AdminActionCard
+        title="📨 Mitglieder einladen"
+        description={'Das Programm ermöglicht es dem Gruppenersteller, weitere Personen über ihren Nutzernamen oder ihre E-Mail-Adresse einzuladen. Die Einladung kann direkt in der Gruppenansicht unter "Meine Küche" verschickt werden.'}
+      />
+
+      <AdminActionCard
+        title="🚪 Mitglieder entfernen"
+        description={'Das Programm gibt dem Gruppenadministrator die Möglichkeit, einzelne Mitglieder aus der Gruppe zu entfernen. Diese Funktion ist in der Gruppenansicht unter "Meine Küche" verfügbar.'}
+      />
+
+      <AdminActionCard
+        title="✏️ Gruppe umbenennen"
+        description={'Das Programm erlaubt dem Gruppenadministrator, den Namen der Gruppe jederzeit zu ändern. Die Umbenennung ist in den Gruppeneinstellungen unter "Meine Küche" möglich.'}
+      />
+
+      <AdminActionCard
+        title="⏳ Ausstehende Anfragen"
+        description="Das Programm zeigt alle Gruppenanfragen, die noch nicht bearbeitet wurden. Du kannst jede einzeln freigeben oder ablehnen – erst nach der Freigabe können die Mitglieder gemeinsam Rezepte sehen."
+      >
+        {pending.length > 0 && (
+          <p className="text-xs text-amber-700 bg-amber-100 px-3 py-1 rounded-xl inline-block mb-3 font-semibold">{pending.length} ausstehend</p>
+        )}
         {pending.length === 0 ? (
           <p className="text-sm text-muted-foreground text-center py-4">Keine ausstehenden Anfragen.</p>
         ) : (
@@ -664,14 +696,12 @@ function GroupsAdmin() {
             {pending.map((g) => <GroupCard key={g.id} group={g} showActions={true} />)}
           </div>
         )}
-      </div>
+      </AdminActionCard>
 
-      <div className="bg-white rounded-2xl border border-border shadow-sm p-6">
-        <h3 className="font-serif font-semibold text-lg mb-1 flex items-center gap-2">
-          <CheckCircle className="w-5 h-5 text-[#4A7C59]" /> Freigegebene Gruppen
-          <span className="ml-1 px-2 py-0.5 rounded-full bg-[#4A7C59]/10 text-[#4A7C59] text-xs font-semibold">{approved.length}</span>
-        </h3>
-        <p className="text-sm text-muted-foreground mb-4">Aktive und nutzbare Gruppen.</p>
+      <AdminActionCard
+        title="✅ Freigegebene Gruppen"
+        description="Das Programm listet alle aktiven Gruppen auf. Mitglieder dieser Gruppen können gemeinsam Rezepte sehen und bearbeiten."
+      >
         {approved.length === 0 ? (
           <p className="text-sm text-muted-foreground text-center py-4">Noch keine freigegebenen Gruppen.</p>
         ) : (
@@ -679,14 +709,13 @@ function GroupsAdmin() {
             {approved.map((g) => <GroupCard key={g.id} group={g} showActions={false} />)}
           </div>
         )}
-      </div>
+      </AdminActionCard>
 
-      <div className="bg-white rounded-2xl border border-border shadow-sm p-6">
-        <h3 className="font-serif font-semibold text-lg mb-1 flex items-center gap-2">
-          <XCircle className="w-5 h-5 text-red-400" /> Abgelehnte Gruppen
-          <span className="ml-1 px-2 py-0.5 rounded-full bg-red-100 text-red-600 text-xs font-semibold">{rejected.length}</span>
-        </h3>
-        <p className="text-sm text-muted-foreground mb-4">Anfragen, die abgelehnt wurden.</p>
+      <AdminActionCard
+        title="❌ Abgelehnte Gruppen"
+        description="Das Programm listet alle abgelehnten Gruppenanfragen auf. Diese Gruppen sind nicht aktiv."
+        variant="danger"
+      >
         {rejected.length === 0 ? (
           <p className="text-sm text-muted-foreground text-center py-4">Keine abgelehnten Gruppen.</p>
         ) : (
@@ -694,7 +723,7 @@ function GroupsAdmin() {
             {rejected.map((g) => <GroupCard key={g.id} group={g} showActions={false} />)}
           </div>
         )}
-      </div>
+      </AdminActionCard>
     </div>
   );
 }
@@ -797,6 +826,10 @@ function TrashTab() {
 
   return (
     <div className="space-y-6">
+      <AdminNeedBox>
+        Ich habe Rezepte gelöscht und möchte sie wiederherstellen oder endgültig entfernen.
+      </AdminNeedBox>
+
       {confirmEmpty && (
         <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/50 p-4">
           <div className="bg-white rounded-2xl shadow-2xl p-6 max-w-sm w-full">
@@ -822,28 +855,22 @@ function TrashTab() {
         </div>
       )}
 
-      <div className="bg-white rounded-2xl border border-border shadow-sm p-6">
-        <div className="flex items-center justify-between mb-4 flex-wrap gap-3">
-          <div>
-            <h3 className="font-serif font-semibold text-lg">🗑️ Papierkorb</h3>
-            <p className="text-sm text-muted-foreground mt-0.5">
-              Gelöschte Rezepte werden 30 Tage aufbewahrt und können in diesem Zeitraum wiederhergestellt werden.
-            </p>
-          </div>
-          <div className="flex gap-2">
-            <button onClick={fetchTrash}
-              className="flex items-center gap-1.5 px-3 py-2 border border-border rounded-xl text-sm hover:bg-secondary transition-colors">
-              <RefreshCw className="w-3.5 h-3.5" /> Aktualisieren
+      <AdminActionCard
+        title="🗑️ Gelöschte Rezepte"
+        description="Wenn du ein Rezept löschst, landet es hier – und bleibt noch 30 Tage erhalten. In dieser Zeit kannst du es mit einem Klick zurückbringen. Danach wird es automatisch endgültig gelöscht."
+      >
+        <div className="flex gap-2 mb-4">
+          <button onClick={fetchTrash}
+            className="flex items-center gap-1.5 px-3 py-2 border border-border rounded-xl text-sm hover:bg-secondary transition-colors">
+            <RefreshCw className="w-3.5 h-3.5" /> Aktualisieren
+          </button>
+          {items.length > 0 && (
+            <button onClick={() => setConfirmEmpty(true)} disabled={busy !== null}
+              className="flex items-center gap-1.5 px-3 py-2 bg-red-600 text-white rounded-xl text-sm font-semibold hover:bg-red-700 transition-colors disabled:opacity-50">
+              <Trash2 className="w-3.5 h-3.5" /> Papierkorb leeren
             </button>
-            {items.length > 0 && (
-              <button onClick={() => setConfirmEmpty(true)} disabled={busy !== null}
-                className="flex items-center gap-1.5 px-3 py-2 bg-red-600 text-white rounded-xl text-sm font-semibold hover:bg-red-700 transition-colors disabled:opacity-50">
-                <Trash2 className="w-3.5 h-3.5" /> Papierkorb leeren
-              </button>
-            )}
-          </div>
+          )}
         </div>
-
         {items.length === 0 ? (
           <div className="text-center py-10 text-muted-foreground">
             <Trash2 className="w-10 h-10 mx-auto mb-3 opacity-30" />
@@ -906,7 +933,7 @@ function TrashTab() {
             </table>
           </div>
         )}
-      </div>
+      </AdminActionCard>
     </div>
   );
 }
@@ -929,8 +956,14 @@ function AppSettings() {
 
   return (
     <div className="space-y-6">
-      <div className="bg-white rounded-2xl border border-border shadow-sm p-6">
-        <h3 className="font-serif font-semibold text-lg mb-4">🖥️ Anzeigeeinstellungen</h3>
+      <AdminNeedBox>
+        Ich möchte grundlegende Einstellungen der App anpassen, damit sie zu meiner Arbeitsweise passt.
+      </AdminNeedBox>
+
+      <AdminActionCard
+        title="🖥️ Ansicht beim Starten"
+        description="Das Programm merkt sich, wie Rezepte standardmäßig angezeigt werden sollen – als Kacheln mit Vorschaubild oder als übersichtliche Tabelle. Außerdem kannst du die Reihenfolge festlegen, in der Rezepte erscheinen."
+      >
         <div className="space-y-4">
           <div>
             <label className="block text-xs font-semibold text-muted-foreground mb-2 uppercase tracking-wide">Standardansicht (Rezepte-Tab)</label>
@@ -956,16 +989,17 @@ function AppSettings() {
             </select>
           </div>
         </div>
-      </div>
+      </AdminActionCard>
 
-      <div className="bg-white rounded-2xl border border-border shadow-sm p-6">
-        <h3 className="font-serif font-semibold text-lg mb-1">🔀 Kartendarstellung</h3>
-        <p className="text-sm text-muted-foreground mb-4">Gilt für die Kachelansicht in „Meine Rezepte".</p>
+      <AdminActionCard
+        title="🃏 Was auf den Rezeptkarten steht"
+        description="Das Programm zeigt auf jeder Rezeptkarte kleine Zusatzinfos an. Hier kannst du bestimmen, welche davon sichtbar sind."
+      >
         <div>
           <Toggle value={showNotes} onChange={setShowNotes} label="Notizvorschau auf Karten anzeigen" />
           <Toggle value={showCookCount} onChange={setShowCookCount} label="Kochzähler auf Karten anzeigen" />
         </div>
-      </div>
+      </AdminActionCard>
 
       <div className="sticky-note rounded-xl p-4 text-sm text-amber-900">
         <strong>📝 Hinweis:</strong> Die Einstellungen werden lokal in diesem Browser gespeichert und sind sofort aktiv.
@@ -1134,11 +1168,17 @@ function TagsAdmin() {
 
   return (
     <div className="space-y-6">
-      <div className="bg-white rounded-2xl border border-border p-5">
-        <div className="flex items-center justify-between mb-4">
-          <h3 className="font-serif text-lg font-semibold">Tag-Status</h3>
+      <AdminNeedBox>
+        Ich möchte, dass meine Rezepte automatisch mit Stichwörtern versehen werden (z.B. Jahreszeit, Diät), damit ich sie leichter finden kann.
+      </AdminNeedBox>
+
+      <AdminActionCard
+        title="📊 Aktueller Stand der Tags"
+        description="Das Programm zeigt dir, wie viele deiner Rezepte bereits Stichwörter haben und wie viele noch keine besitzen."
+      >
+        <div className="flex justify-end mb-2">
           <button onClick={fetchStatus} disabled={loadingStatus} className="p-1.5 rounded-lg hover:bg-secondary transition-colors">
-            <RefreshCw className={`w-4 h-4 text-muted-foreground ${loadingStatus ? "animate-spin" : ""}`} />
+            <RefreshCw className={["w-4 h-4 text-muted-foreground", loadingStatus ? "animate-spin" : ""].join(" ")} />
           </button>
         </div>
         {status ? (
@@ -1172,45 +1212,46 @@ function TagsAdmin() {
         ) : (
           <p className="text-sm text-muted-foreground">Status konnte nicht geladen werden.</p>
         )}
-      </div>
+      </AdminActionCard>
 
-      <div className="bg-white rounded-2xl border border-border p-5 space-y-4">
-        <h3 className="font-serif text-lg font-semibold">Tags generieren</h3>
-        <p className="text-sm text-muted-foreground">
-          Generiert KI-basierte Tags für Rezepte via GPT-4o-mini. Standardmäßig werden nur Rezepte ohne Tags verarbeitet.
-        </p>
-        <label className="flex items-center gap-2 cursor-pointer">
-          <input
-            type="checkbox"
-            checked={forceAll}
-            onChange={(e) => setForceAll(e.target.checked)}
-            className="rounded"
-          />
-          <span className="text-sm">Alle Rezepte neu generieren (auch mit vorhandenen Tags)</span>
-        </label>
-        {progress && (
-          <div className="space-y-1">
-            <div className="flex justify-between text-xs text-muted-foreground">
-              <span>{progress.processed} / {progress.total} verarbeitet</span>
-              {progress.failed > 0 && <span className="text-amber-600">{progress.failed} fehlgeschlagen</span>}
+      <AdminActionCard
+        title="🏷️ Tags automatisch vergeben"
+        description={'Das Programm liest jeden Rezepttitel und die Zutaten und vergibt passende Stichwörter – z.B. "Sommer", "vegetarisch" oder "schnell". Standardmäßig werden nur Rezepte ohne Tags verarbeitet. Mit der Option darunter kannst du alle Rezepte neu beschriften.'}
+      >
+        <div className="space-y-4">
+          <label className="flex items-center gap-2 cursor-pointer">
+            <input
+              type="checkbox"
+              checked={forceAll}
+              onChange={(e) => setForceAll(e.target.checked)}
+              className="rounded"
+            />
+            <span className="text-sm">Alle Rezepte neu beschriften (auch wenn bereits Tags vorhanden sind)</span>
+          </label>
+          {progress && (
+            <div className="space-y-1">
+              <div className="flex justify-between text-xs text-muted-foreground">
+                <span>{progress.processed} / {progress.total} verarbeitet</span>
+                {progress.failed > 0 && <span className="text-amber-600">{progress.failed} fehlgeschlagen</span>}
+              </div>
+              <div className="w-full bg-secondary rounded-full h-2">
+                <div
+                  className="h-full bg-[#4A7C59] rounded-full transition-all"
+                  style={{ width: `${progress.total > 0 ? Math.round((progress.processed / progress.total) * 100) : 0}%` }}
+                />
+              </div>
             </div>
-            <div className="w-full bg-secondary rounded-full h-2">
-              <div
-                className="h-full bg-[#4A7C59] rounded-full transition-all"
-                style={{ width: `${progress.total > 0 ? Math.round((progress.processed / progress.total) * 100) : 0}%` }}
-              />
-            </div>
-          </div>
-        )}
-        <button
-          onClick={startBackfill}
-          disabled={running}
-          className="flex items-center gap-2 px-4 py-2.5 bg-[#4A7C59] text-white rounded-xl text-sm font-semibold hover:bg-[#3d6849] transition-colors disabled:opacity-60"
-        >
-          {running ? <Loader2 className="w-4 h-4 animate-spin" /> : <Tag className="w-4 h-4" />}
-          {running ? "Generiert…" : "Tags generieren"}
-        </button>
-      </div>
+          )}
+          <button
+            onClick={startBackfill}
+            disabled={running}
+            className="flex items-center gap-2 px-4 py-2.5 bg-[#4A7C59] text-white rounded-xl text-sm font-semibold hover:bg-[#3d6849] transition-colors disabled:opacity-60"
+          >
+            {running ? <Loader2 className="w-4 h-4 animate-spin" /> : <Tag className="w-4 h-4" />}
+            {running ? "Generiert…" : "Tags generieren"}
+          </button>
+        </div>
+      </AdminActionCard>
     </div>
   );
 }
@@ -1327,16 +1368,15 @@ function RecipeImagesTab() {
   });
 
   return (
-    <div className="bg-white rounded-2xl border border-border shadow-sm p-6 space-y-5">
-      <div className="flex items-center gap-3 mb-2">
-        <Upload className="w-5 h-5 text-[#4A7C59]" />
-        <h3 className="font-serif text-lg font-semibold text-foreground">Rezeptbilder</h3>
-      </div>
+    <div className="space-y-6">
+      <AdminNeedBox>
+        Manche Rezepte haben noch kein Foto – ich möchte das beheben.
+      </AdminNeedBox>
 
-      <p className="text-sm text-muted-foreground">
-        Verarbeitet Rezepte ohne Hauptbild oder mit KI-generiertem Bild. Rezepte mit vorhandenen Fotos bekommen das erste Foto als Hauptbild gesetzt (auch wenn bereits ein KI-Bild vorhanden ist); Rezepte ohne jegliche Fotos erhalten ein KI-generiertes Bild.
-        Neue Rezepte erhalten automatisch ein Bild im Hintergrund – diese Optionen sind für bestehende Rezepte gedacht.
-      </p>
+    <AdminActionCard
+      title="🤖 KI-Bild generieren lassen"
+      description="Das Programm erstellt automatisch ein passendes Foto für jedes Rezept ohne Bild – auf Basis des Rezeptnamens. Du kannst einzelne Rezepte auswählen oder alle auf einmal verarbeiten lassen. Neue Rezepte erhalten automatisch ein Bild; diese Funktion ist für ältere Rezepte gedacht."
+    >
 
       {progress && (
         <div className="space-y-2">
@@ -1482,17 +1522,22 @@ function RecipeImagesTab() {
           <Upload className="w-4 h-4" />
           Alle generieren
         </button>
-
-        <button
-          onClick={startPhotoExtraction}
-          disabled={status === "running"}
-          className="flex items-center gap-2 px-5 py-2.5 bg-white border border-[#4A7C59]/40 text-[#4A7C59] rounded-xl text-sm font-semibold hover:bg-[#4A7C59]/5 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-          title="Setzt das erste vorhandene Kochfoto als Hauptbild – auch wenn bereits ein KI-generiertes Bild vorhanden ist"
-        >
-          <Images className="w-4 h-4" />
-          Vorhandene Fotos nutzen
-        </button>
       </div>
+    </AdminActionCard>
+
+    <AdminActionCard
+      title="📷 Vorhandene Kochfotos als Hauptbild nutzen"
+      description="Das Programm durchsucht alle Rezepte nach bereits hochgeladenen Kochfotos und setzt das erste gefundene Foto als Hauptbild – auch wenn bereits ein automatisch erstelltes Bild vorhanden ist. Nützlich, wenn beim Scannen eigene Fotos erkannt wurden."
+    >
+      <button
+        onClick={startPhotoExtraction}
+        disabled={status === "running"}
+        className="flex items-center gap-2 px-5 py-2.5 bg-white border border-[#4A7C59]/40 text-[#4A7C59] rounded-xl text-sm font-semibold hover:bg-[#4A7C59]/5 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+      >
+        <Images className="w-4 h-4" />
+        Vorhandene Fotos nutzen
+      </button>
+    </AdminActionCard>
     </div>
   );
 }
@@ -1562,16 +1607,15 @@ function ImageOptimizationTab() {
   };
 
   return (
-    <div className="bg-white rounded-2xl border border-border shadow-sm p-6 space-y-5">
-      <div className="flex items-center gap-3 mb-2">
-        <RefreshCw className="w-5 h-5 text-[#4A7C59]" />
-        <h3 className="font-serif text-lg font-semibold text-foreground">Bildoptimierung</h3>
-      </div>
+    <div className="space-y-6">
+      <AdminNeedBox>
+        Meine Rezeptbilder verbrauchen viel Speicherplatz – ich möchte das reduzieren.
+      </AdminNeedBox>
 
-      <p className="text-sm text-muted-foreground">
-        Konvertiert alle KI-generierten Rezeptbilder (im Object Storage gespeichert) einmalig von PNG zu WebP
-        (max. 800×800px, Qualität 80). Manuell hochgeladene Fotos werden übersprungen.
-      </p>
+    <AdminActionCard
+      title="🗜️ Bilder verkleinern"
+      description="Das Programm wandelt alle automatisch erzeugten Rezeptbilder in ein kompaktes Format um (PNG → WebP). Die Bilder bleiben dabei genauso scharf, belegen aber deutlich weniger Speicherplatz. Manuell hochgeladene Fotos werden dabei nicht verändert."
+    >
 
       <div className="bg-secondary/40 rounded-xl p-4 space-y-2">
         <div className="text-sm font-medium text-foreground mb-3">Aktuelle Statistiken</div>
@@ -1646,6 +1690,7 @@ function ImageOptimizationTab() {
           </>
         )}
       </button>
+    </AdminActionCard>
     </div>
   );
 }

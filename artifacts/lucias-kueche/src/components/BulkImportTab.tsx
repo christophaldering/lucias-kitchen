@@ -4,6 +4,7 @@ import {
   Eye, RefreshCw, Save, FileText, Clock, RotateCcw, History, Plus, Camera
 } from "lucide-react";
 import { authFetch, authHeaders } from "@/lib/authFetch";
+import { AdminNeedBox, AdminActionCard } from "@/components/AdminUI";
 
 const API_BASE = "/api";
 
@@ -106,6 +107,7 @@ function formatDuration(startedAt: string | null | undefined, finishedAt: string
   if (secs < 60) return `${secs}s`;
   return `${Math.floor(secs / 60)}m ${secs % 60}s`;
 }
+
 
 function LightboxModal({ urls, initial, onClose }: { urls: string[]; initial: number; onClose: () => void }) {
   const [current, setCurrent] = useState(initial);
@@ -1103,12 +1105,14 @@ export default function BulkImportTab({ onUploadingChange }: { onUploadingChange
 
   return (
     <div className="space-y-5">
-      <div>
-        <h3 className="font-semibold text-foreground mb-1">Massen-Import</h3>
-        <p className="text-sm text-muted-foreground">
-          PDFs und Fotos hochladen. Die KI extrahiert alle Rezepte und erkennt handschriftliche Anmerkungen.
-        </p>
-      </div>
+      <AdminNeedBox>
+        Ich habe viele Rezepte als PDF oder Foto und möchte sie alle auf einmal einlesen lassen.
+      </AdminNeedBox>
+
+      <AdminActionCard
+        title="📄 Mehrere Dateien auf einmal hochladen"
+        description="Das Programm liest deine eingescannten Kochbuchseiten, Rezept-PDFs und Fotos und erkennt dabei alle enthaltenen Rezepte – auch handschriftliche Notizen. Du kannst die erkannten Rezepte danach prüfen und korrigieren, bevor sie gespeichert werden."
+      >
 
       <div
         ref={dropRef}
@@ -1131,6 +1135,7 @@ export default function BulkImportTab({ onUploadingChange }: { onUploadingChange
           onChange={(e) => e.target.files && handleFiles(e.target.files)}
         />
       </div>
+      </AdminActionCard>
 
       {error && (
         <p className="text-sm text-red-600 flex items-center gap-2">

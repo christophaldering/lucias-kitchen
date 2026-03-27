@@ -17,6 +17,7 @@ import type { RecipeUpdatePayload } from "@/hooks/useRecipes";
 import { useCommentStats } from "@/components/RecipeComments";
 import { authFetch, authHeaders } from "@/lib/authFetch";
 import { FilterBottomSheet } from "@/components/FilterBottomSheet";
+import type { PhotoTypeFilter } from "@/components/FilterBottomSheet";
 
 const API_BASE = "/api";
 
@@ -465,6 +466,7 @@ export default function MeineRezepte({ onNavigate: _onNavigate, initialOpenRecip
   const [seasonFilter, setSeasonFilter] = useState<Season | "Alle">("Alle");
   const [cookedFilter, setCookedFilter] = useState<"Alle" | "gekocht" | "nicht_ausprobiert">("Alle");
   const [showVariants, setShowVariants] = useState(false);
+  const [photoType, setPhotoType] = useState<PhotoTypeFilter>("all");
   const [selectedId, setSelectedId] = useState<number | null>(null);
   const [selectedFullRecipe, setSelectedFullRecipe] = useState<Recipe | null>(null);
   const selected = selectedFullRecipe ?? (selectedId != null ? (recipes.find((r) => r.id === selectedId) ?? null) : null);
@@ -722,8 +724,14 @@ export default function MeineRezepte({ onNavigate: _onNavigate, initialOpenRecip
       cookedFilter === "Alle" ? true :
       cookedFilter === "gekocht" ? ((r.cookedCount ?? 0) > 0) :
       (r.cookedCount === 0 || r.cookedCount == null);
-    return matchesCat && matchesTime && matchesSeason && matchesVariantFilter && matchesCooked;
-  }), [baseList, activeCategory, timeFilter, seasonFilter, showVariants, cookedFilter]);
+    const matchesPhotoType =
+      photoType === "all" ? true :
+      photoType === "none" ? !r.imageUrl :
+      photoType === "ai" ? r.isAiGenerated === true :
+      photoType === "scan" ? (r.imageSource === "web" && !r.isAiGenerated && !!r.imageUrl) :
+      (!!r.imageUrl && !r.isAiGenerated && r.imageSource !== "web");
+    return matchesCat && matchesTime && matchesSeason && matchesVariantFilter && matchesCooked && matchesPhotoType;
+  }), [baseList, activeCategory, timeFilter, seasonFilter, showVariants, cookedFilter, photoType]);
 
   const knownCategories = useMemo(() => Array.from(new Set(recipes.map((r) => r.category))).sort(), [recipes]);
 
@@ -758,7 +766,7 @@ export default function MeineRezepte({ onNavigate: _onNavigate, initialOpenRecip
     return base;
   }, [filtered, tableSortKey, tableSortDir]);
 
-  const isFiltered = search.trim() !== "" || activeCategory !== "Alle" || timeFilter !== "Alle" || seasonFilter !== "Alle" || cookedFilter !== "Alle";
+  const isFiltered = search.trim() !== "" || activeCategory !== "Alle" || timeFilter !== "Alle" || seasonFilter !== "Alle" || cookedFilter !== "Alle" || photoType !== "all";
 
   return (
     <div>
@@ -852,11 +860,13 @@ export default function MeineRezepte({ onNavigate: _onNavigate, initialOpenRecip
                   cookedFilter={cookedFilter}
                   showVariants={showVariants}
                   hasVariants={recipes.some((r) => r.parentRecipeId)}
-                  onApply={({ timeFilter: t, seasonFilter: s, cookedFilter: c, showVariants: sv }) => {
+                  photoType={photoType}
+                  onApply={({ timeFilter: t, seasonFilter: s, cookedFilter: c, showVariants: sv, photoType: pt }) => {
                     setTimeFilter(t);
                     setSeasonFilter(s);
                     setCookedFilter(c);
                     setShowVariants(sv);
+                    setPhotoType(pt);
                   }}
                 />
                 <div className="flex gap-1.5 overflow-x-auto pb-0.5 no-scrollbar flex-1">

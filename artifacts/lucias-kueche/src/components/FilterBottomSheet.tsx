@@ -3,11 +3,14 @@ import { SlidersHorizontal, X, RotateCcw, Check } from "lucide-react";
 import type { Season } from "@/types/recipe";
 import { SEASON_LABELS, SEASON_ICONS } from "@/types/recipe";
 
+export type PhotoTypeFilter = "all" | "none" | "ai" | "scan" | "manual";
+
 interface FilterState {
   timeFilter: string;
   seasonFilter: Season | "Alle";
   cookedFilter: "Alle" | "gekocht" | "nicht_ausprobiert";
   showVariants: boolean;
+  photoType: PhotoTypeFilter;
 }
 
 interface FilterBottomSheetProps {
@@ -16,6 +19,7 @@ interface FilterBottomSheetProps {
   cookedFilter: "Alle" | "gekocht" | "nicht_ausprobiert";
   showVariants: boolean;
   hasVariants: boolean;
+  photoType: PhotoTypeFilter;
   onApply: (filters: FilterState) => void;
 }
 
@@ -25,6 +29,7 @@ export function FilterBottomSheet({
   cookedFilter,
   showVariants,
   hasVariants,
+  photoType,
   onApply,
 }: FilterBottomSheetProps) {
   const [open, setOpen] = useState(false);
@@ -34,6 +39,7 @@ export function FilterBottomSheet({
     seasonFilter !== "Alle",
     cookedFilter !== "Alle",
     showVariants,
+    photoType !== "all",
   ].filter(Boolean).length;
 
   function handleReset() {
@@ -42,6 +48,7 @@ export function FilterBottomSheet({
       seasonFilter: "Alle",
       cookedFilter: "Alle",
       showVariants: false,
+      photoType: "all",
     });
   }
 
@@ -93,7 +100,7 @@ export function FilterBottomSheet({
                 ]}
                 value={timeFilter}
                 onChange={(v) =>
-                  onApply({ timeFilter: v, seasonFilter, cookedFilter, showVariants })
+                  onApply({ timeFilter: v, seasonFilter, cookedFilter, showVariants, photoType })
                 }
               />
 
@@ -110,7 +117,7 @@ export function FilterBottomSheet({
                 ]}
                 value={seasonFilter}
                 onChange={(v) =>
-                  onApply({ timeFilter, seasonFilter: v as Season | "Alle", cookedFilter, showVariants })
+                  onApply({ timeFilter, seasonFilter: v as Season | "Alle", cookedFilter, showVariants, photoType })
                 }
               />
 
@@ -130,6 +137,31 @@ export function FilterBottomSheet({
                     seasonFilter,
                     cookedFilter: v as "Alle" | "gekocht" | "nicht_ausprobiert",
                     showVariants,
+                    photoType,
+                  })
+                }
+              />
+
+              <div className="border-b border-border" />
+
+              <FilterSection
+                label="Foto"
+                allValue="all"
+                options={[
+                  { value: "all", label: "Alle" },
+                  { value: "none", label: "🚫 Kein Foto" },
+                  { value: "ai", label: "✨ KI-generiert" },
+                  { value: "scan", label: "📄 Aus Scan extrahiert" },
+                  { value: "manual", label: "📤 Manuell hochgeladen" },
+                ]}
+                value={photoType}
+                onChange={(v) =>
+                  onApply({
+                    timeFilter,
+                    seasonFilter,
+                    cookedFilter,
+                    showVariants,
+                    photoType: v as PhotoTypeFilter,
                   })
                 }
               />
@@ -143,7 +175,7 @@ export function FilterBottomSheet({
                     </p>
                     <button
                       onClick={() =>
-                        onApply({ timeFilter, seasonFilter, cookedFilter, showVariants: !showVariants })
+                        onApply({ timeFilter, seasonFilter, cookedFilter, showVariants: !showVariants, photoType })
                       }
                       className={`flex items-center gap-2 px-4 py-2.5 rounded-full border text-sm font-medium transition-colors ${
                         showVariants
@@ -186,11 +218,13 @@ function FilterSection({
   options,
   value,
   onChange,
+  allValue = "Alle",
 }: {
   label: string;
   options: FilterOption[];
   value: string;
   onChange: (v: string) => void;
+  allValue?: string;
 }) {
   return (
     <div className="py-5">
@@ -200,13 +234,13 @@ function FilterSection({
       <div className="flex flex-wrap gap-2.5">
         {options.map((opt) => {
           const active = value === opt.value;
-          const isAll = opt.value === "Alle";
+          const isAll = opt.value === allValue;
           return (
             <button
               key={opt.value}
               onClick={() => {
                 if (active && !isAll) {
-                  onChange("Alle");
+                  onChange(allValue);
                 } else {
                   onChange(opt.value);
                 }

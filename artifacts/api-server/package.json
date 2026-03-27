@@ -11,6 +11,7 @@
   },
   "dependencies": {
     "@google-cloud/storage": "^7.19.0",
+    "@napi-rs/canvas": "^0.1.97",
     "@types/compression": "^1.8.1",
     "@types/multer": "^2.1.0",
     "@workspace/api-zod": "workspace:*",
@@ -18,7 +19,6 @@
     "@workspace/integrations-anthropic-ai": "workspace:*",
     "@workspace/integrations-openai-ai-server": "workspace:*",
     "bcryptjs": "^3.0.3",
-    "canvas": "^3.2.2",
     "compression": "^1.8.1",
     "cookie-parser": "^1.4.7",
     "cors": "^2",

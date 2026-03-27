@@ -114,7 +114,7 @@ async function downloadPdfFromStorage(storagePath: string): Promise<Buffer> {
 
 async function renderPdfPages(pdfBuffer: Buffer): Promise<Buffer[]> {
   const pdfjsLib = await import("pdfjs-dist/legacy/build/pdf.mjs");
-  const canvasModule = await import("canvas");
+  const canvasModule = await import("@napi-rs/canvas");
   const { createCanvas } = canvasModule;
 
   const uint8Array = new Uint8Array(pdfBuffer);
@@ -135,7 +135,7 @@ async function renderPdfPages(pdfBuffer: Buffer): Promise<Buffer[]> {
       viewport,
     }).promise;
 
-    const jpegBuffer = canvas.toBuffer("image/jpeg", { quality: 0.85 });
+    const jpegBuffer = canvas.toBuffer("image/jpeg", 85);
     pageImages.push(jpegBuffer);
   }
 
@@ -151,7 +151,7 @@ interface ExtractedImage {
 async function extractEmbeddedImagesFromPage(pdfBuffer: Buffer, pageNum: number): Promise<ExtractedImage[]> {
   try {
     const pdfjsLib = await import("pdfjs-dist/legacy/build/pdf.mjs");
-    const canvasModule = await import("canvas");
+    const canvasModule = await import("@napi-rs/canvas");
     const { createCanvas } = canvasModule;
 
     const uint8Array = new Uint8Array(pdfBuffer);
@@ -235,7 +235,7 @@ async function extractEmbeddedImagesFromPage(pdfBuffer: Buffer, pageNum: number)
         imageDataObj.data.set(pixelData);
         ctx.putImageData(imageDataObj, 0, 0);
 
-        const jpegBuffer = canvas.toBuffer("image/jpeg", { quality: 0.9 });
+        const jpegBuffer = canvas.toBuffer("image/jpeg", 90);
         results.push({ data: jpegBuffer, width, height });
       } catch (imgErr) {
         console.error(`Failed to extract image ${key} from page ${pageNum}:`, imgErr);

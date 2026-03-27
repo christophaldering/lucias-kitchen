@@ -136,7 +136,19 @@ globalThis.__dirname = __bannerPath.dirname(globalThis.__filename);
   });
 }
 
-buildAll().catch((err) => {
+async function copyPdfjsWorker() {
+  const workerSrc = path.resolve(artifactDir, "node_modules/pdfjs-dist/legacy/build/pdf.worker.mjs");
+  const distDir = path.resolve(artifactDir, "dist");
+  const workerDest = path.resolve(distDir, "pdf.worker.mjs");
+  try {
+    await cp(workerSrc, workerDest);
+    console.log("Copied pdf.worker.mjs to dist/");
+  } catch (err) {
+    console.warn("Could not copy pdf.worker.mjs:", err.message);
+  }
+}
+
+buildAll().then(() => copyPdfjsWorker()).catch((err) => {
   console.error(err);
   process.exit(1);
 });

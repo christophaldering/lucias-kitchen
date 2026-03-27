@@ -114,6 +114,7 @@ async function downloadPdfFromStorage(storagePath: string): Promise<Buffer> {
 
 async function renderPdfPages(pdfBuffer: Buffer): Promise<Buffer[]> {
   const pdfjsLib = await import("pdfjs-dist/legacy/build/pdf.mjs");
+  pdfjsLib.GlobalWorkerOptions.workerSrc = '';
   const canvasModule = await import("@napi-rs/canvas");
   const { createCanvas } = canvasModule;
 
@@ -151,6 +152,7 @@ interface ExtractedImage {
 async function extractEmbeddedImagesFromPage(pdfBuffer: Buffer, pageNum: number): Promise<ExtractedImage[]> {
   try {
     const pdfjsLib = await import("pdfjs-dist/legacy/build/pdf.mjs");
+    pdfjsLib.GlobalWorkerOptions.workerSrc = '';
     const canvasModule = await import("@napi-rs/canvas");
     const { createCanvas } = canvasModule;
 

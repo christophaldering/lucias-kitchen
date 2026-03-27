@@ -827,20 +827,6 @@ export default function MeineRezepte({ onNavigate: _onNavigate, initialOpenRecip
               </button>
             </div>
 
-            {/* Recipe count chip */}
-            {!loading && (
-              <span className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-sm font-semibold transition-colors ${
-                isFiltered
-                  ? "bg-[#C1693A]/10 text-[#C1693A] border border-[#C1693A]/30"
-                  : "bg-[#4A7C59]/10 text-[#4A7C59] border border-[#4A7C59]/20"
-              }`}>
-                {isFiltered ? (
-                  <><span>{filtered.length}</span><span className="font-normal text-muted-foreground">von</span><span>{totalRecipes ?? recipes.length}</span><span className="font-normal">Rezepte</span></>
-                ) : (
-                  <><span>{totalRecipes ?? recipes.length}</span><span className="font-normal">Rezepte</span></>
-                )}
-              </span>
-            )}
 
             {/* Ownership segmented control */}
             <div className="flex gap-0.5 bg-muted border border-border rounded-xl p-1 ml-auto">
@@ -950,6 +936,24 @@ export default function MeineRezepte({ onNavigate: _onNavigate, initialOpenRecip
           {!loading && !error && (
             <>
               <ImportInProgressBanner />
+
+              {/* Recipe count status bar — always visible */}
+              <div className={`flex items-center gap-2 mb-4 px-1 ${isFiltered ? "text-[#C1693A]" : "text-[#4A7C59]"}`}>
+                <BookOpen className="w-4 h-4 flex-shrink-0" />
+                {isFiltered ? (
+                  <span className="text-sm">
+                    <span className="font-semibold">{filtered.length}</span>
+                    <span className="text-muted-foreground"> von </span>
+                    <span className="font-semibold">{totalRecipes ?? recipes.length}</span>
+                    <span className="text-muted-foreground"> Rezepten angezeigt</span>
+                  </span>
+                ) : (
+                  <span className="text-sm">
+                    <span className="font-semibold">{totalRecipes ?? recipes.length}</span>
+                    <span className="text-muted-foreground"> Rezepte in deiner Sammlung</span>
+                  </span>
+                )}
+              </div>
 
               {(searchLoading || isFiltered) && (
                 <div className="mb-4">

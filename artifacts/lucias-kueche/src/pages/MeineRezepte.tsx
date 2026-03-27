@@ -18,6 +18,7 @@ import { useCommentStats } from "@/components/RecipeComments";
 import { authFetch, authHeaders } from "@/lib/authFetch";
 import { FilterBottomSheet } from "@/components/FilterBottomSheet";
 import type { PhotoTypeFilter } from "@/components/FilterBottomSheet";
+import { ImportInProgressBanner } from "@/components/ImportInProgressBanner";
 
 const API_BASE = "/api";
 
@@ -948,6 +949,8 @@ export default function MeineRezepte({ onNavigate: _onNavigate, initialOpenRecip
 
           {!loading && !error && (
             <>
+              <ImportInProgressBanner />
+
               {(searchLoading || isFiltered) && (
                 <div className="mb-4">
                   {searchLoading ? (

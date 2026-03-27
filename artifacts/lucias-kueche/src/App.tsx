@@ -12,6 +12,7 @@ import WasKocheIch from "@/pages/WasKocheIch";
 import MeineKueche from "@/pages/MeineKueche";
 import InviteAccept from "@/pages/InviteAccept";
 import { AuthProvider, useAuth } from "@/contexts/AuthContext";
+import { ImportStatusProvider } from "@/contexts/ImportStatusContext";
 import { NotificationBell } from "@/components/NotificationBell";
 import { BulkImportProgressBar } from "@/components/BulkImportProgressBar";
 import { useNotifications } from "@/hooks/useNotifications";
@@ -306,7 +307,8 @@ function AppShell() {
   }
 
   return (
-    <>
+    <ImportStatusProvider onImportDone={() => setRecipesRefreshToken((t) => t + 1)}>
+      <>
       <header
         className="sticky top-0 z-40 text-white"
         style={{
@@ -358,8 +360,9 @@ function AppShell() {
         setActiveTab("admin");
         setAdminInitialTab("bulk-import");
         setAdminNavToken((t) => t + 1);
-      }} onImportDone={() => setRecipesRefreshToken((t) => t + 1)} />
-    </>
+      }} />
+      </>
+    </ImportStatusProvider>
   );
 }
 

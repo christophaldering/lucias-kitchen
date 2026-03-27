@@ -1,145 +1,33 @@
-import { useState, useEffect, useRef, useCallback } from "react";
+import { useState, useRef, useCallback, useEffect } from "react";
 import { Loader2, X, CheckCircle, AlertCircle, ExternalLink } from "lucide-react";
-import { authFetch, authHeaders } from "@/lib/authFetch";
-
-const API_BASE = "/api";
-
-interface ActiveSession {
-  id: number;
-  status: "pending" | "processing" | "done" | "failed";
-  totalFiles: number;
-  processedFiles: number;
-  currentFile: string | null;
-  updatedAt: string;
-}
-
-interface StatusResponse extends ActiveSession {
-  errorCount: number;
-  files: Array<{
-    id: number;
-    fileName: string;
-    status: string;
-  }>;
-}
+import { useImportStatusContext } from "@/contexts/ImportStatusContext";
 
 interface BulkImportProgressBarProps {
   onNavigateToImport: () => void;
-  onImportDone?: () => void;
 }
 
-export function BulkImportProgressBar({ onNavigateToImport, onImportDone }: BulkImportProgressBarProps) {
-  const [session, setSession] = useState<StatusResponse | null>(null);
+export function BulkImportProgressBar({ onNavigateToImport }: BulkImportProgressBarProps) {
+  const { session, isActive, percent } = useImportStatusContext();
   const [dismissed, setDismissed] = useState(false);
-  const [completionState, setCompletionState] = useState<"none" | "success" | "failed">("none");
-  const pollingRef = useRef<ReturnType<typeof setInterval> | null>(null);
-  const completionTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const lastSessionIdRef = useRef<number | null>(null);
-  const completionStateRef = useRef<"none" | "success" | "failed">("none");
-
-  const stopPolling = useCallback(() => {
-    if (pollingRef.current) {
-      clearInterval(pollingRef.current);
-      pollingRef.current = null;
-    }
-  }, []);
-
-  const fetchStatus = useCallback(async (sessionId: number) => {
-    try {
-      const res = await authFetch(`${API_BASE}/bulk-import/${sessionId}/status`, {
-        headers: authHeaders(),
-        skipUnauthorizedHandler: true,
-      });
-      if (!res.ok) {
-        stopPolling();
-        return;
-      }
-      const data = await res.json() as StatusResponse;
-      setSession(data);
-
-      if (data.status === "done") {
-        stopPolling();
-        completionStateRef.current = "success";
-        setCompletionState("success");
-        onImportDone?.();
-        completionTimerRef.current = setTimeout(() => {
-          completionStateRef.current = "none";
-          setSession(null);
-          setCompletionState("none");
-          setDismissed(false);
-          lastSessionIdRef.current = null;
-        }, 10000);
-      } else if (data.status === "failed") {
-        stopPolling();
-        completionStateRef.current = "failed";
-        setCompletionState("failed");
-        completionTimerRef.current = setTimeout(() => {
-          completionStateRef.current = "none";
-          setSession(null);
-          setCompletionState("none");
-          setDismissed(false);
-          lastSessionIdRef.current = null;
-        }, 10000);
-      }
-    } catch {
-    }
-  }, [stopPolling]);
-
-  const checkForActiveSession = useCallback(async () => {
-    try {
-      const res = await authFetch(`${API_BASE}/bulk-import/active`, {
-        headers: authHeaders(),
-        skipUnauthorizedHandler: true,
-      });
-      if (!res.ok) return;
-      const data = await res.json() as ActiveSession | null;
-
-      if (!data) {
-        stopPolling();
-        if (lastSessionIdRef.current !== null && completionStateRef.current === "none") {
-          setSession(null);
-          lastSessionIdRef.current = null;
-        }
-        return;
-      }
-
-      if (lastSessionIdRef.current !== data.id) {
-        lastSessionIdRef.current = data.id;
-        setDismissed(false);
-        setCompletionState("none");
-        if (completionTimerRef.current) {
-          clearTimeout(completionTimerRef.current);
-        }
-        stopPolling();
-        await fetchStatus(data.id);
-        pollingRef.current = setInterval(() => fetchStatus(data.id), 3000);
-      }
-    } catch {
-    }
-  }, [fetchStatus, stopPolling]);
 
   useEffect(() => {
-    checkForActiveSession();
-    const checkInterval = setInterval(checkForActiveSession, 5000);
-    return () => {
-      clearInterval(checkInterval);
-      stopPolling();
-      if (completionTimerRef.current) clearTimeout(completionTimerRef.current);
-    };
-  }, [checkForActiveSession, stopPolling]);
+    if (session && session.id !== lastSessionIdRef.current) {
+      lastSessionIdRef.current = session.id;
+      setDismissed(false);
+    }
+  }, [session?.id]);
 
-  const handleDismiss = () => {
+  const handleDismiss = useCallback(() => {
     setDismissed(true);
-    stopPolling();
-    if (completionTimerRef.current) clearTimeout(completionTimerRef.current);
-  };
+  }, []);
 
   if (dismissed || !session) return null;
 
-  const pct = session.totalFiles > 0
-    ? Math.round((session.processedFiles / session.totalFiles) * 100)
-    : 0;
-
-  const isRunning = session.status === "pending" || session.status === "processing";
+  const completionState =
+    session.status === "done" ? "success" :
+    session.status === "failed" ? "failed" :
+    "none";
 
   if (completionState === "success") {
     return (
@@ -196,7 +84,7 @@ export function BulkImportProgressBar({ onNavigateToImport, onImportDone }: Bulk
     );
   }
 
-  if (!isRunning) return null;
+  if (!isActive) return null;
 
   return (
     <div
@@ -230,10 +118,10 @@ export function BulkImportProgressBar({ onNavigateToImport, onImportDone }: Bulk
         <div className="w-full bg-white/10 rounded-full h-1.5">
           <div
             className="bg-[#e8a87a] h-1.5 rounded-full transition-all duration-500"
-            style={{ width: `${pct}%` }}
+            style={{ width: `${percent}%` }}
           />
         </div>
-        <p className="text-xs text-green-400 mt-1 text-right">{pct}%</p>
+        <p className="text-xs text-green-400 mt-1 text-right">{percent}%</p>
       </div>
     </div>
   );

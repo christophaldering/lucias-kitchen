@@ -1041,7 +1041,7 @@ function RecipeCountBadge() {
 }
 
 function CategoryManagerWithData() {
-  const { recipes, loading, error, refetch, patchRecipe, patchRecipeSilent } = useRecipes();
+  const { recipes, loading, error, refetch, patchRecipe, patchRecipeSilent } = useRecipes("all", { loadAll: true });
 
   if (loading) {
     return (
@@ -1070,7 +1070,7 @@ function CategoryManagerWithData() {
 }
 
 function BackupSectionWithData() {
-  const { recipes, loading, error, refetch, addRecipes, deleteAllRecipes, restoreDemo } = useRecipes();
+  const { recipes, loading, error, refetch, addRecipes, deleteAllRecipes, restoreDemo } = useRecipes("all", { loadAll: true });
   const { count: totalCount, refetch: refetchCount } = useRecipeCount();
 
   const handleRefetch = useCallback(async () => {

@@ -1,4 +1,4 @@
-import { useState, useMemo, useEffect, useRef } from "react";
+import { useState, useMemo, useEffect, useRef, useCallback } from "react";
 import { Recipe } from "@/types/recipe";
 import type { Season } from "@/types/recipe";
 import { SEASON_LABELS, SEASON_ICONS, getCurrentSeason } from "@/types/recipe";
@@ -423,7 +423,32 @@ const FILTER_LABELS: Record<RecipeFilter, string> = {
 
 export default function MeineRezepte({ onNavigate: _onNavigate, initialOpenRecipeId, onRecipeOpened, initialSortOrder, onSortOrderApplied, refreshToken }: MeineRezepteProps) {
   const [recipeFilter, setRecipeFilter] = useState<RecipeFilter>("all");
-  const { recipes, loading, error, addRecipes, refetch, patchRecipeSilent, deleteRecipeSilent, deleteRecipe, updateRecipe, toggleFavorite } = useRecipes(recipeFilter);
+  const { recipes, totalRecipes, loading, error, addRecipes, refetch, patchRecipeSilent, deleteRecipeSilent, deleteRecipe, updateRecipe, toggleFavorite, fetchNextPage, hasNextPage, isFetchingNextPage } = useRecipes(recipeFilter);
+  const fetchNextPageRef = useRef(fetchNextPage);
+  const hasNextPageRef = useRef(hasNextPage);
+  const isFetchingNextPageRef = useRef(isFetchingNextPage);
+  useEffect(() => { fetchNextPageRef.current = fetchNextPage; }, [fetchNextPage]);
+  useEffect(() => { hasNextPageRef.current = hasNextPage; }, [hasNextPage]);
+  useEffect(() => { isFetchingNextPageRef.current = isFetchingNextPage; }, [isFetchingNextPage]);
+
+  const observerRef = useRef<IntersectionObserver | null>(null);
+  const sentinelRef = useCallback((node: HTMLDivElement | null) => {
+    if (observerRef.current) {
+      observerRef.current.disconnect();
+      observerRef.current = null;
+    }
+    if (!node) return;
+    const observer = new IntersectionObserver(
+      (entries) => {
+        if (entries[0]?.isIntersecting && hasNextPageRef.current && !isFetchingNextPageRef.current) {
+          fetchNextPageRef.current();
+        }
+      },
+      { rootMargin: "200px" }
+    );
+    observer.observe(node);
+    observerRef.current = observer;
+  }, []);
 
   const defaultViewRaw = useLocalStorage<string>("lk_viewMode", "");
   const defaultView = ((): ViewMode => {
@@ -554,6 +579,13 @@ export default function MeineRezepte({ onNavigate: _onNavigate, initialOpenRecip
     refreshTokenRef.current = refreshToken;
     refetch();
   }, [refreshToken, refetch]);
+
+  const hasLocalFilters = activeCategory !== "Alle" || timeFilter !== "Alle" || seasonFilter !== "Alle" || cookedFilter !== "Alle" || photoType !== "all" || showVariants;
+  useEffect(() => {
+    if (hasLocalFilters && hasNextPage && !isFetchingNextPage) {
+      fetchNextPage();
+    }
+  }, [hasLocalFilters, hasNextPage, isFetchingNextPage, fetchNextPage, recipes.length]);
 
   const toggleSelect = (id: number) => setManagedSelected((prev) => {
     const next = new Set(prev);
@@ -802,9 +834,9 @@ export default function MeineRezepte({ onNavigate: _onNavigate, initialOpenRecip
                   : "bg-[#4A7C59]/10 text-[#4A7C59] border border-[#4A7C59]/20"
               }`}>
                 {isFiltered ? (
-                  <><span>{filtered.length}</span><span className="font-normal text-muted-foreground">von</span><span>{recipes.length}</span><span className="font-normal">Rezepte</span></>
+                  <><span>{filtered.length}</span><span className="font-normal text-muted-foreground">von</span><span>{totalRecipes ?? recipes.length}</span><span className="font-normal">Rezepte</span></>
                 ) : (
-                  <><span>{recipes.length}</span><span className="font-normal">Rezepte</span></>
+                  <><span>{totalRecipes ?? recipes.length}</span><span className="font-normal">Rezepte</span></>
                 )}
               </span>
             )}
@@ -990,22 +1022,35 @@ export default function MeineRezepte({ onNavigate: _onNavigate, initialOpenRecip
                   <p className="font-serif text-lg">Kein Rezept gefunden.</p>
                 </div>
               ) : viewMode === "galerie" ? (
-                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-5">
-                  {filtered.map((recipe) => (
-                    <RecipeCard
-                      key={recipe.id}
-                      recipe={recipe}
-                      onClick={() => openRecipe(recipe.id)}
-                      onCook={() => openCookingMode(recipe)}
-                      onSuggest={() => setSuggestRecipe(recipe)}
-                      showNotes={showNotes}
-                      showCookCount={showCookCount}
-                      onToggleFavorite={toggleFavorite}
-                      commentCount={commentStats[recipe.id]?.count}
-                      avgRating={commentStats[recipe.id]?.avgRating}
-                    />
-                  ))}
-                </div>
+                <>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-5">
+                    {filtered.map((recipe) => (
+                      <RecipeCard
+                        key={recipe.id}
+                        recipe={recipe}
+                        onClick={() => openRecipe(recipe.id)}
+                        onCook={() => openCookingMode(recipe)}
+                        onSuggest={() => setSuggestRecipe(recipe)}
+                        showNotes={showNotes}
+                        showCookCount={showCookCount}
+                        onToggleFavorite={toggleFavorite}
+                        commentCount={commentStats[recipe.id]?.count}
+                        avgRating={commentStats[recipe.id]?.avgRating}
+                      />
+                    ))}
+                  </div>
+                  {!searchResults && (
+                    <>
+                      <div ref={sentinelRef} className="h-4" />
+                      {isFetchingNextPage && (
+                        <div className="flex items-center justify-center gap-2 py-6 text-muted-foreground text-sm">
+                          <Loader2 className="w-4 h-4 animate-spin text-[#4A7C59]" />
+                          <span>Weitere Rezepte werden geladen…</span>
+                        </div>
+                      )}
+                    </>
+                  )}
+                </>
               ) : isManaging ? (
                 <div className="pb-28">
                   <div className="flex items-center justify-between mb-3">
@@ -1030,6 +1075,13 @@ export default function MeineRezepte({ onNavigate: _onNavigate, initialOpenRecip
                     onClearSelect={() => setManagedSelected(new Set())}
                     addRecipes={addRecipes}
                   />
+                  <div ref={sentinelRef} className="h-4" />
+                  {isFetchingNextPage && (
+                    <div className="flex items-center justify-center gap-2 py-6 text-muted-foreground text-sm">
+                      <Loader2 className="w-4 h-4 animate-spin text-[#4A7C59]" />
+                      <span>Weitere Rezepte werden geladen…</span>
+                    </div>
+                  )}
                 </div>
               ) : (
                 <>
@@ -1091,6 +1143,17 @@ export default function MeineRezepte({ onNavigate: _onNavigate, initialOpenRecip
                       </tbody>
                     </table>
                   </div>
+                  {!searchResults && (
+                    <>
+                      <div ref={sentinelRef} className="h-4" />
+                      {isFetchingNextPage && (
+                        <div className="flex items-center justify-center gap-2 py-6 text-muted-foreground text-sm">
+                          <Loader2 className="w-4 h-4 animate-spin text-[#4A7C59]" />
+                          <span>Weitere Rezepte werden geladen…</span>
+                        </div>
+                      )}
+                    </>
+                  )}
                 </>
               )}
             </>

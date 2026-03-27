@@ -128,7 +128,7 @@ function RecipesHeroCard({ count }: { count: number }) {
 }
 
 export default function Statistiken() {
-  const { recipes, loading, error } = useRecipes();
+  const { recipes, loading, error } = useRecipes("all", { loadAll: true });
   const { history: kcalHistory, loading: kcalLoading } = useKcalHistory(4);
   const { entries: logEntries, loading: logLoading } = useCookingLog();
 

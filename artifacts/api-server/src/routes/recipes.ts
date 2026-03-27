@@ -19,8 +19,8 @@ function isAdmin(email: string) {
 
 const recipeListCache = new Map<string, { etag: string; body: string }>();
 
-function recipeListCacheKey(userId?: number, filter?: string) {
-  return `${userId ?? "anon"}:${filter ?? "all"}`;
+function recipeListCacheKey(userId?: number, filter?: string, page?: number, limit?: number) {
+  return `${userId ?? "anon"}:${filter ?? "all"}:p${page ?? 1}:l${limit ?? 24}`;
 }
 
 export function invalidateRecipeListCache() {
@@ -29,9 +29,9 @@ export function invalidateRecipeListCache() {
 
 export async function warmupRecipeCache(userId?: number) {
   try {
-    const cacheKey = recipeListCacheKey(userId, undefined);
-    const recipes = await getRecipesWithIngredients(userId, undefined);
-    const body = JSON.stringify(recipes);
+    const cacheKey = recipeListCacheKey(userId, undefined, 1, 24);
+    const result = await getRecipesWithIngredients(userId, undefined, 1, 24);
+    const body = JSON.stringify(result);
     const etag = `"${createHash("sha1").update(body).digest("hex").slice(0, 24)}"`;
     recipeListCache.set(cacheKey, { etag, body });
   } catch {
@@ -106,7 +106,11 @@ async function getFullRecipesByIds(ids: number[]): Promise<Record<number, unknow
   return result;
 }
 
-async function getRecipesWithIngredients(currentUserId?: number, filter?: string) {
+async function getRecipesWithIngredients(currentUserId?: number, filter?: string, page?: number, limit?: number) {
+  const pageNum = Math.max(1, page ?? 1);
+  const limitNum = limit != null ? Math.max(1, limit) : 24;
+  const offset = (pageNum - 1) * limitNum;
+
   const favExpr = currentUserId != null
     ? sql`EXISTS(SELECT 1 FROM recipe_favorites rf WHERE rf.recipe_id = r.id AND rf.user_id = ${currentUserId})`
     : sql`false`;
@@ -121,6 +125,15 @@ async function getRecipesWithIngredients(currentUserId?: number, filter?: string
       : filter === "favorites" && currentUserId != null
       ? sql`AND EXISTS(SELECT 1 FROM recipe_favorites rf2 WHERE rf2.recipe_id = r.id AND rf2.user_id = ${currentUserId})`
       : sql``;
+
+  const countRows = await db.execute(sql`
+    SELECT COUNT(*) AS total
+    FROM recipes r
+    WHERE r.deleted_at IS NULL
+    ${filterExpr}
+  `);
+  const rawCountRows = (countRows as unknown as { rows: Array<{ total: string | number }> }).rows ?? (countRows as unknown as Array<{ total: string | number }>);
+  const total = Number(rawCountRows[0]?.total ?? 0);
 
   const rows = await db.execute(sql`
     SELECT
@@ -180,6 +193,7 @@ async function getRecipesWithIngredients(currentUserId?: number, filter?: string
     ${filterExpr}
     GROUP BY r.id, u.display_name, u.avatar_url
     ORDER BY r.id
+    LIMIT ${limitNum} OFFSET ${offset}
   `);
 
   type Row = {
@@ -252,7 +266,13 @@ async function getRecipesWithIngredients(currentUserId?: number, filter?: string
       : null,
   }));
 
-  return result;
+  return {
+    recipes: result,
+    total,
+    page: pageNum,
+    limit: limitNum,
+    hasMore: offset + result.length < total,
+  };
 }
 
 router.get("/recipes/count", async (req, res) => {
@@ -325,7 +345,8 @@ router.post("/recipes/ai-search", async (req, res) => {
       return;
     }
 
-    const allRecipes = await getRecipesWithIngredients(currentUserId, filter);
+    const allRecipesResult = await getRecipesWithIngredients(currentUserId, filter, 1, 10000);
+    const allRecipes = allRecipesResult.recipes;
 
     const matchedRecipes = allRecipes.filter((recipe) => {
       const ingNames = (recipe.ingredients as Array<{ name: string }>).map((i) => i.name.toLowerCase());
@@ -434,8 +455,8 @@ router.get("/recipes/search", async (req, res) => {
     const filter = req.query.filter as string | undefined;
 
     if (!q) {
-      const recipes = await getRecipesWithIngredients(currentUserId, filter);
-      return res.json(recipes);
+      const result = await getRecipesWithIngredients(currentUserId, filter, 1, 10000);
+      return res.json(result.recipes);
     }
 
     const pattern = `%${q}%`;
@@ -668,7 +689,10 @@ router.get("/recipes", async (req, res) => {
   try {
     const currentUserId = req.authUser?.id;
     const filter = req.query.filter as string | undefined;
-    const cacheKey = recipeListCacheKey(currentUserId, filter);
+    const page = req.query.page != null ? Math.max(1, parseInt(String(req.query.page), 10) || 1) : 1;
+    const limit = req.query.limit != null ? Math.min(200, Math.max(1, parseInt(String(req.query.limit), 10) || 24)) : 24;
+
+    const cacheKey = recipeListCacheKey(currentUserId, filter, page, limit);
     const cached = recipeListCache.get(cacheKey);
 
     if (cached) {
@@ -682,8 +706,8 @@ router.get("/recipes", async (req, res) => {
       return;
     }
 
-    const recipes = await getRecipesWithIngredients(currentUserId, filter);
-    const body = JSON.stringify(recipes);
+    const result = await getRecipesWithIngredients(currentUserId, filter, page, limit);
+    const body = JSON.stringify(result);
     const etag = `"${createHash("sha1").update(body).digest("hex").slice(0, 24)}"`;
     recipeListCache.set(cacheKey, { etag, body });
     res.set("ETag", etag);

@@ -101,7 +101,7 @@ interface WochenplanProps {
 
 export default function Wochenplan({ onNavigate }: WochenplanProps = {}) {
   const { user } = useAuth();
-  const { recipes, loading: recipesLoading } = useRecipes();
+  const { recipes, loading: recipesLoading } = useRecipes("all", { loadAll: true });
   const { invitations, createInvitation, submitWish, updateRsvp, refetch: refetchInvitations } = useInvitations();
 
   const today = useMemo(() => {

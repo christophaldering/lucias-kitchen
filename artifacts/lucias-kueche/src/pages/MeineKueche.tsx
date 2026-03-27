@@ -483,7 +483,7 @@ function GesendetSection({
 }) {
   const { groups, loading: groupsLoading, getMembers, remindMember } = useGroups();
   const { invitations, loading: invLoading, updateInvitation, cancelInvitation, remindGuests, refetch } = useInvitations();
-  const { recipes } = useRecipes();
+  const { recipes } = useRecipes("all", { loadAll: true });
   const { suggestions: outgoing, loading: outgoingLoading } = useOutgoingSuggestions();
 
   const [managingInvitation, setManagingInvitation] = useState<MealInvitation | null>(null);
@@ -931,7 +931,7 @@ function KocheinladungenSection({ user }: { user: ReturnType<typeof useAuth>["us
   const markReadMutation = useMarkNotificationRead();
   const markAllReadMutation = useMarkAllNotificationsRead();
   const unreadCount = notifications.filter((n) => !n.readAt).length;
-  const { recipes } = useRecipes();
+  const { recipes } = useRecipes("all", { loadAll: true });
 
   const [subTab, setSubTab] = useState<"invitations" | "notifications">("invitations");
   const [respondingTo, setRespondingTo] = useState<MealInvitation | null>(null);

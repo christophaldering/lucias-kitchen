@@ -110,7 +110,7 @@ function AvatarSection({ user, onUpload }: { user: ReturnType<typeof useAuth>["u
 
 export default function Profil() {
   const { user, updateProfile, uploadAvatar, changePassword } = useAuth();
-  const { recipes } = useRecipes();
+  const { recipes } = useRecipes("all", { loadAll: true });
 
   const [displayName, setDisplayName] = useState(user?.displayName ?? "");
   const [bio, setBio] = useState(user?.bio ?? "");

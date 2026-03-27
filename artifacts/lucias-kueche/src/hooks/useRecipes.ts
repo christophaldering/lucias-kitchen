@@ -1,4 +1,5 @@
-import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { useInfiniteQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { useEffect } from "react";
 import type { Recipe, IngredientInput, Season, RecipePhoto } from "@/types/recipe";
 import { authFetch, authHeaders } from "@/lib/authFetch";
 import { useAuth } from "@/contexts/AuthContext";
@@ -27,6 +28,16 @@ export interface RecipeUpdatePayload {
 
 const API_BASE = "/api";
 
+const PAGE_LIMIT = 24;
+
+export interface RecipePage {
+  recipes: Recipe[];
+  total: number;
+  page: number;
+  limit: number;
+  hasMore: boolean;
+}
+
 export async function fetchRecipeById(id: number): Promise<import("@/types/recipe").Recipe> {
   const res = await authFetch(`${API_BASE}/recipes/${id}`, { headers: authHeaders() });
   if (!res.ok) throw new Error(`HTTP ${res.status}`);
@@ -35,15 +46,20 @@ export async function fetchRecipeById(id: number): Promise<import("@/types/recip
 
 export type RecipeFilter = "all" | "mine" | "favorites";
 
-export function useRecipes(filter: RecipeFilter = "all") {
+export function useRecipes(filter: RecipeFilter = "all", options?: { loadAll?: boolean }) {
   const { authReady } = useAuth();
   const queryClient = useQueryClient();
+  const loadAll = options?.loadAll ?? false;
 
-  const url = filter === "all" ? `${API_BASE}/recipes` : `${API_BASE}/recipes?filter=${filter}`;
+  const baseUrl = filter === "all" ? `${API_BASE}/recipes` : `${API_BASE}/recipes?filter=${filter}`;
 
-  const query = useQuery<Recipe[], Error>({
+  const infiniteQuery = useInfiniteQuery<RecipePage, Error>({
     queryKey: ["recipes", filter],
-    queryFn: async () => {
+    queryFn: async ({ pageParam }) => {
+      const page = (pageParam as number) ?? 1;
+      const sep = baseUrl.includes("?") ? "&" : "?";
+      const url = `${baseUrl}${sep}page=${page}&limit=${PAGE_LIMIT}`;
+
       const attempt = async (): Promise<Response> => {
         const res = await authFetch(url, { headers: authHeaders() });
         if (res.status === 401) {
@@ -54,6 +70,7 @@ export function useRecipes(filter: RecipeFilter = "all") {
         if (!res.ok) throw new Error(`HTTP ${res.status}`);
         return res;
       };
+
       let res: Response;
       try {
         res = await attempt();
@@ -64,6 +81,8 @@ export function useRecipes(filter: RecipeFilter = "all") {
       }
       return res.json();
     },
+    initialPageParam: 1,
+    getNextPageParam: (lastPage) => lastPage.hasMore ? lastPage.page + 1 : undefined,
     enabled: authReady,
     staleTime: 30_000,
     retry: (failureCount, error) => {
@@ -152,10 +171,17 @@ export function useRecipes(filter: RecipeFilter = "all") {
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ["recipes"] }),
   });
 
-  const recipes = query.data ?? [];
-  const loading = query.isLoading;
-  const isUnauthorizedError = query.isError && query.error instanceof Error && (query.error as Error & { isUnauthorized?: boolean }).isUnauthorized;
-  const error = query.isError && !isUnauthorizedError ? "Rezepte konnten nicht geladen werden." : null;
+  const recipes = infiniteQuery.data?.pages.flatMap((p) => p.recipes) ?? [];
+  const totalRecipes = infiniteQuery.data?.pages[0]?.total ?? null;
+  const loading = infiniteQuery.isLoading;
+  const isUnauthorizedError = infiniteQuery.isError && infiniteQuery.error instanceof Error && (infiniteQuery.error as Error & { isUnauthorized?: boolean }).isUnauthorized;
+  const error = infiniteQuery.isError && !isUnauthorizedError ? "Rezepte konnten nicht geladen werden." : null;
+
+  useEffect(() => {
+    if (loadAll && infiniteQuery.hasNextPage && !infiniteQuery.isFetchingNextPage) {
+      infiniteQuery.fetchNextPage();
+    }
+  }, [loadAll, infiniteQuery.hasNextPage, infiniteQuery.isFetchingNextPage, infiniteQuery.fetchNextPage, recipes.length]);
 
   async function fetchRecipes() {
     await queryClient.invalidateQueries({ queryKey: ["recipes"] });
@@ -209,6 +235,7 @@ export function useRecipes(filter: RecipeFilter = "all") {
 
   return {
     recipes,
+    totalRecipes,
     loading,
     error,
     refetch: fetchRecipes,
@@ -221,6 +248,9 @@ export function useRecipes(filter: RecipeFilter = "all") {
     deleteAllRecipes,
     restoreDemo,
     toggleFavorite,
+    fetchNextPage: infiniteQuery.fetchNextPage,
+    hasNextPage: infiniteQuery.hasNextPage,
+    isFetchingNextPage: infiniteQuery.isFetchingNextPage,
   };
 }
 

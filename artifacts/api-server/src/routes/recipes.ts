@@ -2459,6 +2459,7 @@ router.post("/recipes/:id/extract-image-from-source", authMiddleware, async (req
 
       const renderPdfToImages = async (pdfBuffer: Buffer): Promise<Buffer[]> => {
         const pdfjsLib = await import("pdfjs-dist/legacy/build/pdf.mjs");
+        (pdfjsLib as unknown as { GlobalWorkerOptions: { workerSrc: string } }).GlobalWorkerOptions.workerSrc = "";
         const { createCanvas } = (await import("@napi-rs/canvas"));
         const uint8Array = new Uint8Array(pdfBuffer);
         const pdfDoc = await (pdfjsLib as unknown as { getDocument: (opts: object) => { promise: Promise<{ numPages: number; getPage: (n: number) => Promise<{ getViewport: (opts: object) => { width: number; height: number }; render: (opts: object) => { promise: Promise<void> } }> }> } }).getDocument({ data: uint8Array, verbosity: 0, disableWorker: true }).promise;

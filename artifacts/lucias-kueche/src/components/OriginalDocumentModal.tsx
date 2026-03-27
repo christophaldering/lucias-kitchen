@@ -32,7 +32,7 @@ export default function OriginalDocumentModal({ url, onClose }: Props) {
           </button>
         </div>
 
-        <div className="flex-1 overflow-auto min-h-0 flex items-center justify-center bg-neutral-100 sm:rounded-b-2xl">
+        <div className="flex-1 overflow-auto min-h-0 flex items-start justify-center bg-neutral-100 sm:rounded-b-2xl">
           {pdf ? (
             <iframe
               src={url}

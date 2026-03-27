@@ -196,6 +196,7 @@ export default function RecipeModal({ recipe, onClose, onAddToWeek, onToggleFavo
   const [generatingImage, setGeneratingImage] = useState(false);
   const [extractingSourceImage, setExtractingSourceImage] = useState(false);
   const [extractSourceImageError, setExtractSourceImageError] = useState<string | null>(null);
+  const [extractingScanImage, setExtractingScanImage] = useState(false);
   const [localImageUrl, setLocalImageUrl] = useState<string | null>(recipe.imageUrl ?? null);
   const [localIsAiGenerated, setLocalIsAiGenerated] = useState(recipe.isAiGenerated ?? false);
   const [localImageSource, setLocalImageSource] = useState<"ai" | "web" | null>(recipe.imageSource ?? null);
@@ -307,6 +308,33 @@ export default function RecipeModal({ recipe, onClose, onAddToWeek, onToggleFavo
       setExtractSourceImageError("Bild konnte nicht extrahiert werden");
     } finally {
       setExtractingSourceImage(false);
+    }
+  };
+
+  const handleExtractScanImage = async () => {
+    setExtractingScanImage(true);
+    setExtractSourceImageError(null);
+    try {
+      const res = await authFetch(`${API_BASE}/recipes/${recipe.id}/extract-image-from-source`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", ...authHeaders() },
+        body: JSON.stringify({ saveCurrentAsPhoto: true, fromScanDocument: true }),
+      });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        setExtractSourceImageError((err as { message?: string }).message ?? "Scan-Bild konnte nicht extrahiert werden");
+        return;
+      }
+      const data = await res.json();
+      setLocalImageUrl(data.imageUrl);
+      setLocalIsAiGenerated(false);
+      setLocalImageSource(null);
+      setExtractSourceImageError(null);
+      if (onRecipeUpdated) onRecipeUpdated({ ...recipe, imageUrl: data.imageUrl, isAiGenerated: false, imageSource: null });
+    } catch {
+      setExtractSourceImageError("Scan-Bild konnte nicht extrahiert werden");
+    } finally {
+      setExtractingScanImage(false);
     }
   };
 
@@ -715,6 +743,17 @@ export default function RecipeModal({ recipe, onClose, onAddToWeek, onToggleFavo
                 </button>
               )}
 
+              {isOwner && recipe.sourceDocumentUrl && (
+                <button
+                  onClick={handleExtractScanImage}
+                  disabled={extractingScanImage || generatingImage || extractingSourceImage}
+                  className="flex items-center gap-2 px-4 py-2.5 bg-orange-50 border border-orange-200 text-orange-700 rounded-xl text-sm font-semibold hover:bg-orange-100 transition-colors disabled:opacity-60"
+                >
+                  {extractingScanImage ? <Loader2 className="w-4 h-4 animate-spin" /> : <FileText className="w-4 h-4" />}
+                  {extractingScanImage ? "Scan wird extrahiert…" : "Scan Foto extrahieren"}
+                </button>
+              )}
+
               {isOwner && !localImageUrl && !recipe.mainPhotoUrl && hasPhotosForRecipe === true && (
                 <button
                   onClick={openPhotoPicker}
@@ -732,7 +771,7 @@ export default function RecipeModal({ recipe, onClose, onAddToWeek, onToggleFavo
                     {isSourceUrl && (
                       <button
                         onClick={handleExtractSourceImage}
-                        disabled={extractingSourceImage || generatingImage}
+                        disabled={extractingSourceImage || generatingImage || extractingScanImage}
                         className="flex items-center gap-2 px-4 py-2.5 bg-blue-50 border border-blue-200 text-blue-700 rounded-xl text-sm font-semibold hover:bg-blue-100 transition-colors disabled:opacity-60"
                       >
                         {extractingSourceImage ? <Loader2 className="w-4 h-4 animate-spin" /> : <Globe className="w-4 h-4" />}
@@ -741,7 +780,7 @@ export default function RecipeModal({ recipe, onClose, onAddToWeek, onToggleFavo
                     )}
                     <button
                       onClick={handleGenerateImage}
-                      disabled={generatingImage || extractingSourceImage}
+                      disabled={generatingImage || extractingSourceImage || extractingScanImage}
                       className="flex items-center gap-2 px-4 py-2.5 bg-amber-50 border border-amber-200 text-amber-700 rounded-xl text-sm font-semibold hover:bg-amber-100 transition-colors disabled:opacity-60"
                     >
                       {generatingImage ? <Loader2 className="w-4 h-4 animate-spin" /> : <Sparkles className="w-4 h-4" />}

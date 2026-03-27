@@ -142,6 +142,115 @@ async function renderPdfPages(pdfBuffer: Buffer): Promise<Buffer[]> {
   return pageImages;
 }
 
+interface ExtractedImage {
+  data: Buffer;
+  width: number;
+  height: number;
+}
+
+async function extractEmbeddedImagesFromPage(pdfBuffer: Buffer, pageNum: number): Promise<ExtractedImage[]> {
+  try {
+    const pdfjsLib = await import("pdfjs-dist/legacy/build/pdf.mjs");
+    const canvasModule = await import("canvas");
+    const { createCanvas } = canvasModule;
+
+    const uint8Array = new Uint8Array(pdfBuffer);
+    const loadingTask = pdfjsLib.getDocument({ data: uint8Array, verbosity: 0 });
+    const pdfDoc = await loadingTask.promise;
+    const page = await pdfDoc.getPage(pageNum);
+
+    const operatorList = await page.getOperatorList();
+    const commonObjs = page.commonObjs;
+    const objs = page.objs;
+
+    const OPS = pdfjsLib.OPS as Record<string, number>;
+    const paintImageOps = new Set([
+      OPS.paintImageXObject,
+      OPS.paintImageXObjectRepeat,
+      OPS.paintInlineImageXObject,
+    ].filter((v) => v !== undefined));
+
+    const imageKeys = new Set<string>();
+    for (let i = 0; i < operatorList.fnArray.length; i++) {
+      const fn = operatorList.fnArray[i];
+      if (paintImageOps.has(fn)) {
+        const args = operatorList.argsArray[i];
+        if (args && typeof args[0] === "string") {
+          imageKeys.add(args[0]);
+        }
+      }
+    }
+
+    if (imageKeys.size === 0) return [];
+
+    const results: ExtractedImage[] = [];
+
+    for (const key of imageKeys) {
+      try {
+        // Try commonObjs first, then page objs
+        let imgData: { width: number; height: number; data: Uint8ClampedArray | Uint8Array } | null = null;
+        if (commonObjs.has(key)) {
+          imgData = commonObjs.get(key) as { width: number; height: number; data: Uint8ClampedArray | Uint8Array };
+        } else if (objs.has(key)) {
+          imgData = objs.get(key) as { width: number; height: number; data: Uint8ClampedArray | Uint8Array };
+        }
+
+        if (!imgData || !imgData.data || !imgData.width || !imgData.height) continue;
+
+        const { width, height, data } = imgData;
+        // Minimum size to filter out tiny icons/decorations (at least 100x100 px)
+        if (width < 100 || height < 100) continue;
+
+        const canvas = createCanvas(width, height);
+        const ctx = canvas.getContext("2d");
+
+        let pixelData: Uint8ClampedArray;
+        if (data.length === width * height * 4) {
+          // RGBA
+          pixelData = data instanceof Uint8ClampedArray ? data : new Uint8ClampedArray(data);
+        } else if (data.length === width * height * 3) {
+          // RGB → RGBA
+          pixelData = new Uint8ClampedArray(width * height * 4);
+          for (let i = 0; i < width * height; i++) {
+            pixelData[i * 4 + 0] = data[i * 3 + 0];
+            pixelData[i * 4 + 1] = data[i * 3 + 1];
+            pixelData[i * 4 + 2] = data[i * 3 + 2];
+            pixelData[i * 4 + 3] = 255;
+          }
+        } else if (data.length === width * height) {
+          // Grayscale → RGBA
+          pixelData = new Uint8ClampedArray(width * height * 4);
+          for (let i = 0; i < width * height; i++) {
+            const v = data[i];
+            pixelData[i * 4 + 0] = v;
+            pixelData[i * 4 + 1] = v;
+            pixelData[i * 4 + 2] = v;
+            pixelData[i * 4 + 3] = 255;
+          }
+        } else {
+          continue;
+        }
+
+        const imageDataObj = ctx.createImageData(width, height);
+        imageDataObj.data.set(pixelData);
+        ctx.putImageData(imageDataObj, 0, 0);
+
+        const jpegBuffer = canvas.toBuffer("image/jpeg", { quality: 0.9 });
+        results.push({ data: jpegBuffer, width, height });
+      } catch (imgErr) {
+        console.error(`Failed to extract image ${key} from page ${pageNum}:`, imgErr);
+      }
+    }
+
+    // Sort by area descending (largest image first)
+    results.sort((a, b) => b.width * b.height - a.width * a.height);
+    return results;
+  } catch (err) {
+    console.error(`extractEmbeddedImagesFromPage failed for page ${pageNum}:`, err);
+    return [];
+  }
+}
+
 async function detectFoodPhotoPages(pageBuffers: Buffer[]): Promise<Set<number>> {
   if (pageBuffers.length === 0) return new Set();
   try {
@@ -237,6 +346,9 @@ async function processPdfFile(
 
     let pageImageUrls: string[] = [];
     let foodPhotoPageNumbers: Set<number> = new Set();
+    // Maps 1-based page number → uploaded URL of extracted embedded image (or page render fallback)
+    const photoPageUrlByPageNum = new Map<number, string>();
+
     try {
       const pageBuffers = await renderPdfPages(pdfBuffer);
       for (let i = 0; i < pageBuffers.length; i++) {
@@ -251,6 +363,33 @@ async function processPdfFile(
       // Detect which pages show actual food photos (1-based page numbers)
       if (pageBuffers.length > 0) {
         foodPhotoPageNumbers = await detectFoodPhotoPages(pageBuffers);
+      }
+
+      // For each detected food photo page: try to extract embedded image objects directly from the PDF
+      for (const pageNum of foodPhotoPageNumbers) {
+        const pageIndex = pageNum - 1;
+        if (pageIndex < 0 || pageIndex >= pageImageUrls.length) continue;
+
+        let usedEmbedded = false;
+        try {
+          const embeddedImages = await extractEmbeddedImagesFromPage(pdfBuffer, pageNum);
+          for (const embImg of embeddedImages) {
+            const isFood = await detectFoodPhotoForImage(embImg.data.toString("base64"));
+            if (isFood) {
+              const embPath = await storageService.uploadBuffer(embImg.data, "image/jpeg", "bulk-import/pages");
+              photoPageUrlByPageNum.set(pageNum, `/api/storage${embPath}`);
+              usedEmbedded = true;
+              break;
+            }
+          }
+        } catch (embErr) {
+          console.error(`Failed to extract embedded images for page ${pageNum}:`, embErr);
+        }
+
+        // Fallback: use the rendered page image
+        if (!usedEmbedded) {
+          photoPageUrlByPageNum.set(pageNum, pageImageUrls[pageIndex]);
+        }
       }
     } catch (renderErr) {
       console.error("PDF rendering failed, proceeding without page images:", renderErr);
@@ -378,10 +517,10 @@ async function processPdfFile(
         .filter((n) => n >= 1 && n <= pageImageUrls.length)
         .map((n) => pageImageUrls[n - 1]);
 
-      // Only include pages that were detected as actual food photos
+      // Use extracted embedded image (or page render fallback) for detected food photo pages
       const recipePhotoPageUrls = pageNums
-        .filter((n) => n >= 1 && n <= pageImageUrls.length && foodPhotoPageNumbers.has(n))
-        .map((n) => pageImageUrls[n - 1]);
+        .filter((n) => photoPageUrlByPageNum.has(n))
+        .map((n) => photoPageUrlByPageNum.get(n) as string);
 
       const hasHw = recipe.hasHandwriting ?? documentHasHandwriting;
       let status: "done" | "uncertain" | "handwriting" | "failed" = "done";

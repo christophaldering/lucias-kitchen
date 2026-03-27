@@ -147,14 +147,14 @@ function ItemCard({
   onRestore: (id: number) => void;
 }) {
   const [expanded, setExpanded] = useState(false);
-  const [lightbox, setLightbox] = useState<number | null>(null);
+  const [lightbox, setLightbox] = useState<{ urls: string[]; index: number } | null>(null);
   const cfg = STATUS_CONFIG[item.status] ?? STATUS_CONFIG.pending;
   const Icon = cfg.icon;
   const rd = item.recipeData;
 
   const photoPageUrls = item.photoPageUrls ?? [];
-  const photoPageUrlSet = new Set(photoPageUrls);
   const hasDetectedPhoto = photoPageUrls.length > 0;
+  const primaryPhotoUrl = hasDetectedPhoto ? photoPageUrls[0] : null;
 
   const pageLabel = item.pageNumbers.length > 0
     ? item.pageNumbers.length === 1
@@ -164,22 +164,33 @@ function ItemCard({
 
   return (
     <div className={`border rounded-xl overflow-hidden transition-colors ${item.rejected ? "opacity-50 bg-gray-50 border-gray-200" : "bg-white border-border"}`}>
-      {lightbox !== null && item.pageImageUrls.length > 0 && (
+      {lightbox !== null && lightbox.urls.length > 0 && (
         <LightboxModal
-          urls={item.pageImageUrls}
-          initial={lightbox}
+          urls={lightbox.urls}
+          initial={lightbox.index}
           onClose={() => setLightbox(null)}
         />
       )}
 
       <div className="flex items-start gap-3 p-3">
-        <div className={`flex items-center gap-1 px-2 py-1 rounded-full text-xs font-medium flex-shrink-0 mt-0.5 ${cfg.color}`}>
-          <Icon className="w-3 h-3" />
-          {cfg.label}
-        </div>
+        {primaryPhotoUrl ? (
+          <img
+            src={primaryPhotoUrl}
+            alt="Rezeptfoto"
+            onClick={() => setLightbox({ urls: photoPageUrls, index: 0 })}
+            className="w-14 h-14 object-cover rounded-lg flex-shrink-0 cursor-pointer hover:opacity-80 transition-opacity border-2 border-amber-300"
+            title="Erkanntes Rezeptfoto"
+          />
+        ) : null}
 
         <div className="flex-1 min-w-0">
-          <p className="font-semibold text-sm text-foreground leading-snug">
+          <div className="flex items-start gap-2">
+            <div className={`flex items-center gap-1 px-2 py-1 rounded-full text-xs font-medium flex-shrink-0 mt-0.5 ${cfg.color}`}>
+              <Icon className="w-3 h-3" />
+              {cfg.label}
+            </div>
+          </div>
+          <p className="font-semibold text-sm text-foreground leading-snug mt-1">
             {rd?.title ?? "Unbekanntes Rezept"}
           </p>
           <div className="flex flex-wrap gap-2 mt-1">
@@ -223,8 +234,8 @@ function ItemCard({
         <div className="flex gap-1 flex-shrink-0">
           {item.pageImageUrls.length > 0 && (
             <button
-              onClick={() => setLightbox(0)}
-              title="Vorschau anzeigen"
+              onClick={() => setLightbox({ urls: item.pageImageUrls, index: 0 })}
+              title="Seitenvorschau anzeigen"
               className="p-1.5 hover:bg-secondary rounded-lg transition-colors text-muted-foreground hover:text-foreground"
             >
               <Eye className="w-4 h-4" />
@@ -261,24 +272,16 @@ function ItemCard({
 
       {item.pageImageUrls.length > 0 && (
         <div className="flex gap-1.5 px-3 pb-2 overflow-x-auto">
-          {item.pageImageUrls.map((url, i) => {
-            const isPhoto = photoPageUrlSet.has(url);
-            return (
-              <div key={i} className="relative flex-shrink-0">
-                <img
-                  src={url}
-                  alt={`Seite ${item.pageNumbers[i] ?? i + 1}`}
-                  onClick={() => setLightbox(i)}
-                  className={`w-12 h-16 object-cover rounded-md cursor-pointer hover:opacity-80 transition-opacity border-2 ${isPhoto ? "border-amber-400" : "border-border"}`}
-                />
-                {isPhoto && (
-                  <div className="absolute bottom-0.5 right-0.5 bg-amber-400 rounded-full p-0.5" title="Rezeptfoto">
-                    <Camera className="w-2 h-2 text-white" />
-                  </div>
-                )}
-              </div>
-            );
-          })}
+          {item.pageImageUrls.map((url, i) => (
+            <div key={i} className="relative flex-shrink-0">
+              <img
+                src={url}
+                alt={`Seite ${item.pageNumbers[i] ?? i + 1}`}
+                onClick={() => setLightbox({ urls: item.pageImageUrls, index: i })}
+                className="w-12 h-16 object-cover rounded-md cursor-pointer hover:opacity-80 transition-opacity border-2 border-border"
+              />
+            </div>
+          ))}
         </div>
       )}
 

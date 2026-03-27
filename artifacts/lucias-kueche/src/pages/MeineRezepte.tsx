@@ -937,27 +937,52 @@ export default function MeineRezepte({ onNavigate: _onNavigate, initialOpenRecip
             <>
               <ImportInProgressBanner />
 
-              {/* Recipe count status bar — always visible */}
-              <div className={`flex items-center gap-3 mb-5 px-4 py-3 rounded-xl border ${
-                isFiltered
-                  ? "bg-orange-50 border-orange-200 text-[#C1693A]"
-                  : "bg-green-50 border-green-200 text-[#4A7C59]"
-              }`}>
-                <BookOpen className="w-5 h-5 flex-shrink-0" />
-                {isFiltered ? (
-                  <span className="text-base">
-                    <span className="font-bold text-lg">{filtered.length}</span>
-                    <span className="opacity-70"> von </span>
-                    <span className="font-semibold">{totalRecipes ?? recipes.length}</span>
-                    <span className="opacity-70"> Rezepten angezeigt</span>
-                  </span>
-                ) : (
-                  <span className="text-base">
-                    <span className="font-bold text-lg">{totalRecipes ?? recipes.length}</span>
-                    <span className="opacity-70"> Rezepte in deiner Sammlung</span>
-                  </span>
-                )}
-              </div>
+              {/* Recipe count status bar — loaded vs total */}
+              {(() => {
+                const total = totalRecipes ?? recipes.length;
+                const loaded = recipes.length;
+                const allLoaded = !hasNextPage;
+                const pct = total > 0 ? Math.round((loaded / total) * 100) : 100;
+                return (
+                  <div className="mb-5 px-4 py-3 rounded-xl border bg-green-50 border-green-200">
+                    <div className="flex items-center gap-3 mb-2">
+                      <BookOpen className="w-4 h-4 flex-shrink-0 text-[#4A7C59]" />
+                      <span className="text-sm text-[#4A7C59]">
+                        {allLoaded ? (
+                          <>
+                            <span className="font-bold">{total}</span>
+                            <span className="opacity-70"> Rezepte geladen</span>
+                          </>
+                        ) : (
+                          <>
+                            <span className="font-bold">{loaded}</span>
+                            <span className="opacity-70"> von </span>
+                            <span className="font-bold">{total}</span>
+                            <span className="opacity-70"> Rezepten im Speicher</span>
+                            {isFetchingNextPage && (
+                              <span className="ml-2 inline-flex items-center gap-1 text-xs text-[#4A7C59]/60">
+                                <Loader2 className="w-3 h-3 animate-spin" />
+                                lädt…
+                              </span>
+                            )}
+                          </>
+                        )}
+                        {isFiltered && (
+                          <span className="ml-3 font-semibold text-[#C1693A]">
+                            · {filtered.length} Treffer
+                          </span>
+                        )}
+                      </span>
+                    </div>
+                    <div className="w-full bg-green-200 rounded-full h-1.5">
+                      <div
+                        className="bg-[#4A7C59] h-1.5 rounded-full transition-all duration-500"
+                        style={{ width: `${pct}%` }}
+                      />
+                    </div>
+                  </div>
+                );
+              })()}
 
               {(searchLoading || isFiltered) && (
                 <div className="mb-4">

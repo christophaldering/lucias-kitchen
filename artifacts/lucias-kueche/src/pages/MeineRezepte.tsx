@@ -938,19 +938,23 @@ export default function MeineRezepte({ onNavigate: _onNavigate, initialOpenRecip
               <ImportInProgressBanner />
 
               {/* Recipe count status bar — always visible */}
-              <div className={`flex items-center gap-2 mb-4 px-1 ${isFiltered ? "text-[#C1693A]" : "text-[#4A7C59]"}`}>
-                <BookOpen className="w-4 h-4 flex-shrink-0" />
+              <div className={`flex items-center gap-3 mb-5 px-4 py-3 rounded-xl border ${
+                isFiltered
+                  ? "bg-[#C1693A]/8 border-[#C1693A]/25 text-[#C1693A]"
+                  : "bg-[#4A7C59]/8 border-[#4A7C59]/20 text-[#4A7C59]"
+              }`}>
+                <BookOpen className="w-5 h-5 flex-shrink-0" />
                 {isFiltered ? (
-                  <span className="text-sm">
-                    <span className="font-semibold">{filtered.length}</span>
-                    <span className="text-muted-foreground"> von </span>
+                  <span className="text-base">
+                    <span className="font-bold text-lg">{filtered.length}</span>
+                    <span className="opacity-70"> von </span>
                     <span className="font-semibold">{totalRecipes ?? recipes.length}</span>
-                    <span className="text-muted-foreground"> Rezepten angezeigt</span>
+                    <span className="opacity-70"> Rezepten angezeigt</span>
                   </span>
                 ) : (
-                  <span className="text-sm">
-                    <span className="font-semibold">{totalRecipes ?? recipes.length}</span>
-                    <span className="text-muted-foreground"> Rezepte in deiner Sammlung</span>
+                  <span className="text-base">
+                    <span className="font-bold text-lg">{totalRecipes ?? recipes.length}</span>
+                    <span className="opacity-70"> Rezepte in deiner Sammlung</span>
                   </span>
                 )}
               </div>

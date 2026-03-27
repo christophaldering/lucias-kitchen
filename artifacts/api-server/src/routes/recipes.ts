@@ -2246,20 +2246,20 @@ router.post("/admin/extract-recipe-images", authMiddleware, async (req, res) => 
   };
 
   try {
-    const recipesWithPhotos = await db
+    const recipesWithCookedPhotos = await db
       .selectDistinct({ recipeId: recipePhotoLinksTable.recipeId })
-      .from(recipePhotoLinksTable);
+      .from(recipePhotoLinksTable)
+      .innerJoin(photosTable, eq(photosTable.id, recipePhotoLinksTable.photoId))
+      .where(eq(photosTable.source, "cooked"));
 
-    const recipeIdsWithPhotos = new Set(recipesWithPhotos.map((r) => r.recipeId));
+    const recipeIdsWithCookedPhotos = new Set(recipesWithCookedPhotos.map((r) => r.recipeId));
 
     const allRecipes = await db
-      .select({ id: recipesTable.id, imageUrl: recipesTable.imageUrl, isAiGenerated: recipesTable.isAiGenerated })
+      .select({ id: recipesTable.id })
       .from(recipesTable)
       .where(isNull(recipesTable.deletedAt));
 
-    const recipesToProcess = allRecipes.filter(
-      (r) => recipeIdsWithPhotos.has(r.id) && (!r.imageUrl || r.isAiGenerated === true)
-    );
+    const recipesToProcess = allRecipes.filter((r) => recipeIdsWithCookedPhotos.has(r.id));
 
     const total = recipesToProcess.length;
     let done = 0;
@@ -2277,7 +2277,7 @@ router.post("/admin/extract-recipe-images", authMiddleware, async (req, res) => 
           })
           .from(recipePhotoLinksTable)
           .innerJoin(photosTable, eq(photosTable.id, recipePhotoLinksTable.photoId))
-          .where(eq(recipePhotoLinksTable.recipeId, recipe.id))
+          .where(and(eq(recipePhotoLinksTable.recipeId, recipe.id), eq(photosTable.source, "cooked")))
           .orderBy(desc(photosTable.createdAt))
           .limit(1);
 

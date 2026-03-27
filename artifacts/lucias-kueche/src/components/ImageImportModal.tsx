@@ -105,7 +105,7 @@ interface QueueItem {
   status: "pending" | "loading" | "review" | "saving" | "saved" | "skipped" | "error";
   extracted: Partial<Recipe> | null;
   sourceDocumentUrl: string | null;
-  extractedImageUrl: string | null;
+  imageUrl: string | null;
   errorMsg: string | null;
 }
 
@@ -316,6 +316,54 @@ export default function ImageImportModal({ onClose, onAdd }: Props) {
 
       const item = queue[index];
 
+      // Handle items already in review status (e.g. additional recipes injected from a multi-recipe image)
+      if (item.status === "review" && item.extracted) {
+        setCurrentIndexSync(index);
+        setExpandedEdit(false);
+
+        if (!autoSaveRef.current) {
+          // Show the item to the user for manual review
+          return;
+        }
+
+        // Auto-save mode: save immediately
+        setQueueAndSync((prev) =>
+          prev.map((it, i) => (i === index ? { ...it, status: "saving" } : it))
+        );
+        try {
+          const newIds = await onAddRef.current([{
+            ...item.extracted,
+            sourceDocumentUrl: item.sourceDocumentUrl ?? undefined,
+            imageUrl: item.imageUrl ?? undefined,
+          }]);
+          appendSavedRecipeIds(newIds);
+          setQueueAndSync((prev) =>
+            prev.map((it, i) => (i === index ? { ...it, status: "saved" } : it))
+          );
+          saved++;
+        } catch (err) {
+          let msg = "Rezept konnte nicht gespeichert werden.";
+          if (err instanceof Error) {
+            try {
+              const parsed = JSON.parse(err.message);
+              if (parsed?.issues && Array.isArray(parsed.issues)) {
+                msg = formatZodIssues(parsed.issues);
+              } else if (parsed?.message) {
+                msg = parsed.message;
+              }
+            } catch {
+              if (err.message && !err.message.startsWith("HTTP")) msg = err.message;
+            }
+          }
+          setQueueAndSync((prev) =>
+            prev.map((it, i) => (i === index ? { ...it, status: "error", errorMsg: msg } : it))
+          );
+          skipped++;
+        }
+        index++;
+        continue;
+      }
+
       if (item.status !== "pending") {
         index++;
         continue;
@@ -330,7 +378,6 @@ export default function ImageImportModal({ onClose, onAdd }: Props) {
 
       let recipes: Partial<Recipe>[];
       let sourceDocumentUrl: string | null;
-      let extractedImageUrl: string | null;
 
       try {
         const result = await extractImageRecipes([
@@ -338,7 +385,6 @@ export default function ImageImportModal({ onClose, onAdd }: Props) {
         ]);
         recipes = result.recipes;
         sourceDocumentUrl = result.sourceDocumentUrl;
-        extractedImageUrl = result.extractedImageUrl;
       } catch (err) {
         const msg = err instanceof Error ? err.message : "Extraktion fehlgeschlagen.";
         setQueueAndSync((prev) =>
@@ -366,10 +412,35 @@ export default function ImageImportModal({ onClose, onAdd }: Props) {
         continue;
       }
 
+      // If there are additional recipes beyond the first, inject them as new queue items after the current index
+      if (recipes.length > 1) {
+        const additionalItems: QueueItem[] = recipes.slice(1).map((rawRecipe) => {
+          const recipeData = sanitizeRecipe(rawRecipe);
+          const recipeImageUrl = (rawRecipe as { imageUrl?: string | null }).imageUrl ?? null;
+          return {
+            objectUrl: item.objectUrl,
+            base64: item.base64,
+            mimeType: item.mimeType,
+            status: "review" as const,
+            extracted: recipeData,
+            sourceDocumentUrl,
+            imageUrl: recipeImageUrl,
+            errorMsg: null,
+          };
+        });
+        setQueueAndSync((prev) => {
+          const next = [...prev];
+          next.splice(index + 1, 0, ...additionalItems);
+          return next;
+        });
+      }
+
+      const firstRecipeImageUrl = (recipes[0] as { imageUrl?: string | null }).imageUrl ?? null;
+
       setQueueAndSync((prev) =>
         prev.map((it, i) =>
           i === index
-            ? { ...it, status: "review", extracted: firstRecipe, sourceDocumentUrl, extractedImageUrl }
+            ? { ...it, status: "review", extracted: firstRecipe, sourceDocumentUrl, imageUrl: firstRecipeImageUrl }
             : it
         )
       );
@@ -386,7 +457,7 @@ export default function ImageImportModal({ onClose, onAdd }: Props) {
         const newIds = await onAddRef.current([{
           ...firstRecipe,
           sourceDocumentUrl: sourceDocumentUrl ?? undefined,
-          imageUrl: extractedImageUrl ?? undefined,
+          imageUrl: firstRecipeImageUrl ?? undefined,
         }]);
         appendSavedRecipeIds(newIds);
         setQueueAndSync((prev) =>
@@ -433,7 +504,7 @@ export default function ImageImportModal({ onClose, onAdd }: Props) {
     );
 
     try {
-      const newIds = await onAddRef.current([{ ...currentItem.extracted, sourceDocumentUrl: currentItem.sourceDocumentUrl ?? undefined, imageUrl: currentItem.extractedImageUrl ?? undefined }]);
+      const newIds = await onAddRef.current([{ ...currentItem.extracted, sourceDocumentUrl: currentItem.sourceDocumentUrl ?? undefined, imageUrl: currentItem.imageUrl ?? undefined }]);
       appendSavedRecipeIds(newIds);
       setQueueAndSync((prev) =>
         prev.map((it, i) => (i === idx ? { ...it, status: "saved" } : it))
@@ -514,7 +585,7 @@ export default function ImageImportModal({ onClose, onAdd }: Props) {
           status: "pending" as const,
           extracted: null,
           sourceDocumentUrl: null,
-          extractedImageUrl: null,
+          imageUrl: null,
           errorMsg: null,
         };
       })
@@ -542,7 +613,7 @@ export default function ImageImportModal({ onClose, onAdd }: Props) {
     );
 
     try {
-      const newIds = await onAddRef.current([{ ...item.extracted, sourceDocumentUrl: item.sourceDocumentUrl ?? undefined, imageUrl: item.extractedImageUrl ?? undefined }]);
+      const newIds = await onAddRef.current([{ ...item.extracted, sourceDocumentUrl: item.sourceDocumentUrl ?? undefined, imageUrl: item.imageUrl ?? undefined }]);
       appendSavedRecipeIds(newIds);
       setQueueAndSync((prev) =>
         prev.map((it, i) => (i === idx ? { ...it, status: "saved" } : it))
@@ -556,7 +627,8 @@ export default function ImageImportModal({ onClose, onAdd }: Props) {
       } else {
         setCurrentIndexSync(nextIndex);
         setExpandedEdit(false);
-        if (queueRef.current[nextIndex].status === "pending") {
+        const nextStatus = queueRef.current[nextIndex].status;
+        if (nextStatus === "pending" || nextStatus === "review") {
           processingRef.current = true;
           await runProcessingLoop(nextIndex, newSaved, skippedCountRef.current);
         }
@@ -595,7 +667,8 @@ export default function ImageImportModal({ onClose, onAdd }: Props) {
     } else {
       setCurrentIndexSync(nextIndex);
       setExpandedEdit(false);
-      if (queueRef.current[nextIndex].status === "pending") {
+      const nextStatus = queueRef.current[nextIndex].status;
+      if (nextStatus === "pending" || nextStatus === "review") {
         processingRef.current = true;
         await runProcessingLoop(nextIndex, savedCountRef.current, newSkipped);
       }

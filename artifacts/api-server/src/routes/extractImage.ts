@@ -10,6 +10,51 @@ const ALLOWED_TYPES = ["image/jpeg", "image/png", "image/webp", "image/gif", "im
 
 type ImageEntry = { base64: string; mimeType: string };
 
+type CropData = { x: number; y: number; width: number; height: number };
+
+function isCropValid(crop: unknown): crop is CropData {
+  if (crop === null || typeof crop !== "object") return false;
+  const c = crop as Record<string, unknown>;
+  return (
+    Number.isFinite(c.x) && Number.isFinite(c.y) &&
+    Number.isFinite(c.width) && Number.isFinite(c.height) &&
+    (c.x as number) >= 0 && (c.y as number) >= 0 &&
+    (c.width as number) > 0 && (c.height as number) > 0 &&
+    (c.x as number) + (c.width as number) <= 100 &&
+    (c.y as number) + (c.height as number) <= 100
+  );
+}
+
+async function cropAndStore(
+  imageBuffer: Buffer,
+  crop: CropData,
+  storageService: ObjectStorageService
+): Promise<string | null> {
+  try {
+    const sharp = (await import("sharp")).default;
+    const meta = await sharp(imageBuffer).rotate().metadata();
+    const imgWidth = meta.width ?? 1024;
+    const imgHeight = meta.height ?? 1024;
+
+    const cropX = Math.max(0, Math.round((crop.x / 100) * imgWidth));
+    const cropY = Math.max(0, Math.round((crop.y / 100) * imgHeight));
+    const cropW = Math.min(imgWidth - cropX, Math.max(1, Math.round((crop.width / 100) * imgWidth)));
+    const cropH = Math.min(imgHeight - cropY, Math.max(1, Math.round((crop.height / 100) * imgHeight)));
+
+    const croppedBuffer = await sharp(imageBuffer)
+      .rotate()
+      .extract({ left: cropX, top: cropY, width: cropW, height: cropH })
+      .resize(800, 800, { fit: "inside", withoutEnlargement: true })
+      .webp({ quality: 82 })
+      .toBuffer();
+
+    const storagePath = await storageService.uploadBuffer(croppedBuffer, "image/webp", "recipe-images");
+    return `/api/storage${storagePath}`;
+  } catch {
+    return null;
+  }
+}
+
 router.post("/extract-image", async (req, res) => {
   try {
     const body = req.body as {
@@ -83,7 +128,7 @@ router.post("/extract-image", async (req, res) => {
     const textContent = {
       type: "text" as const,
       text: visionEntries.length > 1
-        ? `Bitte extrahiere alle Rezepte aus diesen ${visionEntries.length} Bildern, die zusammen ein einzelnes Rezept zeigen.`
+        ? `Bitte extrahiere alle Rezepte aus diesen ${visionEntries.length} Bildern. Jedes Bild kann ein oder mehrere Rezepte enthalten.`
         : "Bitte extrahiere alle Rezepte aus diesem Bild.",
     };
 
@@ -102,7 +147,7 @@ router.post("/extract-image", async (req, res) => {
     let rawJson = response.choices[0]?.message?.content ?? "";
     rawJson = rawJson.replace(/^```(?:json)?\s*/i, "").replace(/\s*```$/i, "").trim();
 
-    let parsed: { recipes: unknown[]; foodImageCrop?: { x: number; y: number; width: number; height: number } | null };
+    let parsed: { recipes: Array<Record<string, unknown>> };
     try {
       parsed = JSON.parse(rawJson);
     } catch {
@@ -115,47 +160,37 @@ router.post("/extract-image", async (req, res) => {
       return;
     }
 
-    let extractedImageUrl: string | null = null;
+    const rawRecipes: Array<Record<string, unknown>> = Array.isArray(parsed.recipes) ? parsed.recipes : [];
 
-    const cropData = parsed.foodImageCrop;
-    const isCropValid = cropData !== null &&
-      typeof cropData === "object" &&
-      Number.isFinite(cropData.x) && Number.isFinite(cropData.y) &&
-      Number.isFinite(cropData.width) && Number.isFinite(cropData.height) &&
-      cropData.x >= 0 && cropData.y >= 0 &&
-      cropData.width > 0 && cropData.height > 0 &&
-      cropData.x + cropData.width <= 100 && cropData.y + cropData.height <= 100;
+    // Pre-decode all image buffers once to avoid repeated Buffer.from calls
+    const imageBuffers = imageEntries.map((img) => Buffer.from(img.base64, "base64"));
 
-    if (isCropValid) {
-      try {
-        const crop = cropData!;
-        const firstImage = imageEntries[0];
-        const inputBuffer = Buffer.from(firstImage.base64, "base64");
-        const sharp = (await import("sharp")).default;
-        const meta = await sharp(inputBuffer).rotate().metadata();
-        const imgWidth = meta.width ?? 1024;
-        const imgHeight = meta.height ?? 1024;
+    const recipes = await Promise.all(
+      rawRecipes.map(async (recipe) => {
+        const crop = recipe.foodImageCrop;
+        // Remove foodImageCrop and sourceImageIndex from the recipe object before returning
+        const { foodImageCrop: _crop, sourceImageIndex: _idx, ...recipeWithoutMeta } = recipe;
 
-        const cropX = Math.max(0, Math.round((crop.x / 100) * imgWidth));
-        const cropY = Math.max(0, Math.round((crop.y / 100) * imgHeight));
-        const cropW = Math.min(imgWidth - cropX, Math.max(1, Math.round((crop.width / 100) * imgWidth)));
-        const cropH = Math.min(imgHeight - cropY, Math.max(1, Math.round((crop.height / 100) * imgHeight)));
+        if (isCropValid(crop)) {
+          // Use the source image specified by the AI (fall back to first image)
+          const imgIdx = typeof recipe.sourceImageIndex === "number" &&
+            Number.isInteger(recipe.sourceImageIndex) &&
+            recipe.sourceImageIndex >= 0 &&
+            recipe.sourceImageIndex < imageBuffers.length
+            ? recipe.sourceImageIndex
+            : 0;
+          const imageUrl = await cropAndStore(imageBuffers[imgIdx], crop, storageService);
+          if (imageUrl) {
+            req.log.info({ imageUrl, sourceImageIndex: imgIdx }, "Cropped food image for recipe");
+            return { ...recipeWithoutMeta, imageUrl };
+          }
+        }
 
-        const croppedBuffer = await sharp(inputBuffer)
-          .rotate()
-          .extract({ left: cropX, top: cropY, width: cropW, height: cropH })
-          .resize(800, 800, { fit: "inside", withoutEnlargement: true })
-          .webp({ quality: 82 })
-          .toBuffer();
+        return recipeWithoutMeta;
+      })
+    );
 
-        const storagePath = await storageService.uploadBuffer(croppedBuffer, "image/webp", "recipe-images");
-        extractedImageUrl = `/api/storage${storagePath}`;
-      } catch (cropErr) {
-        req.log.warn({ err: cropErr }, "Failed to crop food image from scan, skipping");
-      }
-    }
-
-    res.json({ recipes: parsed.recipes ?? [], modelUsed: "openai", sourceDocumentUrl, extractedImageUrl });
+    res.json({ recipes, modelUsed: "openai", sourceDocumentUrl });
   } catch (err) {
     req.log.error({ err }, "Failed to extract image");
     res.status(500).json({ error: "internal_error", message: "Foto-Extraktion fehlgeschlagen" });

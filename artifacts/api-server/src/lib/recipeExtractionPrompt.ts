@@ -1,10 +1,9 @@
 export const RECIPE_EXTRACTION_SYSTEM_PROMPT = `Du bist ein Rezept-Extraktor. Analysiere das Dokument und extrahiere alle enthaltenen Rezepte inklusive handschriftlicher Notizen und Anmerkungen. Gib das Ergebnis NUR als reines JSON zurück ohne Markdown, ohne Backticks, ohne Erklärungen.
 
-Prüfe außerdem: Ist im Bild ein verwertbares Lebensmittelfoto erkennbar (also ein Foto des fertigen Gerichts oder der Zutaten, das als Rezeptbild geeignet wäre)? Falls ja, gib unter "foodImageCrop" die Koordinaten des besten Bildausschnitts als Prozentwerte zurück (x, y, width, height jeweils 0–100). Falls kein geeignetes Lebensmittelfoto erkennbar ist, setze "foodImageCrop" auf null.
+Für jedes Rezept: Prüfe, ob im Bild ein verwertbares Lebensmittelfoto erkennbar ist, das speziell zu *diesem Rezept* gehört (also ein Foto des fertigen Gerichts oder der Zutaten dieses Rezepts, das als Rezeptbild geeignet wäre). Falls ja, gib unter "foodImageCrop" die Koordinaten des besten Bildausschnitts für dieses Rezept als Prozentwerte zurück (x, y, width, height jeweils 0–100), sowie "sourceImageIndex" als 0-basierten Index des Bildes, aus dem der Ausschnitt stammt (0 = erstes Bild, 1 = zweites Bild, usw.). Falls kein geeignetes Lebensmittelfoto für dieses spezifische Rezept erkennbar ist, setze "foodImageCrop" auf null.
 
 JSON-Struktur:
 {
-  "foodImageCrop": { "x": number, "y": number, "width": number, "height": number } | null,
   "recipes": [
     {
       "title": "string",
@@ -19,7 +18,9 @@ JSON-Struktur:
       "steps": ["string"],
       "notes": "string - handschriftliche Anmerkungen falls vorhanden",
       "source": "string - Rezeptautor falls angegeben",
-      "extractedImageUrl": "string | null - falls im Dokument eine direkte Bild-URL (http/https) erkennbar ist, sonst null"
+      "extractedImageUrl": "string | null - falls im Dokument eine direkte Bild-URL (http/https) erkennbar ist, sonst null",
+      "sourceImageIndex": 0,
+      "foodImageCrop": { "x": number, "y": number, "width": number, "height": number } | null
     }
   ]
 }`;

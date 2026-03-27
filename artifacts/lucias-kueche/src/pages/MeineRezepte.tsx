@@ -940,8 +940,8 @@ export default function MeineRezepte({ onNavigate: _onNavigate, initialOpenRecip
               {/* Recipe count status bar — always visible */}
               <div className={`flex items-center gap-3 mb-5 px-4 py-3 rounded-xl border ${
                 isFiltered
-                  ? "bg-[#C1693A]/8 border-[#C1693A]/25 text-[#C1693A]"
-                  : "bg-[#4A7C59]/8 border-[#4A7C59]/20 text-[#4A7C59]"
+                  ? "bg-orange-50 border-orange-200 text-[#C1693A]"
+                  : "bg-green-50 border-green-200 text-[#4A7C59]"
               }`}>
                 <BookOpen className="w-5 h-5 flex-shrink-0" />
                 {isFiltered ? (

@@ -2,6 +2,7 @@ import { useState, useMemo } from "react";
 import { Loader2, Trash2, Edit2, Download, Printer, Tag, X, Plus, ArrowUp, ArrowDown, ArrowUpDown, Copy } from "lucide-react";
 import type { Recipe } from "@/types/recipe";
 import type { RecipeUpdatePayload } from "@/hooks/useRecipes";
+import { fetchRecipeById } from "@/hooks/useRecipes";
 import RecipeEditModal from "@/components/RecipeEditModal";
 import { formatIngredient } from "@/types/recipe";
 import { useAuth } from "@/contexts/AuthContext";
@@ -135,55 +136,73 @@ function BulkActionsBar({
     finally { setBusy(false); }
   };
 
-  const doPrint = () => {
-    const html = selectedRecipes.map((r) => `
-      <div style="page-break-inside:avoid;margin-bottom:40px;font-family:Georgia,serif">
-        <h2 style="font-size:18px;margin:0 0 4px">${r.title}</h2>
-        <p style="font-size:12px;color:#666;margin:0 0 12px">${r.category} • ${r.difficulty}${r.totalTime ? " • " + r.totalTime : ""}${r.servings ? " • " + r.servings + " Portionen" : ""}</p>
-        <h3 style="font-size:14px;margin:0 0 6px">Zutaten</h3>
-        <ul style="margin:0 0 12px;padding-left:18px;font-size:13px">${r.ingredients.map((i) => `<li>${formatIngredient(i)}</li>`).join("")}</ul>
-        <h3 style="font-size:14px;margin:0 0 6px">Zubereitung</h3>
-        <ol style="margin:0;padding-left:18px;font-size:13px">${r.steps.map((s) => `<li style="margin-bottom:4px">${s}</li>`).join("")}</ol>
-        ${r.notes ? `<p style="font-size:12px;color:#7a5c00;background:#fffbe8;padding:8px;margin-top:12px;border-radius:6px">📝 ${r.notes}</p>` : ""}
-      </div>`).join("<hr style='margin:20px 0'>");
-    const win = window.open("", "_blank");
-    if (!win) return;
-    win.document.write(`<!DOCTYPE html><html><head><title>Rezepte</title><style>
-      body{font-family:Georgia,serif;margin:40px;color:#222}
-      h2{font-size:20px;margin:0 0 4px}h3{font-size:15px;margin:0 0 6px}
-      ul,ol{margin:0 0 12px;padding-left:20px;font-size:13px}
-      li{margin-bottom:2px}p{font-size:12px;margin:0 0 8px}
-      hr{border:none;border-top:1px solid #ddd;margin:24px 0}
-      @media print{
-        body{margin:20px}
-        .no-print{display:none}
-        div{page-break-inside:avoid}
-      }
-    </style></head><body>${html}</body></html>`);
-    win.document.close();
-    win.print();
+  const doPrint = async () => {
+    setBusy(true);
+    try {
+      const fullRecipes = await Promise.all(selectedRecipes.map((r) =>
+        (r.hasSteps && (!Array.isArray(r.steps) || r.steps.length === 0))
+          ? fetchRecipeById(r.id)
+          : Promise.resolve(r)
+      ));
+      const html = fullRecipes.map((r) => `
+        <div style="page-break-inside:avoid;margin-bottom:40px;font-family:Georgia,serif">
+          <h2 style="font-size:18px;margin:0 0 4px">${r.title}</h2>
+          <p style="font-size:12px;color:#666;margin:0 0 12px">${r.category} • ${r.difficulty}${r.totalTime ? " • " + r.totalTime : ""}${r.servings ? " • " + r.servings + " Portionen" : ""}</p>
+          <h3 style="font-size:14px;margin:0 0 6px">Zutaten</h3>
+          <ul style="margin:0 0 12px;padding-left:18px;font-size:13px">${r.ingredients.map((i) => `<li>${formatIngredient(i)}</li>`).join("")}</ul>
+          <h3 style="font-size:14px;margin:0 0 6px">Zubereitung</h3>
+          <ol style="margin:0;padding-left:18px;font-size:13px">${(r.steps as string[]).map((s) => `<li style="margin-bottom:4px">${s}</li>`).join("")}</ol>
+          ${r.notes ? `<p style="font-size:12px;color:#7a5c00;background:#fffbe8;padding:8px;margin-top:12px;border-radius:6px">📝 ${r.notes}</p>` : ""}
+        </div>`).join("<hr style='margin:20px 0'>");
+      const win = window.open("", "_blank");
+      if (!win) return;
+      win.document.write(`<!DOCTYPE html><html><head><title>Rezepte</title><style>
+        body{font-family:Georgia,serif;margin:40px;color:#222}
+        h2{font-size:20px;margin:0 0 4px}h3{font-size:15px;margin:0 0 6px}
+        ul,ol{margin:0 0 12px;padding-left:20px;font-size:13px}
+        li{margin-bottom:2px}p{font-size:12px;margin:0 0 8px}
+        hr{border:none;border-top:1px solid #ddd;margin:24px 0}
+        @media print{
+          body{margin:20px}
+          .no-print{display:none}
+          div{page-break-inside:avoid}
+        }
+      </style></head><body>${html}</body></html>`);
+      win.document.close();
+      win.print();
+    } catch { toast("Fehler beim Drucken", "err"); }
+    finally { setBusy(false); }
   };
 
-  const doDownload = () => {
-    const text = selectedRecipes.map((r) => [
-      `=== ${r.title} ===`,
-      `Kategorie: ${r.category} | Schwierigkeitsgrad: ${r.difficulty}`,
-      r.totalTime ? `Zeit: ${r.totalTime}` : "",
-      r.servings ? `Portionen: ${r.servings}` : "",
-      r.source ? `Quelle: ${r.source}` : "",
-      "",
-      "ZUTATEN:",
-      ...r.ingredients.map((i) => `  - ${formatIngredient(i)}`),
-      "",
-      "ZUBEREITUNG:",
-      ...r.steps.map((s, i) => `  ${i + 1}. ${s}`),
-      r.notes ? `\nNOTIZEN:\n  ${r.notes}` : "",
-    ].filter((l) => l !== undefined).join("\n")).join("\n\n" + "─".repeat(50) + "\n\n");
-    const blob = new Blob([text], { type: "text/plain;charset=utf-8" });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    a.href = url; a.download = "rezepte.txt"; a.click();
-    URL.revokeObjectURL(url);
+  const doDownload = async () => {
+    setBusy(true);
+    try {
+      const fullRecipes = await Promise.all(selectedRecipes.map((r) =>
+        (r.hasSteps && (!Array.isArray(r.steps) || r.steps.length === 0))
+          ? fetchRecipeById(r.id)
+          : Promise.resolve(r)
+      ));
+      const text = fullRecipes.map((r) => [
+        `=== ${r.title} ===`,
+        `Kategorie: ${r.category} | Schwierigkeitsgrad: ${r.difficulty}`,
+        r.totalTime ? `Zeit: ${r.totalTime}` : "",
+        r.servings ? `Portionen: ${r.servings}` : "",
+        r.source ? `Quelle: ${r.source}` : "",
+        "",
+        "ZUTATEN:",
+        ...r.ingredients.map((i) => `  - ${formatIngredient(i)}`),
+        "",
+        "ZUBEREITUNG:",
+        ...(r.steps as string[]).map((s, i) => `  ${i + 1}. ${s}`),
+        r.notes ? `\nNOTIZEN:\n  ${r.notes}` : "",
+      ].filter((l) => l !== undefined).join("\n")).join("\n\n" + "─".repeat(50) + "\n\n");
+      const blob = new Blob([text], { type: "text/plain;charset=utf-8" });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url; a.download = "rezepte.txt"; a.click();
+      URL.revokeObjectURL(url);
+    } catch { toast("Fehler beim Herunterladen", "err"); }
+    finally { setBusy(false); }
   };
 
   return (
@@ -524,6 +543,24 @@ export default function RecipeManagement({
     await updateRecipe(id, data);
   };
 
+  const handleEditRecipe = async (r: Recipe) => {
+    try {
+      const full = await fetchRecipeById(r.id);
+      setEditRecipe(full);
+    } catch {
+      setEditRecipe(r);
+    }
+  };
+
+  const handleCreateVariant = async (r: Recipe) => {
+    try {
+      const full = await fetchRecipeById(r.id);
+      setVariantBaseRecipe(full);
+    } catch {
+      setVariantBaseRecipe(r);
+    }
+  };
+
   const knownCategories = Array.from(new Set(recipes.map((r) => r.category))).sort();
 
   return (
@@ -533,8 +570,8 @@ export default function RecipeManagement({
         selected={selected}
         onToggle={onToggle}
         onToggleAll={onToggleAll}
-        onEdit={setEditRecipe}
-        onCreateVariant={setVariantBaseRecipe}
+        onEdit={handleEditRecipe}
+        onCreateVariant={handleCreateVariant}
         currentUserDisplayName={user?.displayName ?? "–"}
       />
       <BulkActionsBar

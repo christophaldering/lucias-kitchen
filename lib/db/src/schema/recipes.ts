@@ -30,7 +30,11 @@ export const recipesTable = pgTable("recipes", {
   deletedAt: timestamp("deleted_at"),
   isAiGenerated: boolean("is_ai_generated").notNull().default(false),
   imageSource: text("image_source"),
-});
+}, (t) => [
+  index("recipes_deleted_at_idx").on(t.deletedAt),
+  index("recipes_created_by_idx").on(t.createdBy),
+  index("recipes_category_idx").on(t.category),
+]);
 
 export const recipeIngredientsTable = pgTable("recipe_ingredients", {
   id: serial("id").primaryKey(),

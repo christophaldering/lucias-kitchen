@@ -87,6 +87,25 @@ const recipeBodySchema = z.object({
   sourceDocumentUrl: z.string().optional().nullable(),
 });
 
+function sanitizeImageUrl(url: string | null | undefined): string | null {
+  if (!url) return null;
+  if (url.startsWith("data:")) return null;
+  return url;
+}
+
+async function getFullRecipesByIds(ids: number[]): Promise<Record<number, unknown[]>> {
+  if (ids.length === 0) return {};
+  const rows = await db
+    .select({ id: recipesTable.id, steps: recipesTable.steps })
+    .from(recipesTable)
+    .where(and(inArray(recipesTable.id, ids), isNull(recipesTable.deletedAt)));
+  const result: Record<number, unknown[]> = {};
+  for (const row of rows) {
+    result[row.id] = Array.isArray(row.steps) ? (row.steps as unknown[]) : [];
+  }
+  return result;
+}
+
 async function getRecipesWithIngredients(currentUserId?: number, filter?: string) {
   const favExpr = currentUserId != null
     ? sql`EXISTS(SELECT 1 FROM recipe_favorites rf WHERE rf.recipe_id = r.id AND rf.user_id = ${currentUserId})`
@@ -95,6 +114,13 @@ async function getRecipesWithIngredients(currentUserId?: number, filter?: string
   const isOwnerExpr = currentUserId != null
     ? sql`(r.created_by IS NULL OR r.created_by = ${currentUserId})`
     : sql`(r.created_by IS NULL)`;
+
+  const filterExpr =
+    filter === "mine" && currentUserId != null
+      ? sql`AND (r.created_by IS NULL OR r.created_by = ${currentUserId})`
+      : filter === "favorites" && currentUserId != null
+      ? sql`AND EXISTS(SELECT 1 FROM recipe_favorites rf2 WHERE rf2.recipe_id = r.id AND rf2.user_id = ${currentUserId})`
+      : sql``;
 
   const rows = await db.execute(sql`
     SELECT
@@ -111,8 +137,7 @@ async function getRecipesWithIngredients(currentUserId?: number, filter?: string
       r.last_cooked     AS "lastCooked",
       r.cooked_count    AS "cookedCount",
       r.notes,
-      r.personal_notes  AS "personalNotes",
-      r.steps,
+      jsonb_array_length(COALESCE(r.steps, '[]'::jsonb)) > 0 AS "hasSteps",
       r.image_url       AS "imageUrl",
       r.created_at      AS "createdAt",
       r.seasons,
@@ -152,6 +177,7 @@ async function getRecipesWithIngredients(currentUserId?: number, filter?: string
     LEFT JOIN recipe_ingredients ri ON ri.recipe_id = r.id
     LEFT JOIN users u ON u.id = r.created_by
     WHERE r.deleted_at IS NULL
+    ${filterExpr}
     GROUP BY r.id, u.display_name, u.avatar_url
     ORDER BY r.id
   `);
@@ -170,8 +196,7 @@ async function getRecipesWithIngredients(currentUserId?: number, filter?: string
     lastCooked: string | null;
     cookedCount: number | null;
     notes: string | null;
-    personalNotes: string | null;
-    steps: unknown;
+    hasSteps: boolean;
     imageUrl: string | null;
     mainPhotoUrl: string | null;
     createdAt: Date | string | null;
@@ -192,7 +217,7 @@ async function getRecipesWithIngredients(currentUserId?: number, filter?: string
 
   const rawRows = (rows as unknown as { rows: Row[] }).rows ?? (rows as unknown as Row[]);
 
-  let result = rawRows.map((r) => ({
+  const result = rawRows.map((r) => ({
     id: r.id,
     title: r.title,
     servings: r.servings,
@@ -206,9 +231,9 @@ async function getRecipesWithIngredients(currentUserId?: number, filter?: string
     lastCooked: r.lastCooked,
     cookedCount: r.cookedCount,
     notes: r.notes,
-    personalNotes: r.personalNotes,
-    steps: r.steps,
-    imageUrl: r.imageUrl,
+    steps: [] as unknown[],
+    hasSteps: r.hasSteps ?? false,
+    imageUrl: sanitizeImageUrl(r.imageUrl),
     mainPhotoUrl: r.mainPhotoUrl ?? null,
     createdAt: r.createdAt,
     seasons: r.seasons ?? [],
@@ -226,12 +251,6 @@ async function getRecipesWithIngredients(currentUserId?: number, filter?: string
       ? { displayName: r.ownerDisplayName!, avatarUrl: r.ownerAvatarUrl }
       : null,
   }));
-
-  if (filter === "mine" && currentUserId != null) {
-    result = result.filter((r) => r.createdBy === currentUserId || r.createdBy == null);
-  } else if (filter === "favorites" && currentUserId != null) {
-    result = result.filter((r) => r.isFavorite);
-  }
 
   return result;
 }
@@ -421,6 +440,12 @@ router.get("/recipes/search", async (req, res) => {
 
     const pattern = `%${q}%`;
 
+    const filterExpr = filter === "mine" && currentUserId != null
+      ? sql`(${recipesTable.createdBy} IS NULL OR ${recipesTable.createdBy} = ${currentUserId})`
+      : filter === "favorites" && currentUserId != null
+        ? sql`EXISTS(SELECT 1 FROM recipe_favorites rf WHERE rf.recipe_id = ${recipesTable.id} AND rf.user_id = ${currentUserId})`
+        : undefined;
+
     const matchingRecipeIds = await db
       .selectDistinct({ id: recipesTable.id })
       .from(recipesTable)
@@ -428,6 +453,7 @@ router.get("/recipes/search", async (req, res) => {
       .where(
         and(
           isNull(recipesTable.deletedAt),
+          filterExpr,
           sql`
             ${recipesTable.title} ILIKE ${pattern}
             OR COALESCE(${recipesTable.notes}, '') ILIKE ${pattern}
@@ -450,45 +476,103 @@ router.get("/recipes/search", async (req, res) => {
     }
 
     const ids = matchingRecipeIds.map((r) => r.id);
-    const recipes = await db.select().from(recipesTable).where(inArray(recipesTable.id, ids)).orderBy(recipesTable.id);
-    const ingredients = await db.select().from(recipeIngredientsTable).where(inArray(recipeIngredientsTable.recipeId, ids)).orderBy(recipeIngredientsTable.id);
+    const favExpr2 = currentUserId != null
+      ? sql`EXISTS(SELECT 1 FROM recipe_favorites rf WHERE rf.recipe_id = r.id AND rf.user_id = ${currentUserId})`
+      : sql`false`;
+    const isOwnerExpr2 = currentUserId != null
+      ? sql`(r.created_by IS NULL OR r.created_by = ${currentUserId})`
+      : sql`(r.created_by IS NULL)`;
 
-    let favorites: Set<number> = new Set();
-    if (currentUserId) {
-      const favRows = await db.select({ recipeId: recipeFavoritesTable.recipeId })
-        .from(recipeFavoritesTable)
-        .where(eq(recipeFavoritesTable.userId, currentUserId));
-      favorites = new Set(favRows.map((f) => f.recipeId));
-    }
+    const searchRows = await db.execute(sql`
+      SELECT
+        r.id,
+        r.title,
+        r.servings,
+        r.prep_time        AS "prepTime",
+        r.total_time       AS "totalTime",
+        r.difficulty,
+        r.category,
+        r.rating,
+        r.kcal_per_portion AS "kcalPerPortion",
+        r.source,
+        r.last_cooked      AS "lastCooked",
+        r.cooked_count     AS "cookedCount",
+        r.notes,
+        jsonb_array_length(COALESCE(r.steps, '[]'::jsonb)) > 0 AS "hasSteps",
+        r.image_url        AS "imageUrl",
+        r.created_at       AS "createdAt",
+        r.seasons,
+        r.tags,
+        r.created_by       AS "createdBy",
+        r.parent_recipe_id AS "parentRecipeId",
+        r.variant_name     AS "variantName",
+        r.source_document_url AS "sourceDocumentUrl",
+        r.is_ai_generated  AS "isAiGenerated",
+        r.image_source     AS "imageSource",
+        (
+          SELECT p.image_url
+          FROM recipe_photo_links rpl
+          INNER JOIN photos p ON p.id = rpl.photo_id
+          WHERE rpl.recipe_id = r.id AND rpl.is_main = true
+          ORDER BY rpl.sort_order, p.created_at DESC
+          LIMIT 1
+        ) AS "mainPhotoUrl",
+        COALESCE(
+          json_agg(
+            json_build_object(
+              'id',       ri.id,
+              'recipeId', ri.recipe_id,
+              'amount',   ri.amount,
+              'unit',     ri.unit,
+              'name',     ri.name,
+              'note',     ri.note
+            ) ORDER BY ri.id
+          ) FILTER (WHERE ri.id IS NOT NULL),
+          '[]'
+        ) AS ingredients,
+        ${favExpr2}     AS "isFavorite",
+        ${isOwnerExpr2} AS "isOwner",
+        u.display_name  AS "ownerDisplayName",
+        u.avatar_url    AS "ownerAvatarUrl"
+      FROM recipes r
+      LEFT JOIN recipe_ingredients ri ON ri.recipe_id = r.id
+      LEFT JOIN users u ON u.id = r.created_by
+      WHERE r.id = ANY(${sql`ARRAY[${sql.join(ids.map(id => sql`${id}`), sql`, `)}]::int[]`})
+      GROUP BY r.id, u.display_name, u.avatar_url
+      ORDER BY r.id
+    `);
 
-    const ownerIds = [...new Set(recipes.map((r) => r.createdBy).filter((id): id is number => id != null))];
-    const owners: Map<number, { displayName: string; avatarUrl: string | null }> = new Map();
-    if (ownerIds.length > 0) {
-      const ownerRows = await db.select({ id: usersTable.id, displayName: usersTable.displayName, avatarUrl: usersTable.avatarUrl })
-        .from(usersTable)
-        .where(inArray(usersTable.id, ownerIds));
-      for (const o of ownerRows) {
-        owners.set(o.id, { displayName: o.displayName, avatarUrl: o.avatarUrl });
-      }
-    }
+    type SearchRow = {
+      id: number; title: string; servings: number | null; prepTime: string | null;
+      totalTime: string | null; difficulty: string; category: string; rating: string | null;
+      kcalPerPortion: number | null; source: string | null; lastCooked: string | null;
+      cookedCount: number | null; notes: string | null; hasSteps: boolean;
+      imageUrl: string | null; mainPhotoUrl: string | null; createdAt: Date | string | null;
+      seasons: string[] | null; tags: string[] | null; createdBy: number | null;
+      parentRecipeId: number | null; variantName: string | null; sourceDocumentUrl: string | null;
+      isAiGenerated: boolean; imageSource: string | null;
+      ingredients: Array<{ id: number; recipeId: number; amount: string; unit: string; name: string; note: string | null }>;
+      isFavorite: boolean; isOwner: boolean; ownerDisplayName: string | null; ownerAvatarUrl: string | null;
+    };
 
-    let result = recipes.map((r) => {
-      const isOwner = r.createdBy == null || (currentUserId != null && r.createdBy === currentUserId);
-      const owner = r.createdBy != null ? owners.get(r.createdBy) ?? null : null;
-      return {
-        ...r,
-        ingredients: ingredients.filter((i) => i.recipeId === r.id),
-        isOwner,
-        isFavorite: favorites.has(r.id),
-        owner,
-      };
-    });
+    const rawSearchRows = (searchRows as unknown as { rows: SearchRow[] }).rows ?? (searchRows as unknown as SearchRow[]);
 
-    if (filter === "mine" && currentUserId != null) {
-      result = result.filter((r) => r.createdBy === currentUserId || r.createdBy == null);
-    } else if (filter === "favorites" && currentUserId != null) {
-      result = result.filter((r) => favorites.has(r.id));
-    }
+    const result = rawSearchRows.map((r) => ({
+      id: r.id, title: r.title, servings: r.servings, prepTime: r.prepTime,
+      totalTime: r.totalTime, difficulty: r.difficulty, category: r.category,
+      rating: r.rating, kcalPerPortion: r.kcalPerPortion, source: r.source,
+      lastCooked: r.lastCooked, cookedCount: r.cookedCount, notes: r.notes,
+      steps: [] as unknown[], hasSteps: r.hasSteps ?? false,
+      imageUrl: sanitizeImageUrl(r.imageUrl), mainPhotoUrl: r.mainPhotoUrl ?? null,
+      createdAt: r.createdAt, seasons: r.seasons ?? [], tags: r.tags ?? [],
+      createdBy: r.createdBy, parentRecipeId: r.parentRecipeId, variantName: r.variantName,
+      sourceDocumentUrl: r.sourceDocumentUrl, isAiGenerated: r.isAiGenerated ?? false,
+      imageSource: r.imageSource ?? null, ingredients: r.ingredients,
+      isFavorite: r.isFavorite, isOwner: r.isOwner,
+      owner: (r.ownerDisplayName != null || r.ownerAvatarUrl != null)
+        ? { displayName: r.ownerDisplayName!, avatarUrl: r.ownerAvatarUrl }
+        : null,
+    }));
 
     return res.json(result);
   } catch (err) {
@@ -710,6 +794,118 @@ router.get("/recipes/duplicates", authMiddleware, async (req, res) => {
   } catch (err) {
     req.log.error({ err }, "Failed to detect duplicates");
     res.status(500).json({ error: "internal_error", message: "Failed to detect duplicates" });
+  }
+});
+
+router.get("/recipes/:id", authMiddleware, async (req, res) => {
+  try {
+    const id = Number(req.params.id);
+    if (isNaN(id)) {
+      res.status(400).json({ error: "invalid_id" });
+      return;
+    }
+    const currentUserId = req.authUser!.id;
+    const favExpr = sql`EXISTS(SELECT 1 FROM recipe_favorites rf WHERE rf.recipe_id = r.id AND rf.user_id = ${currentUserId})`;
+    const isOwnerExpr = sql`(r.created_by IS NULL OR r.created_by = ${currentUserId})`;
+
+    const rows = await db.execute(sql`
+      SELECT
+        r.id,
+        r.title,
+        r.servings,
+        r.prep_time        AS "prepTime",
+        r.total_time       AS "totalTime",
+        r.difficulty,
+        r.category,
+        r.rating,
+        r.kcal_per_portion AS "kcalPerPortion",
+        r.source,
+        r.last_cooked      AS "lastCooked",
+        r.cooked_count     AS "cookedCount",
+        r.notes,
+        r.personal_notes   AS "personalNotes",
+        r.steps,
+        r.image_url        AS "imageUrl",
+        r.created_at       AS "createdAt",
+        r.seasons,
+        r.tags,
+        r.created_by       AS "createdBy",
+        r.parent_recipe_id AS "parentRecipeId",
+        r.variant_name     AS "variantName",
+        r.source_document_url AS "sourceDocumentUrl",
+        r.is_ai_generated  AS "isAiGenerated",
+        r.image_source     AS "imageSource",
+        (
+          SELECT p.image_url
+          FROM recipe_photo_links rpl
+          INNER JOIN photos p ON p.id = rpl.photo_id
+          WHERE rpl.recipe_id = r.id AND rpl.is_main = true
+          ORDER BY rpl.sort_order, p.created_at DESC
+          LIMIT 1
+        ) AS "mainPhotoUrl",
+        COALESCE(
+          json_agg(
+            json_build_object(
+              'id',       ri.id,
+              'recipeId', ri.recipe_id,
+              'amount',   ri.amount,
+              'unit',     ri.unit,
+              'name',     ri.name,
+              'note',     ri.note
+            ) ORDER BY ri.id
+          ) FILTER (WHERE ri.id IS NOT NULL),
+          '[]'
+        ) AS ingredients,
+        ${favExpr}      AS "isFavorite",
+        ${isOwnerExpr}  AS "isOwner",
+        u.display_name  AS "ownerDisplayName",
+        u.avatar_url    AS "ownerAvatarUrl"
+      FROM recipes r
+      LEFT JOIN recipe_ingredients ri ON ri.recipe_id = r.id
+      LEFT JOIN users u ON u.id = r.created_by
+      WHERE r.id = ${id} AND r.deleted_at IS NULL
+      GROUP BY r.id, u.display_name, u.avatar_url
+    `);
+
+    type FullRow = {
+      id: number; title: string; servings: number | null; prepTime: string | null;
+      totalTime: string | null; difficulty: string; category: string; rating: string | null;
+      kcalPerPortion: number | null; source: string | null; lastCooked: string | null;
+      cookedCount: number | null; notes: string | null; personalNotes: string | null;
+      steps: unknown; imageUrl: string | null; mainPhotoUrl: string | null;
+      createdAt: Date | string | null; seasons: string[] | null; tags: string[] | null;
+      createdBy: number | null; parentRecipeId: number | null; variantName: string | null;
+      sourceDocumentUrl: string | null; isAiGenerated: boolean; imageSource: string | null;
+      ingredients: Array<{ id: number; recipeId: number; amount: string; unit: string; name: string; note: string | null }>;
+      isFavorite: boolean; isOwner: boolean; ownerDisplayName: string | null; ownerAvatarUrl: string | null;
+    };
+
+    const rawRows = (rows as unknown as { rows: FullRow[] }).rows ?? (rows as unknown as FullRow[]);
+    if (rawRows.length === 0) {
+      res.status(404).json({ error: "not_found" });
+      return;
+    }
+    const r = rawRows[0];
+    res.json({
+      id: r.id, title: r.title, servings: r.servings, prepTime: r.prepTime,
+      totalTime: r.totalTime, difficulty: r.difficulty, category: r.category,
+      rating: r.rating, kcalPerPortion: r.kcalPerPortion, source: r.source,
+      lastCooked: r.lastCooked, cookedCount: r.cookedCount, notes: r.notes,
+      personalNotes: r.isOwner ? r.personalNotes : null, steps: r.steps,
+      imageUrl: r.imageUrl, mainPhotoUrl: r.mainPhotoUrl ?? null,
+      createdAt: r.createdAt, seasons: r.seasons ?? [], tags: r.tags ?? [],
+      createdBy: r.createdBy, parentRecipeId: r.parentRecipeId, variantName: r.variantName,
+      sourceDocumentUrl: r.sourceDocumentUrl, isAiGenerated: r.isAiGenerated ?? false,
+      imageSource: r.imageSource ?? null, ingredients: r.ingredients,
+      isFavorite: r.isFavorite, isOwner: r.isOwner,
+      hasSteps: Array.isArray(r.steps) ? (r.steps as unknown[]).length > 0 : false,
+      owner: (r.ownerDisplayName != null || r.ownerAvatarUrl != null)
+        ? { displayName: r.ownerDisplayName!, avatarUrl: r.ownerAvatarUrl }
+        : null,
+    });
+  } catch (err) {
+    req.log.error({ err }, "Failed to fetch recipe");
+    res.status(500).json({ error: "internal_error" });
   }
 });
 
@@ -1434,8 +1630,13 @@ router.post("/recipes/suggest", async (req, res) => {
 
     scoredRecipes.sort((a, b) => b.score - a.score);
 
-    const results = scoredRecipes.slice(0, 20).map(({ recipe, score, ingredientMatches }) => ({
+    const topScored = scoredRecipes.slice(0, 20);
+    const topIds = topScored.map(({ recipe }) => recipe.id);
+    const fullStepsMap = await getFullRecipesByIds(topIds);
+
+    const results = topScored.map(({ recipe, score, ingredientMatches }) => ({
       ...recipe,
+      steps: fullStepsMap[recipe.id] ?? [],
       matchScore: score,
       ingredientMatches,
     }));

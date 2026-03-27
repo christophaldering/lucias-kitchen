@@ -2,7 +2,7 @@ import { useState, useMemo, useEffect, useRef } from "react";
 import { Recipe } from "@/types/recipe";
 import type { Season } from "@/types/recipe";
 import { SEASON_LABELS, SEASON_ICONS, getCurrentSeason } from "@/types/recipe";
-import { useRecipes } from "@/hooks/useRecipes";
+import { useRecipes, fetchRecipeById } from "@/hooks/useRecipes";
 import { Clock, Search, ChefHat, Upload, Link, Camera, Loader2, LayoutGrid, Table, Settings2, Plus, ArrowUp, ArrowDown, ArrowUpDown, UtensilsCrossed, MessageCircle, Star, BookOpen, Share2, Sparkles } from "lucide-react";
 import type { RecipeFilter } from "@/hooks/useRecipes";
 import RecipeModal from "@/components/RecipeModal";
@@ -20,19 +20,20 @@ import { FilterBottomSheet } from "@/components/FilterBottomSheet";
 
 const API_BASE = "/api";
 
-async function searchRecipesApi(q: string, filter: RecipeFilter): Promise<Recipe[]> {
+async function searchRecipesApi(q: string, filter: RecipeFilter, signal?: AbortSignal): Promise<Recipe[]> {
   const filterParam = filter !== "all" ? `&filter=${filter}` : "";
-  const res = await authFetch(`${API_BASE}/recipes/search?q=${encodeURIComponent(q)}${filterParam}`, { headers: authHeaders() });
+  const res = await authFetch(`${API_BASE}/recipes/search?q=${encodeURIComponent(q)}${filterParam}`, { headers: authHeaders(), signal });
   if (!res.ok) throw new Error(`HTTP ${res.status}`);
   return res.json();
 }
 
-async function aiSearchRecipesApi(query: string, filter: RecipeFilter): Promise<{ recipes: Recipe[]; summary: string }> {
+async function aiSearchRecipesApi(query: string, filter: RecipeFilter, signal?: AbortSignal): Promise<{ recipes: Recipe[]; summary: string }> {
   const filterParam = filter !== "all" ? filter : undefined;
   const res = await authFetch(`${API_BASE}/recipes/ai-search`, {
     method: "POST",
     headers: { ...authHeaders(), "Content-Type": "application/json" },
     body: JSON.stringify({ query, filter: filterParam }),
+    signal,
   });
   if (!res.ok) throw new Error(`HTTP ${res.status}`);
   return res.json();
@@ -292,7 +293,7 @@ function RecipeCard({
           >
             Details ansehen →
           </span>
-          {Array.isArray(recipe.steps) && recipe.steps.length > 0 && (
+          {(recipe.hasSteps || (Array.isArray(recipe.steps) && recipe.steps.length > 0)) && (
             <button
               onClick={(e) => { e.stopPropagation(); onCook(); }}
               className="flex items-center gap-1.5 text-white font-semibold text-sm px-4 py-2 bg-[#C1693A] hover:bg-[#a85830] rounded-xl transition-colors"
@@ -355,7 +356,7 @@ function RecipeTableRow({
       </td>
       <td className="px-4 py-3 hidden sm:table-cell text-center">
         <div className="flex items-center gap-1 justify-center">
-          {Array.isArray(recipe.steps) && recipe.steps.length > 0 && (
+          {(recipe.hasSteps || (Array.isArray(recipe.steps) && recipe.steps.length > 0)) && (
             <button
               onClick={(e) => { e.stopPropagation(); onCook(); }}
               className="p-1.5 rounded-lg bg-[#C1693A]/10 text-[#C1693A] hover:bg-[#C1693A] hover:text-white transition-colors"
@@ -457,6 +458,7 @@ export default function MeineRezepte({ onNavigate: _onNavigate, initialOpenRecip
   const [aiSearchSummary, setAiSearchSummary] = useState<string | null>(null);
   const [isAiSearch, setIsAiSearch] = useState(false);
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const abortControllerRef = useRef<AbortController | null>(null);
   const cyclingPlaceholder = useCyclingPlaceholder(AI_SEARCH_PLACEHOLDERS);
   const [activeCategory, setActiveCategory] = useState("Alle");
   const [timeFilter, setTimeFilter] = useState("Alle");
@@ -464,9 +466,35 @@ export default function MeineRezepte({ onNavigate: _onNavigate, initialOpenRecip
   const [cookedFilter, setCookedFilter] = useState<"Alle" | "gekocht" | "nicht_ausprobiert">("Alle");
   const [showVariants, setShowVariants] = useState(false);
   const [selectedId, setSelectedId] = useState<number | null>(null);
-  const selected = selectedId != null ? (recipes.find((r) => r.id === selectedId) ?? null) : null;
+  const [selectedFullRecipe, setSelectedFullRecipe] = useState<Recipe | null>(null);
+  const selected = selectedFullRecipe ?? (selectedId != null ? (recipes.find((r) => r.id === selectedId) ?? null) : null);
   const pendingOpenIdRef = useRef<number | null>(null);
   const [cookingRecipe, setCookingRecipe] = useState<Recipe | null>(null);
+
+  const openRecipe = async (id: number) => {
+    setSelectedId(id);
+    setSelectedFullRecipe(null);
+    pendingOpenIdRef.current = id;
+    try {
+      const full = await fetchRecipeById(id);
+      if (pendingOpenIdRef.current === id) {
+        setSelectedFullRecipe(full);
+      }
+    } catch {
+    }
+  };
+
+  const openCookingMode = async (recipe: Recipe) => {
+    if (recipe.hasSteps && (!Array.isArray(recipe.steps) || recipe.steps.length === 0)) {
+      try {
+        const full = await fetchRecipeById(recipe.id);
+        setCookingRecipe(full);
+        return;
+      } catch {
+      }
+    }
+    setCookingRecipe(recipe);
+  };
   const [showPdfModal, setShowPdfModal] = useState(false);
   const [showUrlModal, setShowUrlModal] = useState(false);
   const [showImageModal, setShowImageModal] = useState(false);
@@ -495,7 +523,7 @@ export default function MeineRezepte({ onNavigate: _onNavigate, initialOpenRecip
     const recipe = recipes.find((r) => r.id === initialOpenRecipeId);
     if (recipe) {
       openedForIdRef.current = initialOpenRecipeId;
-      setSelectedId(recipe.id);
+      openRecipe(recipe.id);
       onRecipeOpened?.();
     }
   }, [initialOpenRecipeId, hasRecipes]);
@@ -513,7 +541,7 @@ export default function MeineRezepte({ onNavigate: _onNavigate, initialOpenRecip
     const recipe = recipes.find((r) => r.id === pendingId);
     if (recipe) {
       pendingOpenIdRef.current = null;
-      setSelectedId(recipe.id);
+      openRecipe(recipe.id);
     }
   }, [recipes]);
 
@@ -547,6 +575,9 @@ export default function MeineRezepte({ onNavigate: _onNavigate, initialOpenRecip
 
   useEffect(() => {
     if (debounceRef.current) clearTimeout(debounceRef.current);
+    abortControllerRef.current?.abort();
+    abortControllerRef.current = null;
+
     const trimmed = search.trim();
     if (!trimmed) {
       setSearchResults(null);
@@ -560,25 +591,36 @@ export default function MeineRezepte({ onNavigate: _onNavigate, initialOpenRecip
     setSearchLoading(true);
     const debounceMs = useAi ? 700 : 300;
     debounceRef.current = setTimeout(async () => {
+      const controller = new AbortController();
+      abortControllerRef.current = controller;
       try {
         if (useAi) {
-          const { recipes, summary } = await aiSearchRecipesApi(trimmed, recipeFilter);
-          setSearchResults(recipes);
-          setAiSearchSummary(summary);
+          const { recipes, summary } = await aiSearchRecipesApi(trimmed, recipeFilter, controller.signal);
+          if (!controller.signal.aborted) {
+            setSearchResults(recipes);
+            setAiSearchSummary(summary);
+          }
         } else {
-          const results = await searchRecipesApi(trimmed, recipeFilter);
-          setSearchResults(results);
-          setAiSearchSummary(null);
+          const results = await searchRecipesApi(trimmed, recipeFilter, controller.signal);
+          if (!controller.signal.aborted) {
+            setSearchResults(results);
+            setAiSearchSummary(null);
+          }
         }
       } catch {
-        setSearchResults(null);
-        setAiSearchSummary(null);
+        if (!controller.signal.aborted) {
+          setSearchResults(null);
+          setAiSearchSummary(null);
+        }
       } finally {
-        setSearchLoading(false);
+        if (!controller.signal.aborted) {
+          setSearchLoading(false);
+        }
       }
     }, debounceMs);
     return () => {
       if (debounceRef.current) clearTimeout(debounceRef.current);
+      abortControllerRef.current?.abort();
     };
   }, [search, recipeFilter]);
 
@@ -943,8 +985,8 @@ export default function MeineRezepte({ onNavigate: _onNavigate, initialOpenRecip
                     <RecipeCard
                       key={recipe.id}
                       recipe={recipe}
-                      onClick={() => setSelectedId(recipe.id)}
-                      onCook={() => setCookingRecipe(recipe)}
+                      onClick={() => openRecipe(recipe.id)}
+                      onCook={() => openCookingMode(recipe)}
                       onSuggest={() => setSuggestRecipe(recipe)}
                       showNotes={showNotes}
                       showCookCount={showCookCount}
@@ -1031,8 +1073,8 @@ export default function MeineRezepte({ onNavigate: _onNavigate, initialOpenRecip
                           <RecipeTableRow
                             key={recipe.id}
                             recipe={recipe}
-                            onClick={() => setSelectedId(recipe.id)}
-                            onCook={() => setCookingRecipe(recipe)}
+                            onClick={() => openRecipe(recipe.id)}
+                            onCook={() => openCookingMode(recipe)}
                             onSuggest={() => setSuggestRecipe(recipe)}
                           />
                         ))}
@@ -1060,15 +1102,16 @@ export default function MeineRezepte({ onNavigate: _onNavigate, initialOpenRecip
           {selected && (
             <RecipeModal
               recipe={selected}
-              onClose={() => setSelectedId(null)}
+              onClose={() => { setSelectedId(null); setSelectedFullRecipe(null); pendingOpenIdRef.current = null; }}
               onAddToWeek={_onNavigate ? () => _onNavigate("wochenplan") : undefined}
               onToggleFavorite={toggleFavorite}
               onDeleteRecipe={deleteRecipe}
               allRecipes={recipes}
-              onOpenRecipe={(r) => setSelectedId(r.id)}
+              onOpenRecipe={(r) => openRecipe(r.id)}
               onCreateVariant={(baseRecipe) => {
                 setVariantBaseRecipe(baseRecipe);
                 setSelectedId(null);
+                setSelectedFullRecipe(null);
               }}
             />
           )}
@@ -1118,7 +1161,7 @@ export default function MeineRezepte({ onNavigate: _onNavigate, initialOpenRecip
                   const firstId = savedIds[0];
                   const alreadyInList = recipes.find((r) => r.id === firstId);
                   if (alreadyInList) {
-                    setSelectedId(firstId);
+                    openRecipe(firstId);
                   } else {
                     pendingOpenIdRef.current = firstId;
                   }

@@ -27,6 +27,12 @@ export interface RecipeUpdatePayload {
 
 const API_BASE = "/api";
 
+export async function fetchRecipeById(id: number): Promise<import("@/types/recipe").Recipe> {
+  const res = await authFetch(`${API_BASE}/recipes/${id}`, { headers: authHeaders() });
+  if (!res.ok) throw new Error(`HTTP ${res.status}`);
+  return res.json();
+}
+
 export type RecipeFilter = "all" | "mine" | "favorites";
 
 export function useRecipes(filter: RecipeFilter = "all") {

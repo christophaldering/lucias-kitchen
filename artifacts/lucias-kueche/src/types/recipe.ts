@@ -83,6 +83,7 @@ export interface Recipe {
   notes: string | null;
   personalNotes?: string | null;
   steps: string[];
+  hasSteps?: boolean;
   ingredients: RecipeIngredient[];
   imageUrl?: string | null;
   mainPhotoUrl?: string | null;

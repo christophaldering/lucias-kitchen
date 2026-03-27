@@ -1,7 +1,8 @@
 import { useState, useEffect, type ReactNode } from "react";
 import {
   Users, ChefHat, Share2, Plus, Clock, CheckCircle, XCircle, ChevronRight,
-  CalendarDays, Bell, BookmarkPlus, X, Loader2, Send, Inbox, ExternalLink, UserPlus
+  CalendarDays, Bell, BookmarkPlus, X, Loader2, Send, Inbox, ExternalLink, UserPlus,
+  Check, Copy, Link2
 } from "lucide-react";
 import { useInvitations } from "@/hooks/useInvitations";
 import { useNotifications, useMarkNotificationRead, useMarkAllNotificationsRead } from "@/hooks/useNotifications";
@@ -480,8 +481,8 @@ function GesendetSection({
   user: ReturnType<typeof useAuth>["user"];
   onOpenRecipe?: (recipeId: number) => void;
 }) {
-  const { groups, loading: groupsLoading, getMembers } = useGroups();
-  const { invitations, loading: invLoading, updateInvitation, cancelInvitation, refetch } = useInvitations();
+  const { groups, loading: groupsLoading, getMembers, remindMember } = useGroups();
+  const { invitations, loading: invLoading, updateInvitation, cancelInvitation, remindGuests, refetch } = useInvitations();
   const { recipes } = useRecipes();
   const { suggestions: outgoing, loading: outgoingLoading } = useOutgoingSuggestions();
 
@@ -489,9 +490,14 @@ function GesendetSection({
   const [selectedGroup, setSelectedGroup] = useState<Group | null>(null);
 
   const [pendingInvites, setPendingInvites] = useState<
-    Array<{ groupId: number; groupName: string; email: string; displayName: string | null; memberStatus: string }>
+    Array<{ groupId: number; groupName: string; email: string; displayName: string | null; memberStatus: string; memberId: number }>
   >([]);
   const [invitesLoading, setInvitesLoading] = useState(true);
+
+  const [remindingKeys, setRemindingKeys] = useState<Set<string>>(new Set());
+  const [remindedKeys, setRemindedKeys] = useState<Set<string>>(new Set());
+  const [inviteLinkDialog, setInviteLinkDialog] = useState<{ link: string; name: string } | null>(null);
+  const [linkCopied, setLinkCopied] = useState(false);
 
   const ownedGroups = groups.filter((g) => g.status === "approved" && g.myRole === "owner");
 
@@ -515,6 +521,7 @@ function GesendetSection({
             email: m.invitedEmail ?? m.email ?? "",
             displayName: m.displayName,
             memberStatus: m.memberStatus,
+            memberId: m.id,
           }));
       })
     ).then((results) => {
@@ -528,6 +535,51 @@ function GesendetSection({
     return () => { cancelled = true; };
   }, [groups, groupsLoading]);
 
+  const handleRemind = async (inv: { groupId: number; memberId: number; displayName: string | null; email: string }) => {
+    const key = `${inv.groupId}-${inv.memberId}`;
+    if (remindingKeys.has(key) || remindedKeys.has(key)) return;
+    setRemindingKeys((prev) => new Set(prev).add(key));
+    try {
+      const result = await remindMember(inv.groupId, inv.memberId);
+      if (result.reason === "email_not_configured" && result.inviteLink) {
+        setLinkCopied(false);
+        setInviteLinkDialog({
+          link: result.inviteLink,
+          name: inv.displayName ?? inv.email,
+        });
+      } else {
+        toast(`Erinnerung an „${inv.displayName ?? inv.email}" versandt ✉️`);
+        setRemindedKeys((prev) => new Set(prev).add(key));
+        setTimeout(() => {
+          setRemindedKeys((prev) => {
+            const next = new Set(prev);
+            next.delete(key);
+            return next;
+          });
+        }, 3000);
+      }
+    } catch {
+      toast("Erinnerung konnte nicht gesendet werden", "err");
+    } finally {
+      setRemindingKeys((prev) => {
+        const next = new Set(prev);
+        next.delete(key);
+        return next;
+      });
+    }
+  };
+
+  const handleCopyLink = async () => {
+    if (!inviteLinkDialog) return;
+    try {
+      await navigator.clipboard.writeText(inviteLinkDialog.link);
+      setLinkCopied(true);
+      setTimeout(() => setLinkCopied(false), 2000);
+    } catch {
+      toast("Link konnte nicht kopiert werden", "err");
+    }
+  };
+
   const asHost = invitations.filter((inv) => inv.isHost);
 
   return (
@@ -538,6 +590,48 @@ function GesendetSection({
           isOwner={selectedGroup.myRole === "owner"}
           onClose={() => setSelectedGroup(null)}
         />
+      )}
+
+      {inviteLinkDialog && (
+        <div className="fixed inset-0 z-[210] flex items-center justify-center bg-black/60 p-4">
+          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-sm p-6 flex flex-col gap-4">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <Link2 className="w-5 h-5 text-[#4A7C59]" />
+                <h3 className="font-serif text-base font-semibold">Einladungslink</h3>
+              </div>
+              <button
+                onClick={() => setInviteLinkDialog(null)}
+                className="p-1.5 rounded-full hover:bg-gray-100 transition-colors"
+              >
+                <X className="w-4 h-4 text-muted-foreground" />
+              </button>
+            </div>
+            <p className="text-sm text-muted-foreground">
+              Kein E-Mail-Versand konfiguriert. Schick diesen Link per WhatsApp oder SMS an{" "}
+              <span className="font-medium text-foreground">{inviteLinkDialog.name}</span>:
+            </p>
+            <div className="flex items-center gap-2 bg-gray-50 border border-border rounded-xl px-3 py-2">
+              <span className="flex-1 text-xs text-muted-foreground break-all select-all">{inviteLinkDialog.link}</span>
+              <button
+                onClick={handleCopyLink}
+                className="flex-shrink-0 p-1.5 rounded-lg bg-[#4A7C59] text-white hover:bg-[#3d6849] transition-colors"
+                title="Link kopieren"
+              >
+                {linkCopied ? <Check className="w-3.5 h-3.5" /> : <Copy className="w-3.5 h-3.5" />}
+              </button>
+            </div>
+            {linkCopied && (
+              <p className="text-xs text-[#4A7C59] font-medium text-center">Link kopiert!</p>
+            )}
+            <button
+              onClick={() => setInviteLinkDialog(null)}
+              className="w-full py-2 border border-border rounded-xl text-sm hover:bg-secondary transition-colors"
+            >
+              Schließen
+            </button>
+          </div>
+        </div>
       )}
 
       {/* Gruppen-Einladungen */}
@@ -561,33 +655,60 @@ function GesendetSection({
           <div className="space-y-2">
             {pendingInvites.map((inv, idx) => {
               const group = ownedGroups.find((g) => g.id === inv.groupId) ?? null;
+              const remindKey = `${inv.groupId}-${inv.memberId}`;
+              const isReminding = remindingKeys.has(remindKey);
+              const isReminded = remindedKeys.has(remindKey);
               return (
-                <button
+                <div
                   key={`${inv.groupId}-${inv.email}-${idx}`}
-                  onClick={() => group && setSelectedGroup(group)}
-                  className="w-full flex items-center gap-3 p-3 rounded-xl bg-amber-50 border border-amber-200 hover:border-amber-400 hover:bg-amber-100 transition-colors text-left"
+                  className="flex items-center gap-3 p-3 rounded-xl bg-amber-50 border border-amber-200 text-left"
                 >
-                  <div className="w-9 h-9 rounded-full bg-amber-200 flex items-center justify-center flex-shrink-0">
-                    <span className="text-amber-700 text-xs font-bold">
-                      {(inv.displayName ?? inv.email).charAt(0).toUpperCase()}
-                    </span>
-                  </div>
-                  <div className="flex-1 min-w-0">
-                    <p className="text-sm font-medium truncate">{inv.displayName ?? inv.email}</p>
-                    <p className="text-xs text-muted-foreground truncate">{inv.email}</p>
-                    <p className="text-xs text-amber-700 flex items-center gap-1 mt-0.5">
-                      <Users className="w-3 h-3" />
-                      {inv.groupName}
-                    </p>
-                  </div>
-                  <div className="flex items-center gap-1.5 flex-shrink-0">
-                    <span className="text-xs px-2 py-0.5 rounded-full bg-amber-100 text-amber-700 font-medium">
-                      <Clock className="w-3 h-3 inline mr-0.5" />
+                  <button
+                    onClick={() => group && setSelectedGroup(group)}
+                    className="flex items-center gap-3 flex-1 min-w-0 text-left"
+                  >
+                    <div className="w-9 h-9 rounded-full bg-amber-200 flex items-center justify-center flex-shrink-0">
+                      <span className="text-amber-700 text-xs font-bold">
+                        {(inv.displayName ?? inv.email).charAt(0).toUpperCase()}
+                      </span>
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <p className="text-sm font-medium truncate">{inv.displayName ?? inv.email}</p>
+                      <p className="text-xs text-muted-foreground truncate">{inv.email}</p>
+                      <p className="text-xs text-amber-700 flex items-center gap-1 mt-0.5">
+                        <Users className="w-3 h-3" />
+                        {inv.groupName}
+                      </p>
+                    </div>
+                  </button>
+                  <div className="flex items-center gap-2 flex-shrink-0">
+                    <span className="text-xs px-2 py-0.5 rounded-full bg-amber-100 text-amber-700 font-medium hidden sm:inline-flex items-center gap-0.5">
+                      <Clock className="w-3 h-3" />
                       Ausstehend
                     </span>
-                    <ChevronRight className="w-4 h-4 text-amber-600" />
+                    <button
+                      onClick={() => handleRemind(inv)}
+                      disabled={isReminding || isReminded}
+                      title="Erinnerung senden"
+                      className="p-2 rounded-lg bg-white border border-amber-200 hover:bg-amber-100 hover:border-amber-400 text-amber-600 transition-colors disabled:opacity-50"
+                    >
+                      {isReminding ? (
+                        <Loader2 className="w-4 h-4 animate-spin" />
+                      ) : isReminded ? (
+                        <Check className="w-4 h-4 text-[#4A7C59]" />
+                      ) : (
+                        <Bell className="w-4 h-4" />
+                      )}
+                    </button>
+                    <button
+                      onClick={() => group && setSelectedGroup(group)}
+                      className="p-2 rounded-lg hover:bg-amber-100 transition-colors"
+                      title="Gruppe öffnen"
+                    >
+                      <ChevronRight className="w-4 h-4 text-amber-600" />
+                    </button>
                   </div>
-                </button>
+                </div>
               );
             })}
           </div>
@@ -678,6 +799,9 @@ function GesendetSection({
           onCancel={async () => {
             await cancelInvitation(managingInvitation.id);
             toast("Einladung abgesagt");
+          }}
+          onRemind={async () => {
+            return await remindGuests(managingInvitation.id);
           }}
         />
       )}

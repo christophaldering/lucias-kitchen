@@ -588,6 +588,15 @@ export default function MeineRezepte({ onNavigate: _onNavigate, initialOpenRecip
     }
   }, [hasLocalFilters, hasNextPage, isFetchingNextPage, fetchNextPage, recipes.length]);
 
+  // Auto-load all pages in background on mount
+  useEffect(() => {
+    if (!hasNextPage || isFetchingNextPage) return;
+    const t = setTimeout(() => {
+      fetchNextPage();
+    }, 300);
+    return () => clearTimeout(t);
+  }, [hasNextPage, isFetchingNextPage, fetchNextPage, recipes.length]);
+
   const toggleSelect = (id: number) => setManagedSelected((prev) => {
     const next = new Set(prev);
     if (next.has(id)) next.delete(id); else next.add(id);

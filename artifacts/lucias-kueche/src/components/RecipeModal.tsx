@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, memo } from "react";
 import type { Recipe } from "@/types/recipe";
 import type { RecipePhoto } from "@/types/recipe";
 import { X, Clock, ChefHat, CalendarPlus, Users, Flame, BookOpen, Check, Printer, UtensilsCrossed, Minus, Plus, Star, ChevronDown, Copy, Share2, Trash2, Loader2, FileText, Sparkles, Images, Globe } from "lucide-react";
@@ -175,7 +175,7 @@ function formatDate(dateStr: string): string {
   return `${day}.${month}.${year}`;
 }
 
-export default function RecipeModal({ recipe, onClose, onAddToWeek, onToggleFavorite, onRecipeUpdated, onDeleteRecipe, allRecipes, onOpenRecipe, onCreateVariant }: Props) {
+function RecipeModalInner({ recipe, onClose, onAddToWeek, onToggleFavorite, onRecipeUpdated, onDeleteRecipe, allRecipes, onOpenRecipe, onCreateVariant }: Props) {
   const emoji = CATEGORY_EMOJIS[recipe.category] ?? "🍽️";
   const today = toIsoDate(new Date());
   const { token } = useAuth();
@@ -1183,3 +1183,13 @@ export default function RecipeModal({ recipe, onClose, onAddToWeek, onToggleFavo
     </>
   );
 }
+
+// Only re-render when the recipe ID changes or the recipe data itself changes —
+// not when parent callbacks or allRecipes list grow due to background loading.
+const RecipeModal = memo(RecipeModalInner, (prev, next) => {
+  if (prev.recipe.id !== next.recipe.id) return false;
+  if (prev.recipe !== next.recipe) return false;
+  return true;
+});
+
+export default RecipeModal;

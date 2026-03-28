@@ -1,4 +1,10 @@
 import { Router, type IRouter } from "express";
+import { execFile } from "child_process";
+import { promisify } from "util";
+import { writeFile, readFile, readdir, unlink } from "fs/promises";
+import { tmpdir } from "os";
+import { join as pathJoin } from "path";
+import { randomBytes } from "crypto";
 import multer from "multer";
 import { db } from "@workspace/db";
 import {
@@ -21,6 +27,8 @@ import {
 import { invalidateRecipeListCache } from "./recipes";
 import { authMiddleware } from "./auth";
 import { generateTagsForRecipe } from "../lib/generateRecipeTags";
+
+const execFileAsync = promisify(execFile);
 
 const router: IRouter = Router();
 
@@ -112,35 +120,67 @@ async function downloadPdfFromStorage(storagePath: string): Promise<Buffer> {
   return contents as Buffer;
 }
 
-async function renderPdfPages(pdfBuffer: Buffer): Promise<Buffer[]> {
-  const pdfjsLib = await import("pdfjs-dist/legacy/build/pdf.mjs");
-  (pdfjsLib as unknown as { GlobalWorkerOptions: { workerSrc: string } }).GlobalWorkerOptions.workerSrc = "";
-  const canvasModule = await import("@napi-rs/canvas");
-  const { createCanvas } = canvasModule;
+const PDFTOPPM_CANDIDATES = [
+  "pdftoppm",
+  "/nix/var/nix/profiles/default/bin/pdftoppm",
+  "/usr/bin/pdftoppm",
+  "/usr/local/bin/pdftoppm",
+];
 
-  const uint8Array = new Uint8Array(pdfBuffer);
-  const loadingTask = (pdfjsLib as unknown as { getDocument: (opts: object) => { promise: Promise<{ numPages: number; getPage: (n: number) => Promise<{ getViewport: (opts: object) => { width: number; height: number }; render: (opts: object) => { promise: Promise<void> } }> }> } }).getDocument({ data: uint8Array, verbosity: 0, disableWorker: true });
-  const pdfDoc = await loadingTask.promise;
-  const numPages = pdfDoc.numPages;
-  const pageImages: Buffer[] = [];
-
-  for (let pageNum = 1; pageNum <= numPages; pageNum++) {
-    const page = await pdfDoc.getPage(pageNum);
-    const viewport = page.getViewport({ scale: 1.5 });
-
-    const canvas = createCanvas(Math.ceil(viewport.width), Math.ceil(viewport.height));
-    const ctx = canvas.getContext("2d");
-
-    await page.render({
-      canvasContext: ctx as unknown as Parameters<typeof page.render>[0]["canvasContext"],
-      viewport,
-    }).promise;
-
-    const jpegBuffer = canvas.toBuffer("image/jpeg", 85);
-    pageImages.push(jpegBuffer);
+async function findPdftoppm(): Promise<string | null> {
+  for (const candidate of PDFTOPPM_CANDIDATES) {
+    try {
+      await execFileAsync(candidate, ["-v"]);
+      return candidate;
+    } catch {
+      // not found, try next
+    }
   }
+  return null;
+}
 
-  return pageImages;
+async function renderPdfPages(pdfBuffer: Buffer): Promise<Buffer[]> {
+  const pdftoppm = await findPdftoppm();
+  if (!pdftoppm) throw new Error("pdftoppm not available");
+
+  const tmpId = randomBytes(8).toString("hex");
+  const tmpPdf = pathJoin(tmpdir(), `pdfrender-${tmpId}.pdf`);
+  const tmpPrefix = pathJoin(tmpdir(), `pdfrender-${tmpId}-page`);
+
+  try {
+    await writeFile(tmpPdf, pdfBuffer);
+
+    await execFileAsync(pdftoppm, [
+      "-jpeg",
+      "-r", "120",
+      "-jpegopt", "quality=80",
+      tmpPdf,
+      tmpPrefix,
+    ]);
+
+    const dir = tmpdir();
+    const allFiles = await readdir(dir);
+    const pageFiles = allFiles
+      .filter((f) => f.startsWith(`pdfrender-${tmpId}-page`) && (f.endsWith(".jpg") || f.endsWith(".jpeg")))
+      .sort();
+
+    const pageImages: Buffer[] = [];
+    for (const file of pageFiles) {
+      const buf = await readFile(pathJoin(dir, file));
+      pageImages.push(buf);
+    }
+
+    return pageImages;
+  } finally {
+    await unlink(tmpPdf).catch(() => {});
+    const dir = tmpdir();
+    const allFiles = await readdir(dir).catch(() => [] as string[]);
+    for (const f of allFiles) {
+      if (f.startsWith(`pdfrender-${tmpId}-page`)) {
+        await unlink(pathJoin(dir, f)).catch(() => {});
+      }
+    }
+  }
 }
 
 interface ExtractedImage {

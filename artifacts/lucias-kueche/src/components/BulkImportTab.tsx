@@ -914,7 +914,7 @@ export default function BulkImportTab({ onUploadingChange }: { onUploadingChange
     return `${(bytes / 1024).toFixed(0)} KB`;
   };
 
-  const CHUNK_SIZE = 4 * 1024 * 1024;
+  const CHUNK_SIZE = 512 * 1024;
 
   const uploadFileInChunks = async (
     file: File,

@@ -313,6 +313,15 @@ function RecipeModalInner({ recipe, onClose, onAddToWeek, onToggleFavorite, onRe
     }
   };
 
+  const refreshGallery = useCallback(async () => {
+    try {
+      const photos = await fetchRecipePhotos(recipe.id);
+      setGalleryPhotos(photos);
+    } catch {
+      // ignore
+    }
+  }, [recipe.id]);
+
   const handleExtractScanImage = async () => {
     setExtractingScanImage(true);
     setExtractSourceImageError(null);
@@ -333,6 +342,7 @@ function RecipeModalInner({ recipe, onClose, onAddToWeek, onToggleFavorite, onRe
       setLocalImageSource(null);
       setExtractSourceImageError(null);
       if (onRecipeUpdated) onRecipeUpdated({ ...recipe, imageUrl: data.imageUrl, isAiGenerated: false, imageSource: null });
+      await refreshGallery();
     } catch {
       setExtractSourceImageError("Scan-Bild konnte nicht extrahiert werden");
     } finally {
@@ -355,6 +365,9 @@ function RecipeModalInner({ recipe, onClose, onAddToWeek, onToggleFavorite, onRe
       }
       const data = await res.json() as { photosAdded: number; alreadyExisted: number };
       setExtractAllPhotosResult(data);
+      if (data.photosAdded > 0) {
+        await refreshGallery();
+      }
     } catch {
       setExtractSourceImageError("Fotos konnten nicht extrahiert werden");
     } finally {

@@ -116,17 +116,11 @@ async function renderPdfPages(pdfBuffer: Buffer): Promise<Buffer[]> {
   const pdfjsLib = await import("pdfjs-dist/legacy/build/pdf.mjs");
   const { createCanvas } = await import("@napi-rs/canvas");
 
-  // pdfjs requires a truthy workerSrc even with disableWorker=true.
-  // Use the sibling pdf.worker.mjs that the build copies next to index.mjs.
-  const workerUrl = new URL("./pdf.worker.mjs", import.meta.url).href;
-  (pdfjsLib as unknown as { GlobalWorkerOptions: { workerSrc: string } }).GlobalWorkerOptions.workerSrc = workerUrl;
-
   const uint8Array = new Uint8Array(pdfBuffer);
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const pdfDoc = await (pdfjsLib as unknown as any).getDocument({
     data: uint8Array,
     verbosity: 0,
-    disableWorker: true,
   }).promise as {
     numPages: number;
     getPage: (n: number) => Promise<{
@@ -159,7 +153,6 @@ interface ExtractedImage {
 async function extractEmbeddedImagesFromPage(pdfBuffer: Buffer, pageNum: number): Promise<ExtractedImage[]> {
   try {
     const pdfjsLib = await import("pdfjs-dist/legacy/build/pdf.mjs");
-    pdfjsLib.GlobalWorkerOptions.workerSrc = '';
     const canvasModule = await import("@napi-rs/canvas");
     const { createCanvas } = canvasModule;
 

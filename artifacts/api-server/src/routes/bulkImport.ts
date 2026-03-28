@@ -114,12 +114,12 @@ async function downloadPdfFromStorage(storagePath: string): Promise<Buffer> {
 
 async function renderPdfPages(pdfBuffer: Buffer): Promise<Buffer[]> {
   const pdfjsLib = await import("pdfjs-dist/legacy/build/pdf.mjs");
-  pdfjsLib.GlobalWorkerOptions.workerSrc = '';
+  (pdfjsLib as unknown as { GlobalWorkerOptions: { workerSrc: string } }).GlobalWorkerOptions.workerSrc = "";
   const canvasModule = await import("@napi-rs/canvas");
   const { createCanvas } = canvasModule;
 
   const uint8Array = new Uint8Array(pdfBuffer);
-  const loadingTask = pdfjsLib.getDocument({ data: uint8Array, verbosity: 0 });
+  const loadingTask = (pdfjsLib as unknown as { getDocument: (opts: object) => { promise: Promise<{ numPages: number; getPage: (n: number) => Promise<{ getViewport: (opts: object) => { width: number; height: number }; render: (opts: object) => { promise: Promise<void> } }> }> } }).getDocument({ data: uint8Array, verbosity: 0, disableWorker: true });
   const pdfDoc = await loadingTask.promise;
   const numPages = pdfDoc.numPages;
   const pageImages: Buffer[] = [];
@@ -350,9 +350,10 @@ async function processPdfFile(
     let foodPhotoPageNumbers: Set<number> = new Set();
     // Maps 1-based page number → uploaded URL of extracted embedded image (or page render fallback)
     const photoPageUrlByPageNum = new Map<number, string>();
+    let pageBuffers: Buffer[] = [];
 
     try {
-      const pageBuffers = await renderPdfPages(pdfBuffer);
+      pageBuffers = await renderPdfPages(pdfBuffer);
       for (let i = 0; i < pageBuffers.length; i++) {
         const objectPath = await storageService.uploadBuffer(
           pageBuffers[i],
@@ -402,6 +403,41 @@ async function processPdfFile(
       .set({ pageImageUrls: pageImageUrls as unknown as string[] })
       .where(eq(bulkImportFilesTable.id, fileId));
 
+    // Build image content blocks from rendered pages (max 10 pages for the handwriting check)
+    const sharp = (await import("sharp")).default;
+    const buildPageImageBlocks = async (buffers: Buffer[], maxPages = 15): Promise<Array<{ type: "image"; source: { type: "base64"; media_type: "image/jpeg"; data: string } }>> => {
+      const limited = buffers.slice(0, maxPages);
+      const blocks: Array<{ type: "image"; source: { type: "base64"; media_type: "image/jpeg"; data: string } }> = [];
+      for (const buf of limited) {
+        // Resize to max 1200px wide to keep request size manageable
+        const resized = await sharp(buf).resize(1200, undefined, { fit: "inside", withoutEnlargement: true }).jpeg({ quality: 75 }).toBuffer();
+        blocks.push({ type: "image", source: { type: "base64", media_type: "image/jpeg", data: resized.toString("base64") } });
+      }
+      return blocks;
+    };
+
+    // Fallback: send PDF as document only if rendering failed AND PDF is small enough
+    const MAX_PDF_BYTES_FOR_CLAUDE = 8 * 1024 * 1024; // 8MB raw = ~11MB base64, safely under Anthropic limit
+    const usePageImages = pageBuffers.length > 0;
+    const pdfTooLarge = pdfBuffer.length > MAX_PDF_BYTES_FOR_CLAUDE;
+
+    type ClaudeContentBlock = { type: "image"; source: { type: "base64"; media_type: "image/jpeg"; data: string } } | { type: "document"; source: { type: "base64"; media_type: "application/pdf"; data: string } } | { type: "text"; text: string };
+
+    const buildDocumentContent = async (textPrompt: string, maxPages = 15): Promise<ClaudeContentBlock[]> => {
+      if (usePageImages) {
+        const imgBlocks = await buildPageImageBlocks(pageBuffers, maxPages);
+        return [...imgBlocks, { type: "text", text: textPrompt }];
+      }
+      if (!pdfTooLarge) {
+        return [
+          { type: "document", source: { type: "base64", media_type: "application/pdf", data: pdfBase64 } },
+          { type: "text", text: textPrompt },
+        ];
+      }
+      // PDF too large and no page images — try with just the first rendered pages error text
+      throw new Error("PDF zu groß zum Verarbeiten und Seitenrendering nicht verfügbar");
+    };
+
     const firstPassResponse = await anthropic.messages.create({
       model: "claude-opus-4-5",
       max_tokens: 1024,
@@ -409,20 +445,7 @@ async function processPdfFile(
       messages: [
         {
           role: "user",
-          content: [
-            {
-              type: "document",
-              source: {
-                type: "base64",
-                media_type: "application/pdf",
-                data: pdfBase64,
-              },
-            },
-            {
-              type: "text",
-              text: "Gibt es handschriftliche Anmerkungen, Notizen oder Korrekturen in diesem Dokument?",
-            },
-          ],
+          content: await buildDocumentContent("Gibt es handschriftliche Anmerkungen, Notizen oder Korrekturen in diesem Dokument?", 10) as Parameters<typeof anthropic.messages.create>[0]["messages"][0]["content"],
         },
       ],
     });
@@ -441,6 +464,10 @@ async function processPdfFile(
       ? BULK_IMPORT_HANDWRITING_PROMPT
       : BULK_IMPORT_EXTRACTION_SYSTEM_PROMPT;
 
+    const extractionPrompt = documentHasHandwriting
+      ? "Extrahiere ALLE Rezepte aus diesem Dokument. Achte besonders auf handschriftliche Anmerkungen, Randnotizen und Korrekturen. Erfasse sie vollständig in personalNotes."
+      : "Extrahiere ALLE Rezepte aus diesem PDF-Dokument. Ein Dokument kann mehrere Rezepte enthalten.";
+
     const extractionResponse = await anthropic.messages.create({
       model: "claude-opus-4-5",
       max_tokens: 8192,
@@ -448,22 +475,7 @@ async function processPdfFile(
       messages: [
         {
           role: "user",
-          content: [
-            {
-              type: "document",
-              source: {
-                type: "base64",
-                media_type: "application/pdf",
-                data: pdfBase64,
-              },
-            },
-            {
-              type: "text",
-              text: documentHasHandwriting
-                ? "Extrahiere ALLE Rezepte aus diesem Dokument. Achte besonders auf handschriftliche Anmerkungen, Randnotizen und Korrekturen. Erfasse sie vollständig in personalNotes."
-                : "Extrahiere ALLE Rezepte aus diesem PDF-Dokument. Ein Dokument kann mehrere Rezepte enthalten.",
-            },
-          ],
+          content: await buildDocumentContent(extractionPrompt, 15) as Parameters<typeof anthropic.messages.create>[0]["messages"][0]["content"],
         },
       ],
     });

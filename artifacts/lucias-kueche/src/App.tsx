@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect } from "react";
+import { useState, useRef, useEffect, useCallback, memo } from "react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { Utensils, CalendarDays, BarChart3, Settings, LogOut, ChevronDown, User, BookOpen, Lightbulb, House, ArrowLeft } from "lucide-react";
 import MeineRezepte from "@/pages/MeineRezepte";
@@ -120,14 +120,15 @@ function AvatarDropdown({ onNavigate }: { onNavigate: (tab: Tab, savePrev?: bool
   );
 }
 
-function BottomNav({ activeTab, onTabChange, unreadCount }: { activeTab: Tab; onTabChange: (tab: Tab) => void; unreadCount: number }) {
-  const NAV_TABS: { id: Tab; label: string; icon: React.ReactNode; badge?: number }[] = [
-    { id: "rezepte", label: "Rezepte", icon: <BookOpen className="w-5 h-5" /> },
-    { id: "was-koche-ich", label: "Kochidee", icon: <Lightbulb className="w-5 h-5" /> },
-    { id: "wochenplan", label: "Wochenplan", icon: <CalendarDays className="w-5 h-5" /> },
-    { id: "meine-kueche", label: "Meine Küche", icon: <House className="w-5 h-5" />, badge: unreadCount },
-    { id: "statistiken", label: "Statistiken", icon: <BarChart3 className="w-5 h-5" /> },
-  ];
+const NAV_TABS: { id: Tab; label: string; Icon: React.ElementType }[] = [
+  { id: "rezepte", label: "Rezepte", Icon: BookOpen },
+  { id: "was-koche-ich", label: "Kochidee", Icon: Lightbulb },
+  { id: "wochenplan", label: "Wochenplan", Icon: CalendarDays },
+  { id: "meine-kueche", label: "Meine Küche", Icon: House },
+  { id: "statistiken", label: "Statistiken", Icon: BarChart3 },
+];
+
+const BottomNav = memo(function BottomNav({ activeTab, onTabChange, unreadCount }: { activeTab: Tab; onTabChange: (tab: Tab) => void; unreadCount: number }) {
 
   return (
     <nav
@@ -140,6 +141,7 @@ function BottomNav({ activeTab, onTabChange, unreadCount }: { activeTab: Tab; on
       <div className="flex items-stretch max-w-lg mx-auto">
         {NAV_TABS.map((tab) => {
           const isActive = activeTab === tab.id;
+          const isBadgeTab = tab.id === "meine-kueche";
           return (
             <button
               key={tab.id}
@@ -153,11 +155,11 @@ function BottomNav({ activeTab, onTabChange, unreadCount }: { activeTab: Tab; on
                   style={{ background: "linear-gradient(90deg, #d4855a, #e8a87a)" }}
                 />
               )}
-              <span className={`relative transition-all ${isActive ? "text-[#e8a87a] scale-110" : "text-green-300/70"}`}>
-                {tab.icon}
-                {tab.badge != null && tab.badge > 0 && (
+              <span className={`relative transition-transform ${isActive ? "text-[#e8a87a] scale-110" : "text-green-300/70"}`}>
+                <tab.Icon className="w-5 h-5" />
+                {isBadgeTab && unreadCount > 0 && (
                   <span className="absolute -top-1.5 -right-1.5 w-4 h-4 bg-orange-500 text-white text-[9px] font-bold rounded-full flex items-center justify-center">
-                    {tab.badge > 9 ? "9+" : tab.badge}
+                    {unreadCount > 9 ? "9+" : unreadCount}
                   </span>
                 )}
               </span>
@@ -174,7 +176,7 @@ function BottomNav({ activeTab, onTabChange, unreadCount }: { activeTab: Tab; on
       </div>
     </nav>
   );
-}
+});
 
 function OnboardingWithMark({
   todayLocalStr,
@@ -258,12 +260,17 @@ function AppShell() {
   const pendingSuggestionsCount = incomingSuggestions.filter((s) => s.status === "pending").length;
   const unreadCount = notificationUnreadCount + pendingSuggestionsCount;
 
-  function navigateTo(tab: Tab, savePrev?: boolean) {
+  const navigateTo = useCallback((tab: Tab, savePrev?: boolean) => {
     if (savePrev) {
-      setPreviousTab(activeTab);
+      setActiveTab((current) => { setPreviousTab(current); return tab; });
+    } else {
+      setActiveTab(tab);
     }
-    setActiveTab(tab);
-  }
+  }, []);
+
+  const handleBottomTabChange = useCallback((tab: Tab) => {
+    setActiveTab((current) => { setPreviousTab(current); return tab; });
+  }, []);
 
   function handleOpenRecipeFromNotification(recipeId: number) {
     setActiveTab("rezepte");
@@ -389,7 +396,7 @@ function AppShell() {
         {activeTab === "meine-kueche" && <MeineKueche onOpenRecipe={(recipeId) => { setActiveTab("rezepte"); setOpenRecipeId(recipeId); }} />}
       </main>
 
-        <BottomNav activeTab={activeTab} onTabChange={(tab) => { setPreviousTab(activeTab); setActiveTab(tab); }} unreadCount={unreadCount} />
+        <BottomNav activeTab={activeTab} onTabChange={handleBottomTabChange} unreadCount={unreadCount} />
         <BulkImportProgressBar onNavigateToImport={() => {
           setActiveTab("admin");
           setAdminInitialTab("bulk-import");

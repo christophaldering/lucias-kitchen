@@ -496,7 +496,10 @@ export default function MeineRezepte({ onNavigate: _onNavigate, initialOpenRecip
   const [selectedId, setSelectedId] = useState<number | null>(null);
   const [selectedFullRecipe, setSelectedFullRecipe] = useState<Recipe | null>(null);
   const selected = selectedFullRecipe ?? (selectedId != null ? (recipes.find((r) => r.id === selectedId) ?? null) : null);
+  // pendingOpenIdRef: recipe was saved but not yet in the list — wait for it to appear
   const pendingOpenIdRef = useRef<number | null>(null);
+  // currentFetchIdRef: race-condition guard for the async fetchRecipeById call
+  const currentFetchIdRef = useRef<number | null>(null);
 
   // Freeze allRecipes while the modal is open so background auto-loading
   // doesn't cause the modal to re-render and flicker.
@@ -510,10 +513,10 @@ export default function MeineRezepte({ onNavigate: _onNavigate, initialOpenRecip
   const openRecipe = async (id: number) => {
     setSelectedId(id);
     setSelectedFullRecipe(null);
-    pendingOpenIdRef.current = id;
+    currentFetchIdRef.current = id; // race-condition guard only — does NOT interfere with pendingOpenIdRef
     try {
       const full = await fetchRecipeById(id);
-      if (pendingOpenIdRef.current === id) {
+      if (currentFetchIdRef.current === id) {
         setSelectedFullRecipe(full);
       }
     } catch {
@@ -1228,7 +1231,7 @@ export default function MeineRezepte({ onNavigate: _onNavigate, initialOpenRecip
           {selected && (
             <RecipeModal
               recipe={selected}
-              onClose={() => { setSelectedId(null); setSelectedFullRecipe(null); pendingOpenIdRef.current = null; }}
+              onClose={() => { setSelectedId(null); setSelectedFullRecipe(null); pendingOpenIdRef.current = null; currentFetchIdRef.current = null; }}
               onAddToWeek={_onNavigate ? () => _onNavigate("wochenplan") : undefined}
               onToggleFavorite={toggleFavorite}
               onDeleteRecipe={deleteRecipe}

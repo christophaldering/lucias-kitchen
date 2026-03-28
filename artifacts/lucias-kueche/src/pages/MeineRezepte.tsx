@@ -593,7 +593,7 @@ export default function MeineRezepte({ onNavigate: _onNavigate, initialOpenRecip
     if (!hasNextPage || isFetchingNextPage) return;
     const t = setTimeout(() => {
       fetchNextPage();
-    }, 300);
+    }, 800);
     return () => clearTimeout(t);
   }, [hasNextPage, isFetchingNextPage, fetchNextPage, recipes.length]);
 

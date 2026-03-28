@@ -23,6 +23,7 @@ import pantryRouter from "./pantry";
 import kochideeChatRouter from "./kochideeChat";
 import kochideeContextRouter from "./kochideeContext";
 import inviteRouter from "./invite";
+import batchExtractRouter from "./batchExtract";
 
 const router: IRouter = Router();
 
@@ -50,5 +51,6 @@ router.use(storageRouter);
 router.use(pantryRouter);
 router.use(kochideeChatRouter);
 router.use(kochideeContextRouter);
+router.use(batchExtractRouter);
 
 export default router;

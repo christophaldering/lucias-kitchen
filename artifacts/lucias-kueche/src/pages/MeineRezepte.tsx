@@ -497,6 +497,14 @@ export default function MeineRezepte({ onNavigate: _onNavigate, initialOpenRecip
   const [selectedFullRecipe, setSelectedFullRecipe] = useState<Recipe | null>(null);
   const selected = selectedFullRecipe ?? (selectedId != null ? (recipes.find((r) => r.id === selectedId) ?? null) : null);
   const pendingOpenIdRef = useRef<number | null>(null);
+
+  // Freeze allRecipes while the modal is open so background auto-loading
+  // doesn't cause the modal to re-render and flicker.
+  const frozenAllRecipesRef = useRef<Recipe[]>(recipes);
+  if (!selected) {
+    frozenAllRecipesRef.current = recipes;
+  }
+  const allRecipesForModal = frozenAllRecipesRef.current;
   const [cookingRecipe, setCookingRecipe] = useState<Recipe | null>(null);
 
   const openRecipe = async (id: number) => {
@@ -1224,7 +1232,7 @@ export default function MeineRezepte({ onNavigate: _onNavigate, initialOpenRecip
               onAddToWeek={_onNavigate ? () => _onNavigate("wochenplan") : undefined}
               onToggleFavorite={toggleFavorite}
               onDeleteRecipe={deleteRecipe}
-              allRecipes={recipes}
+              allRecipes={allRecipesForModal}
               onOpenRecipe={(r) => openRecipe(r.id)}
               onCreateVariant={(baseRecipe) => {
                 setVariantBaseRecipe(baseRecipe);

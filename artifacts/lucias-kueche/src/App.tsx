@@ -198,6 +198,19 @@ function getInviteTokenFromUrl(): string | null {
   return match ? match[1]! : null;
 }
 
+function getTodayLocalStr(): string {
+  const d = new Date();
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, "0");
+  const day = String(d.getDate()).padStart(2, "0");
+  return `${y}-${m}-${day}`;
+}
+
+function getSessionOnboardingDone(userId: number): boolean {
+  const key = `landing_last_shown_${userId}`;
+  return localStorage.getItem(key) === getTodayLocalStr();
+}
+
 function AppShell() {
   const { user, loading } = useAuth();
   const [inviteToken, setInviteToken] = useState<string | null>(getInviteTokenFromUrl);
@@ -208,13 +221,6 @@ function AppShell() {
   const [adminNavToken, setAdminNavToken] = useState(0);
   const [recipesInitialSortOrder, setRecipesInitialSortOrder] = useState<string | null>(null);
   const [recipesRefreshToken, setRecipesRefreshToken] = useState(0);
-  const todayLocalStr = (() => {
-    const d = new Date();
-    const y = d.getFullYear();
-    const m = String(d.getMonth() + 1).padStart(2, "0");
-    const day = String(d.getDate()).padStart(2, "0");
-    return `${y}-${m}-${day}`;
-  })();
 
   const [sessionOnboardingDone, setSessionOnboardingDone] = useState<boolean | null>(null);
 
@@ -223,9 +229,28 @@ function AppShell() {
       setSessionOnboardingDone(null);
       return;
     }
-    const key = `landing_last_shown_${user.id}`;
-    setSessionOnboardingDone(localStorage.getItem(key) === todayLocalStr);
-  }, [user?.id, todayLocalStr]);
+    setSessionOnboardingDone(getSessionOnboardingDone(user.id) ?? false);
+  }, [user?.id]);
+
+  const [loadingVisible, setLoadingVisible] = useState(true);
+  const [loadingFading, setLoadingFading] = useState(false);
+
+  const isStillLoading = loading || (user != null && sessionOnboardingDone === null);
+
+  const prevLoadingRef = useRef(isStillLoading);
+  useEffect(() => {
+    if (prevLoadingRef.current && !isStillLoading) {
+      setLoadingFading(true);
+      const timer = setTimeout(() => {
+        setLoadingVisible(false);
+        setLoadingFading(false);
+      }, 300);
+      prevLoadingRef.current = false;
+      return () => { clearTimeout(timer); };
+    }
+    prevLoadingRef.current = isStillLoading;
+    return undefined;
+  }, [isStillLoading]);
 
   const { data: notifications = [] } = useNotifications();
   const notificationUnreadCount = notifications.filter((n) => !n.readAt).length;
@@ -250,66 +275,75 @@ function AppShell() {
     setRecipesInitialSortOrder("neueste");
   }
 
-  if (loading) {
-    return (
-      <div className="min-h-screen flex items-center justify-center" style={{ background: "linear-gradient(160deg, #f9efe0 0%, #f5e8d0 50%, #f2e4c8 100%)" }}>
-        <div className="text-center">
-          <div className="w-16 h-16 mx-auto mb-4 rounded-full bg-[#4A7C59]/10 flex items-center justify-center animate-pulse">
-            <Utensils className="w-8 h-8 text-[#4A7C59]" />
-          </div>
-          <p className="font-script text-2xl text-[#4A7C59]">Lucias Küche wird geladen...</p>
+  const loadingScreen = loadingVisible ? (
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center transition-opacity duration-300"
+      style={{
+        background: "linear-gradient(160deg, #f9efe0 0%, #f5e8d0 50%, #f2e4c8 100%)",
+        opacity: loadingFading ? 0 : 1,
+        pointerEvents: loadingFading ? "none" : "auto",
+      }}
+    >
+      <div className="text-center">
+        <div className="w-16 h-16 mx-auto mb-4 rounded-full bg-[#4A7C59]/10 flex items-center justify-center animate-pulse">
+          <Utensils className="w-8 h-8 text-[#4A7C59]" />
         </div>
+        <p className="font-script text-2xl text-[#4A7C59]">Lucias Küche wird geladen...</p>
       </div>
-    );
+    </div>
+  ) : null;
+
+  if (isStillLoading) {
+    return loadingScreen ?? null;
   }
 
   if (inviteToken) {
     return (
-      <InviteAccept
-        token={inviteToken}
-        onLoggedIn={() => {
-          setInviteToken(null);
-          window.history.replaceState({}, "", "/");
-          window.location.reload();
-        }}
-      />
+      <>
+        {loadingScreen}
+        <InviteAccept
+          token={inviteToken}
+          onLoggedIn={() => {
+            setInviteToken(null);
+            window.history.replaceState({}, "", "/");
+            window.location.reload();
+          }}
+        />
+      </>
     );
   }
 
   if (!user) {
-    return <Login />;
-  }
-
-  if (sessionOnboardingDone === null) {
     return (
-      <div className="min-h-screen flex items-center justify-center" style={{ background: "linear-gradient(160deg, #f9efe0 0%, #f5e8d0 50%, #f2e4c8 100%)" }}>
-        <div className="text-center">
-          <div className="w-16 h-16 mx-auto mb-4 rounded-full bg-[#4A7C59]/10 flex items-center justify-center animate-pulse">
-            <Utensils className="w-8 h-8 text-[#4A7C59]" />
-          </div>
-          <p className="font-script text-2xl text-[#4A7C59]">Lucias Küche wird geladen...</p>
-        </div>
-      </div>
+      <>
+        {loadingScreen}
+        <Login />
+      </>
     );
   }
 
   if (!sessionOnboardingDone) {
     return (
-      <OnboardingWithMark
-        todayLocalStr={todayLocalStr}
-        userUid={String(user.id)}
-        onNavigate={(tab) => {
-          setSessionOnboardingDone(true);
-          setActiveTab(tab as Tab);
-        }}
-      />
+      <>
+        {loadingScreen}
+        <OnboardingWithMark
+          todayLocalStr={getTodayLocalStr()}
+          userUid={String(user.id)}
+          onNavigate={(tab) => {
+            setSessionOnboardingDone(true);
+            setActiveTab(tab as Tab);
+          }}
+        />
+      </>
     );
   }
 
   return (
-    <ImportStatusProvider onImportDone={() => setRecipesRefreshToken((t) => t + 1)}>
-      <>
-      <header
+    <>
+      {loadingScreen}
+      <ImportStatusProvider onImportDone={() => setRecipesRefreshToken((t) => t + 1)}>
+        <>
+        <header
         className="sticky top-0 z-40 text-white"
         style={{
           background: "linear-gradient(135deg, #1e3d2a 0%, #2a5438 60%, #3d6849 100%)",
@@ -355,14 +389,15 @@ function AppShell() {
         {activeTab === "meine-kueche" && <MeineKueche onOpenRecipe={(recipeId) => { setActiveTab("rezepte"); setOpenRecipeId(recipeId); }} />}
       </main>
 
-      <BottomNav activeTab={activeTab} onTabChange={(tab) => { setPreviousTab(activeTab); setActiveTab(tab); }} unreadCount={unreadCount} />
-      <BulkImportProgressBar onNavigateToImport={() => {
-        setActiveTab("admin");
-        setAdminInitialTab("bulk-import");
-        setAdminNavToken((t) => t + 1);
-      }} />
-      </>
-    </ImportStatusProvider>
+        <BottomNav activeTab={activeTab} onTabChange={(tab) => { setPreviousTab(activeTab); setActiveTab(tab); }} unreadCount={unreadCount} />
+        <BulkImportProgressBar onNavigateToImport={() => {
+          setActiveTab("admin");
+          setAdminInitialTab("bulk-import");
+          setAdminNavToken((t) => t + 1);
+        }} />
+        </>
+      </ImportStatusProvider>
+    </>
   );
 }
 

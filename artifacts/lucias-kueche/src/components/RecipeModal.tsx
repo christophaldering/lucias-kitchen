@@ -197,6 +197,8 @@ function RecipeModalInner({ recipe, onClose, onAddToWeek, onToggleFavorite, onRe
   const [extractingSourceImage, setExtractingSourceImage] = useState(false);
   const [extractSourceImageError, setExtractSourceImageError] = useState<string | null>(null);
   const [extractingScanImage, setExtractingScanImage] = useState(false);
+  const [extractingAllPhotos, setExtractingAllPhotos] = useState(false);
+  const [extractAllPhotosResult, setExtractAllPhotosResult] = useState<{ photosAdded: number; alreadyExisted: number } | null>(null);
   const [localImageUrl, setLocalImageUrl] = useState<string | null>(recipe.imageUrl ?? null);
   const [localIsAiGenerated, setLocalIsAiGenerated] = useState(recipe.isAiGenerated ?? false);
   const [localImageSource, setLocalImageSource] = useState<"ai" | "web" | null>(recipe.imageSource ?? null);
@@ -335,6 +337,28 @@ function RecipeModalInner({ recipe, onClose, onAddToWeek, onToggleFavorite, onRe
       setExtractSourceImageError("Scan-Bild konnte nicht extrahiert werden");
     } finally {
       setExtractingScanImage(false);
+    }
+  };
+
+  const handleExtractAllPhotos = async () => {
+    setExtractingAllPhotos(true);
+    setExtractAllPhotosResult(null);
+    try {
+      const res = await authFetch(`${API_BASE}/recipes/${recipe.id}/extract-all-photos-from-source`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", ...authHeaders() },
+      });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        setExtractSourceImageError((err as { message?: string }).message ?? "Fotos konnten nicht extrahiert werden");
+        return;
+      }
+      const data = await res.json() as { photosAdded: number; alreadyExisted: number };
+      setExtractAllPhotosResult(data);
+    } catch {
+      setExtractSourceImageError("Fotos konnten nicht extrahiert werden");
+    } finally {
+      setExtractingAllPhotos(false);
     }
   };
 
@@ -746,12 +770,34 @@ function RecipeModalInner({ recipe, onClose, onAddToWeek, onToggleFavorite, onRe
               {isOwner && recipe.sourceDocumentUrl && (
                 <button
                   onClick={handleExtractScanImage}
-                  disabled={extractingScanImage || generatingImage || extractingSourceImage}
+                  disabled={extractingScanImage || generatingImage || extractingSourceImage || extractingAllPhotos}
                   className="flex items-center gap-2 px-4 py-2.5 bg-orange-50 border border-orange-200 text-orange-700 rounded-xl text-sm font-semibold hover:bg-orange-100 transition-colors disabled:opacity-60"
                 >
                   {extractingScanImage ? <Loader2 className="w-4 h-4 animate-spin" /> : <FileText className="w-4 h-4" />}
                   {extractingScanImage ? "Scan wird extrahiert…" : "Scan Foto extrahieren"}
                 </button>
+              )}
+
+              {isOwner && recipe.sourceDocumentUrl && (
+                <div className="flex flex-col gap-1">
+                  <button
+                    onClick={handleExtractAllPhotos}
+                    disabled={extractingAllPhotos || extractingScanImage || generatingImage || extractingSourceImage}
+                    className="flex items-center gap-2 px-4 py-2.5 bg-teal-50 border border-teal-200 text-teal-700 rounded-xl text-sm font-semibold hover:bg-teal-100 transition-colors disabled:opacity-60"
+                  >
+                    {extractingAllPhotos ? <Loader2 className="w-4 h-4 animate-spin" /> : <Images className="w-4 h-4" />}
+                    {extractingAllPhotos ? "Fotos werden extrahiert…" : "Alle Fotos aus PDF"}
+                  </button>
+                  {extractAllPhotosResult && (
+                    <span className="text-xs text-teal-700 text-center">
+                      {extractAllPhotosResult.photosAdded > 0
+                        ? `${extractAllPhotosResult.photosAdded} Foto${extractAllPhotosResult.photosAdded !== 1 ? "s" : ""} zur Galerie hinzugefügt`
+                        : extractAllPhotosResult.alreadyExisted > 0
+                          ? "Fotos bereits vorhanden"
+                          : "Keine Lebensmittelfotos gefunden"}
+                    </span>
+                  )}
+                </div>
               )}
 
               {isOwner && !localImageUrl && !recipe.mainPhotoUrl && hasPhotosForRecipe === true && (

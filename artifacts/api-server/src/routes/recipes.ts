@@ -2625,6 +2625,213 @@ router.post("/recipes/:id/extract-image-from-source", authMiddleware, async (req
   }
 });
 
+router.post("/recipes/:id/extract-all-photos-from-source", authMiddleware, async (req, res) => {
+  try {
+    const id = Number(req.params.id);
+    if (isNaN(id)) {
+      res.status(400).json({ error: "bad_request", message: "Ungültige Rezept-ID" });
+      return;
+    }
+
+    const [recipe] = await db
+      .select({
+        id: recipesTable.id,
+        createdBy: recipesTable.createdBy,
+        sourceDocumentUrl: recipesTable.sourceDocumentUrl,
+      })
+      .from(recipesTable)
+      .where(and(eq(recipesTable.id, id), isNull(recipesTable.deletedAt)))
+      .limit(1);
+
+    if (!recipe) {
+      res.status(404).json({ error: "not_found", message: "Rezept nicht gefunden" });
+      return;
+    }
+
+    const isOwner = recipe.createdBy == null || recipe.createdBy === req.authUser!.id;
+    if (!isOwner && !isAdmin(req.authUser!.email)) {
+      res.status(403).json({ error: "forbidden", message: "Keine Berechtigung" });
+      return;
+    }
+
+    if (!recipe.sourceDocumentUrl) {
+      res.status(422).json({ error: "no_source_document", message: "Kein Quelldokument vorhanden" });
+      return;
+    }
+
+    const { ObjectStorageService } = await import("../lib/objectStorage");
+    const storageService = new ObjectStorageService();
+    const sharp = (await import("sharp")).default;
+
+    const sourceDocUrl = recipe.sourceDocumentUrl;
+    const objectPath = sourceDocUrl.startsWith("/api/storage")
+      ? sourceDocUrl.replace("/api/storage", "")
+      : sourceDocUrl;
+
+    let file = null;
+    if (objectPath.startsWith("/objects/")) {
+      file = await storageService.getObjectEntityFile(objectPath).catch(() => null);
+    }
+    if (!file) {
+      file = await storageService.searchPublicObject(objectPath.replace(/^\/objects\//, "")).catch(() => null);
+    }
+
+    if (!file) {
+      res.status(422).json({ error: "no_file", message: "Das Quelldokument konnte nicht gefunden werden" });
+      return;
+    }
+
+    const [rawBuffer] = await file.download();
+    const [fileMeta] = await file.getMetadata();
+    const contentType = (fileMeta.contentType as string) ?? "";
+    const isPdf = contentType === "application/pdf" || sourceDocUrl.toLowerCase().includes(".pdf");
+
+    const renderPdfToImages = async (pdfBuffer: Buffer): Promise<Buffer[]> => {
+      const pdfjsLib = await import("pdfjs-dist/legacy/build/pdf.mjs");
+      (pdfjsLib as unknown as { GlobalWorkerOptions: { workerSrc: string } }).GlobalWorkerOptions.workerSrc = "";
+      const { createCanvas } = await import("@napi-rs/canvas");
+      const uint8Array = new Uint8Array(pdfBuffer);
+      const pdfDoc = await (pdfjsLib as unknown as { getDocument: (opts: object) => { promise: Promise<{ numPages: number; getPage: (n: number) => Promise<{ getViewport: (opts: object) => { width: number; height: number }; render: (opts: object) => { promise: Promise<void> } }> }> } }).getDocument({ data: uint8Array, verbosity: 0, disableWorker: true }).promise;
+      const pages: Buffer[] = [];
+      for (let i = 1; i <= pdfDoc.numPages; i++) {
+        const page = await pdfDoc.getPage(i);
+        const viewport = page.getViewport({ scale: 1.5 });
+        const canvas = createCanvas(Math.ceil(viewport.width), Math.ceil(viewport.height));
+        const ctx = canvas.getContext("2d");
+        await page.render({ canvasContext: ctx as unknown as Parameters<typeof page.render>[0]["canvasContext"], viewport }).promise;
+        pages.push(canvas.toBuffer("image/jpeg", 85));
+      }
+      return pages;
+    };
+
+    type ImageEntry = { buffer: Buffer; mimeType: string };
+    let imagesToScan: ImageEntry[];
+
+    if (isPdf) {
+      const pageBuffers = await renderPdfToImages(rawBuffer);
+      if (pageBuffers.length === 0) {
+        res.status(422).json({ error: "no_pages", message: "Im PDF konnten keine Seiten gerendert werden" });
+        return;
+      }
+      imagesToScan = pageBuffers.map((buf) => ({ buffer: buf, mimeType: "image/jpeg" }));
+    } else {
+      const mimeType = ["image/jpeg", "image/png", "image/webp", "image/gif"].includes(contentType)
+        ? contentType
+        : "image/jpeg";
+      imagesToScan = [{ buffer: rawBuffer, mimeType }];
+    }
+
+    const FOOD_CROP_SYSTEM_PROMPT = `Du bist ein Bildanalyse-Assistent. Prüfe das Bild: Ist ein verwertbares Lebensmittelfoto erkennbar (Foto des fertigen Gerichts oder der Zutaten, das als Rezeptbild geeignet wäre)? Falls ja, gib die Koordinaten des besten Bildausschnitts als Prozentwerte zurück. Falls kein geeignetes Lebensmittelfoto erkennbar ist, gib null zurück. Antworte NUR mit reinem JSON ohne Markdown, ohne Backticks: {"foodImageCrop": {"x": number, "y": number, "width": number, "height": number} | null}`;
+
+    const isCropCoords = (c: unknown): c is { x: number; y: number; width: number; height: number } =>
+      c !== null &&
+      typeof c === "object" &&
+      Number.isFinite((c as { x: unknown }).x) &&
+      Number.isFinite((c as { y: unknown }).y) &&
+      Number.isFinite((c as { width: unknown }).width) &&
+      Number.isFinite((c as { height: unknown }).height) &&
+      (c as { x: number }).x >= 0 && (c as { y: number }).y >= 0 &&
+      (c as { width: number }).width > 0 && (c as { height: number }).height > 0 &&
+      (c as { x: number; width: number }).x + (c as { x: number; width: number }).width <= 100 &&
+      (c as { y: number; height: number }).y + (c as { y: number; height: number }).height <= 100;
+
+    const addedPhotos: Array<{ imageUrl: string }> = [];
+    let alreadyExisted = 0;
+
+    for (const entry of imagesToScan) {
+      try {
+        const aiResponse = await openai.chat.completions.create({
+          model: "gpt-4o",
+          max_completion_tokens: 256,
+          messages: [
+            { role: "system", content: FOOD_CROP_SYSTEM_PROMPT },
+            {
+              role: "user",
+              content: [
+                {
+                  type: "image_url" as const,
+                  image_url: {
+                    url: `data:${entry.mimeType};base64,${entry.buffer.toString("base64")}`,
+                    detail: "high" as const,
+                  },
+                },
+                { type: "text" as const, text: "Erkenne und lokalisiere das Lebensmittelfoto in dieser Seite." },
+              ],
+            },
+          ],
+        });
+
+        let rawJson = aiResponse.choices[0]?.message?.content ?? "";
+        rawJson = rawJson.replace(/^```(?:json)?\s*/i, "").replace(/\s*```$/i, "").trim();
+
+        const parsed = JSON.parse(rawJson) as { foodImageCrop?: unknown };
+        if (!isCropCoords(parsed.foodImageCrop)) continue;
+
+        const crop = parsed.foodImageCrop;
+        const meta = await sharp(entry.buffer).metadata();
+        const imgWidth = meta.width ?? 1024;
+        const imgHeight = meta.height ?? 1024;
+
+        const cropX = Math.max(0, Math.round((crop.x / 100) * imgWidth));
+        const cropY = Math.max(0, Math.round((crop.y / 100) * imgHeight));
+        const cropW = Math.min(imgWidth - cropX, Math.max(1, Math.round((crop.width / 100) * imgWidth)));
+        const cropH = Math.min(imgHeight - cropY, Math.max(1, Math.round((crop.height / 100) * imgHeight)));
+
+        const croppedBuffer = await sharp(entry.buffer)
+          .extract({ left: cropX, top: cropY, width: cropW, height: cropH })
+          .resize(800, 800, { fit: "inside", withoutEnlargement: true })
+          .webp({ quality: 82 })
+          .toBuffer();
+
+        const storagePath = await storageService.uploadBuffer(croppedBuffer, "image/webp", "recipe-images");
+        const photoUrl = `/api/storage${storagePath}`;
+
+        let [photo] = await db
+          .select({ id: photosTable.id })
+          .from(photosTable)
+          .where(eq(photosTable.imageUrl, photoUrl))
+          .limit(1);
+
+        if (!photo) {
+          [photo] = await db
+            .insert(photosTable)
+            .values({ imageUrl: photoUrl, uploadedBy: req.authUser!.id, source: "original" })
+            .returning();
+        }
+
+        const [existingLink] = await db
+          .select({ id: recipePhotoLinksTable.id })
+          .from(recipePhotoLinksTable)
+          .where(and(eq(recipePhotoLinksTable.recipeId, id), eq(recipePhotoLinksTable.photoId, photo.id)))
+          .limit(1);
+
+        if (existingLink) {
+          alreadyExisted++;
+        } else {
+          const existingCount = await db
+            .select({ count: sql<number>`count(*)::int` })
+            .from(recipePhotoLinksTable)
+            .where(eq(recipePhotoLinksTable.recipeId, id));
+          const sortOrder = (existingCount[0]?.count ?? 0) + addedPhotos.length;
+
+          await db
+            .insert(recipePhotoLinksTable)
+            .values({ photoId: photo.id, recipeId: id, sortOrder, isMain: false });
+
+          addedPhotos.push({ imageUrl: photoUrl });
+        }
+      } catch {
+        // skip pages where AI or processing fails
+      }
+    }
+
+    res.json({ photosAdded: addedPhotos.length, alreadyExisted, photos: addedPhotos });
+  } catch (err) {
+    req.log.error({ err }, "Failed to extract all photos from source document");
+    res.status(500).json({ error: "internal_error", message: "Foto-Extraktion fehlgeschlagen" });
+  }
+});
+
 router.get("/admin/recipes-without-images", authMiddleware, async (req, res) => {
   if (!isAdmin(req.authUser!.email)) {
     res.status(403).json({ error: "forbidden", message: "Nur Admins können diese Daten abrufen" });

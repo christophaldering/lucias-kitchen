@@ -199,6 +199,7 @@ function RecipeModalInner({ recipe, onClose, onAddToWeek, onToggleFavorite, onRe
   const [extractingScanImage, setExtractingScanImage] = useState(false);
   const [extractingAllPhotos, setExtractingAllPhotos] = useState(false);
   const [extractAllPhotosResult, setExtractAllPhotosResult] = useState<{ photosAdded: number; alreadyExisted: number } | null>(null);
+  const [galleryRefreshTrigger, setGalleryRefreshTrigger] = useState(0);
   const [localImageUrl, setLocalImageUrl] = useState<string | null>(recipe.imageUrl ?? null);
   const [localIsAiGenerated, setLocalIsAiGenerated] = useState(recipe.isAiGenerated ?? false);
   const [localImageSource, setLocalImageSource] = useState<"ai" | "web" | null>(recipe.imageSource ?? null);
@@ -342,6 +343,7 @@ function RecipeModalInner({ recipe, onClose, onAddToWeek, onToggleFavorite, onRe
       setLocalImageSource(null);
       setExtractSourceImageError(null);
       if (onRecipeUpdated) onRecipeUpdated({ ...recipe, imageUrl: data.imageUrl, isAiGenerated: false, imageSource: null });
+      setGalleryRefreshTrigger((t) => t + 1);
       await refreshGallery();
     } catch {
       setExtractSourceImageError("Scan-Bild konnte nicht extrahiert werden");
@@ -365,7 +367,8 @@ function RecipeModalInner({ recipe, onClose, onAddToWeek, onToggleFavorite, onRe
       }
       const data = await res.json() as { photosAdded: number; alreadyExisted: number };
       setExtractAllPhotosResult(data);
-      if (data.photosAdded > 0) {
+      if (data.photosAdded > 0 || data.alreadyExisted > 0) {
+        setGalleryRefreshTrigger((t) => t + 1);
         await refreshGallery();
       }
     } catch {
@@ -1052,6 +1055,7 @@ function RecipeModalInner({ recipe, onClose, onAddToWeek, onToggleFavorite, onRe
               currentImageUrl={localImageUrl}
               onSetAsMain={isOwner ? handleSetAsMainFromGallery : undefined}
               isOwner={isOwner}
+              refreshTrigger={galleryRefreshTrigger}
             />
           </div>
 

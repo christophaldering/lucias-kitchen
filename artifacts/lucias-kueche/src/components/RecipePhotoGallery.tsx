@@ -11,6 +11,7 @@ interface Props {
   currentImageUrl?: string | null;
   onSetAsMain?: (imageUrl: string) => void;
   isOwner?: boolean;
+  refreshTrigger?: number;
 }
 
 function formatDateTime(isoString: string): string {
@@ -36,7 +37,7 @@ const SOURCE_COLORS: Record<string, string> = {
   web: "bg-sky-100 text-sky-700",
 };
 
-export default function RecipePhotoGallery({ recipeId, allRecipes, currentImageUrl, onSetAsMain, isOwner }: Props) {
+export default function RecipePhotoGallery({ recipeId, allRecipes, currentImageUrl, onSetAsMain, isOwner, refreshTrigger }: Props) {
   const queryClient = useQueryClient();
   const [photos, setPhotos] = useState<RecipePhoto[]>([]);
   const [loading, setLoading] = useState(true);
@@ -66,7 +67,7 @@ export default function RecipePhotoGallery({ recipeId, allRecipes, currentImageU
 
   useEffect(() => {
     loadPhotos();
-  }, [loadPhotos]);
+  }, [loadPhotos, refreshTrigger]);
 
   const handleFileSelected = async (file: File) => {
     if (!file.type.startsWith("image/")) {

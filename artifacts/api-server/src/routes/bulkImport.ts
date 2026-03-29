@@ -300,6 +300,23 @@ async function detectFoodPhotoPages(pageBuffers: Buffer[]): Promise<Set<number>>
   }
 }
 
+const PHOTO_DETECT_BATCH_SIZE = 8;
+const RECIPE_CHUNK_SIZE = 10;
+
+async function detectFoodPhotoPagesBatched(pageBuffers: Buffer[]): Promise<Set<number>> {
+  if (pageBuffers.length === 0) return new Set();
+  if (pageBuffers.length <= PHOTO_DETECT_BATCH_SIZE) {
+    return detectFoodPhotoPages(pageBuffers);
+  }
+  const allPhotoPages = new Set<number>();
+  for (let i = 0; i < pageBuffers.length; i += PHOTO_DETECT_BATCH_SIZE) {
+    const batch = pageBuffers.slice(i, Math.min(i + PHOTO_DETECT_BATCH_SIZE, pageBuffers.length));
+    const batchPages = await detectFoodPhotoPages(batch);
+    batchPages.forEach((n) => allPhotoPages.add(n + i));
+  }
+  return allPhotoPages;
+}
+
 async function detectFoodPhotoForImage(imageBase64: string): Promise<boolean> {
   try {
     const response = await anthropic.messages.create({
@@ -363,9 +380,9 @@ async function processPdfFile(
         const servingUrl = `/api/storage${objectPath}`;
         pageImageUrls.push(servingUrl);
       }
-      // Detect which pages show actual food photos (1-based page numbers)
+      // Detect which pages show actual food photos (1-based page numbers, batched for large PDFs)
       if (pageBuffers.length > 0) {
-        foodPhotoPageNumbers = await detectFoodPhotoPages(pageBuffers);
+        foodPhotoPageNumbers = await detectFoodPhotoPagesBatched(pageBuffers);
       }
 
       // For each detected food photo page: try to extract embedded image objects directly from the PDF
@@ -468,22 +485,7 @@ async function processPdfFile(
       ? "Extrahiere ALLE Rezepte aus diesem Dokument. Achte besonders auf handschriftliche Anmerkungen, Randnotizen und Korrekturen. Erfasse sie vollständig in personalNotes."
       : "Extrahiere ALLE Rezepte aus diesem PDF-Dokument. Ein Dokument kann mehrere Rezepte enthalten.";
 
-    const extractionResponse = await anthropic.messages.create({
-      model: "claude-opus-4-5",
-      max_tokens: 8192,
-      system: systemPrompt,
-      messages: [
-        {
-          role: "user",
-          content: await buildDocumentContent(extractionPrompt, 15) as Parameters<typeof anthropic.messages.create>[0]["messages"][0]["content"],
-        },
-      ],
-    });
-
-    let rawJson = extractionResponse.content[0]?.type === "text" ? extractionResponse.content[0].text : "{}";
-    rawJson = rawJson.replace(/^```(?:json)?\s*/i, "").replace(/\s*```$/i, "").trim();
-
-    let extractedRecipes: Array<{
+    type ExtractedRecipe = {
       title?: string;
       servings?: number;
       prepTime?: string;
@@ -499,30 +501,116 @@ async function processPdfFile(
       confidence?: string;
       uncertainties?: string[];
       pageNumbers?: number[];
-    }> = [];
+    };
 
     const parseError = "KI konnte keine gültige JSON-Antwort liefern";
-    try {
-      const parsed = JSON.parse(rawJson);
-      extractedRecipes = Array.isArray(parsed.recipes) ? parsed.recipes : [];
-    } catch {
-      await db
-        .update(bulkImportFilesTable)
-        .set({ status: "failed", finishedAt: new Date(), errorText: parseError })
-        .where(eq(bulkImportFilesTable.id, fileId));
 
-      await db.insert(bulkImportItemsTable).values({
-        sessionId,
-        fileId,
-        fileName,
-        status: "failed",
-        recipeData: null,
-        pageNumbers: [] as unknown as string[],
-        pageImageUrls: [] as unknown as string[],
-        hasHandwriting: documentHasHandwriting,
-        errorText: parseError,
+    const extractRecipesFromChunk = async (
+      chunkBuffers: Buffer[],
+      chunkPageStart: number,
+      prompt: string,
+    ): Promise<ExtractedRecipe[]> => {
+      const imgBlocks = await buildPageImageBlocks(chunkBuffers);
+      const response = await anthropic.messages.create({
+        model: "claude-opus-4-5",
+        max_tokens: 8192,
+        system: systemPrompt,
+        messages: [
+          {
+            role: "user",
+            content: [
+              ...imgBlocks,
+              { type: "text", text: prompt },
+            ] as Parameters<typeof anthropic.messages.create>[0]["messages"][0]["content"],
+          },
+        ],
       });
-      return;
+      let raw = response.content[0]?.type === "text" ? response.content[0].text : "{}";
+      raw = raw.replace(/^```(?:json)?\s*/i, "").replace(/\s*```$/i, "").trim();
+      try {
+        const parsed = JSON.parse(raw);
+        const recipes: ExtractedRecipe[] = Array.isArray(parsed.recipes) ? parsed.recipes : [];
+        return recipes.map((r) => ({
+          ...r,
+          pageNumbers: Array.isArray(r.pageNumbers)
+            ? r.pageNumbers.map((n) =>
+                n >= 1 && n <= chunkBuffers.length && chunkPageStart > 1
+                  ? n + chunkPageStart - 1
+                  : n,
+              )
+            : [],
+        }));
+      } catch {
+        return [];
+      }
+    };
+
+    let extractedRecipes: ExtractedRecipe[] = [];
+
+    if (pageBuffers.length <= RECIPE_CHUNK_SIZE) {
+      const content = await buildDocumentContent(extractionPrompt, RECIPE_CHUNK_SIZE);
+      const extractionResponse = await anthropic.messages.create({
+        model: "claude-opus-4-5",
+        max_tokens: 8192,
+        system: systemPrompt,
+        messages: [
+          {
+            role: "user",
+            content: content as Parameters<typeof anthropic.messages.create>[0]["messages"][0]["content"],
+          },
+        ],
+      });
+      let rawJson = extractionResponse.content[0]?.type === "text" ? extractionResponse.content[0].text : "{}";
+      rawJson = rawJson.replace(/^```(?:json)?\s*/i, "").replace(/\s*```$/i, "").trim();
+      try {
+        const parsed = JSON.parse(rawJson);
+        extractedRecipes = Array.isArray(parsed.recipes) ? parsed.recipes : [];
+      } catch {
+        await db
+          .update(bulkImportFilesTable)
+          .set({ status: "failed", finishedAt: new Date(), errorText: parseError })
+          .where(eq(bulkImportFilesTable.id, fileId));
+        await db.insert(bulkImportItemsTable).values({
+          sessionId,
+          fileId,
+          fileName,
+          status: "failed",
+          recipeData: null,
+          pageNumbers: [] as unknown as string[],
+          pageImageUrls: [] as unknown as string[],
+          hasHandwriting: documentHasHandwriting,
+          errorText: parseError,
+        });
+        return;
+      }
+    } else {
+      const allChunkRecipes: ExtractedRecipe[] = [];
+      for (let chunkStart = 0; chunkStart < pageBuffers.length; chunkStart += RECIPE_CHUNK_SIZE) {
+        const chunkEnd = Math.min(chunkStart + RECIPE_CHUNK_SIZE, pageBuffers.length);
+        const chunkBuffers = pageBuffers.slice(chunkStart, chunkEnd);
+        const pageStart = chunkStart + 1;
+        const pageEnd = chunkEnd;
+        const chunkPrompt =
+          extractionPrompt +
+          ` (Du siehst nur die Seiten ${pageStart}–${pageEnd} des Dokuments. Nutze die absoluten Seitenzahlen ${pageStart}–${pageEnd} im Feld pageNumbers. Extrahiere nur Rezepte, die auf diesen Seiten beginnen.)`;
+        try {
+          const chunkRecipes = await extractRecipesFromChunk(chunkBuffers, pageStart, chunkPrompt);
+          allChunkRecipes.push(...chunkRecipes);
+        } catch (chunkErr) {
+          console.error(`Failed to process chunk pages ${pageStart}–${pageEnd}:`, chunkErr);
+        }
+      }
+      const recipeMap = new Map<string, ExtractedRecipe>();
+      for (const recipe of allChunkRecipes) {
+        const key = (recipe.title ?? "").toLowerCase().trim();
+        if (!key) continue;
+        const existing = recipeMap.get(key);
+        const score = (r: ExtractedRecipe) => (r.steps?.length ?? 0) + (r.ingredients?.length ?? 0);
+        if (!existing || score(recipe) > score(existing)) {
+          recipeMap.set(key, recipe);
+        }
+      }
+      extractedRecipes = Array.from(recipeMap.values());
     }
 
     for (const recipe of extractedRecipes) {

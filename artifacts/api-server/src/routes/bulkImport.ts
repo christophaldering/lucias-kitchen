@@ -132,7 +132,7 @@ async function renderPdfPages(pdfBuffer: Buffer): Promise<Buffer[]> {
   const pageImages: Buffer[] = [];
   for (let pageNum = 1; pageNum <= pdfDoc.numPages; pageNum++) {
     const page = await pdfDoc.getPage(pageNum);
-    const viewport = page.getViewport({ scale: 1.5 });
+    const viewport = page.getViewport({ scale: 2.0 });
     const canvas = createCanvas(Math.ceil(viewport.width), Math.ceil(viewport.height));
     const ctx = canvas.getContext("2d");
     await page.render({
@@ -396,7 +396,13 @@ async function processPdfFile(
           for (const embImg of embeddedImages) {
             const isFood = await detectFoodPhotoForImage(embImg.data.toString("base64"));
             if (isFood) {
-              const embPath = await storageService.uploadBuffer(embImg.data, "image/jpeg", "bulk-import/pages");
+              const sharpLib = (await import("sharp")).default;
+              const trimmedBuffer = await sharpLib(embImg.data)
+                .trim({ threshold: 12 })
+                .resize(800, 800, { fit: "inside", withoutEnlargement: true })
+                .webp({ quality: 82 })
+                .toBuffer();
+              const embPath = await storageService.uploadBuffer(trimmedBuffer, "image/webp", "bulk-import/pages");
               photoPageUrlByPageNum.set(pageNum, `/api/storage${embPath}`);
               usedEmbedded = true;
               break;

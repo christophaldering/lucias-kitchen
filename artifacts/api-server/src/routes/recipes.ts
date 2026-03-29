@@ -2490,7 +2490,7 @@ router.post("/recipes/:id/extract-image-from-source", authMiddleware, async (req
         const pages: Buffer[] = [];
         for (let i = 1; i <= pdfDoc.numPages; i++) {
           const page = await pdfDoc.getPage(i);
-          const viewport = page.getViewport({ scale: 1.5 });
+          const viewport = page.getViewport({ scale: 2.0 });
           const canvas = createCanvas(Math.ceil(viewport.width), Math.ceil(viewport.height));
           const ctx = canvas.getContext("2d");
           await page.render({ canvasContext: ctx as unknown as Parameters<typeof page.render>[0]["canvasContext"], viewport }).promise;
@@ -2516,7 +2516,7 @@ router.post("/recipes/:id/extract-image-from-source", authMiddleware, async (req
         imagesToScan = [{ buffer: rawBuffer, mimeType }];
       }
 
-      const FOOD_CROP_SYSTEM_PROMPT = `Du bist ein Bildanalyse-Assistent. Prüfe das Bild: Ist ein verwertbares Lebensmittelfoto erkennbar (Foto des fertigen Gerichts oder der Zutaten, das als Rezeptbild geeignet wäre)? Falls ja, gib die Koordinaten des besten Bildausschnitts als Prozentwerte zurück. Falls kein geeignetes Lebensmittelfoto erkennbar ist, gib null zurück. Antworte NUR mit reinem JSON ohne Markdown, ohne Backticks: {"foodImageCrop": {"x": number, "y": number, "width": number, "height": number} | null}`;
+      const FOOD_CROP_SYSTEM_PROMPT = `Du bist ein Bildanalyse-Assistent für Rezept-Scans. Prüfe das Bild: Ist ein eingebettetes Lebensmittelfoto erkennbar (Foto des fertigen Gerichts oder der Zutaten)? Falls ja, gib die EXAKTEN Koordinaten des eingebetteten Fotos als Prozentwerte zurück. WICHTIG: Erkenne den genauen Bildrand des Fotos und schneide NUR das Foto selbst aus – ohne umliegenden Seitentext, Rezepttext, QR-Codes, Bildunterschriften oder weißen Seitenhintergrund. Die x/y/width/height-Werte sollen eng am tatsächlichen Fotorand enden, kein Leerraum außen. Falls kein Lebensmittelfoto erkennbar ist, gib null zurück. Antworte NUR mit reinem JSON ohne Markdown, ohne Backticks: {"foodImageCrop": {"x": number, "y": number, "width": number, "height": number} | null}`;
 
       const isCropCoords = (c: unknown): c is { x: number; y: number; width: number; height: number } =>
         c !== null &&
@@ -2587,6 +2587,7 @@ router.post("/recipes/:id/extract-image-from-source", authMiddleware, async (req
 
       const croppedBuffer = await sharp(foundPageBuffer)
         .extract({ left: cropX, top: cropY, width: cropW, height: cropH })
+        .trim({ threshold: 12 })
         .resize(800, 800, { fit: "inside", withoutEnlargement: true })
         .webp({ quality: 82 })
         .toBuffer();
@@ -2695,7 +2696,7 @@ router.post("/recipes/:id/extract-all-photos-from-source", authMiddleware, async
       const pages: Buffer[] = [];
       for (let i = 1; i <= pdfDoc.numPages; i++) {
         const page = await pdfDoc.getPage(i);
-        const viewport = page.getViewport({ scale: 1.5 });
+        const viewport = page.getViewport({ scale: 2.0 });
         const canvas = createCanvas(Math.ceil(viewport.width), Math.ceil(viewport.height));
         const ctx = canvas.getContext("2d");
         await page.render({ canvasContext: ctx as unknown as Parameters<typeof page.render>[0]["canvasContext"], viewport }).promise;
@@ -2721,7 +2722,7 @@ router.post("/recipes/:id/extract-all-photos-from-source", authMiddleware, async
       imagesToScan = [{ buffer: rawBuffer, mimeType }];
     }
 
-    const FOOD_CROP_SYSTEM_PROMPT = `Du bist ein Bildanalyse-Assistent. Prüfe das Bild: Ist ein verwertbares Lebensmittelfoto erkennbar (Foto des fertigen Gerichts oder der Zutaten, das als Rezeptbild geeignet wäre)? Falls ja, gib die Koordinaten des besten Bildausschnitts als Prozentwerte zurück. Falls kein geeignetes Lebensmittelfoto erkennbar ist, gib null zurück. Antworte NUR mit reinem JSON ohne Markdown, ohne Backticks: {"foodImageCrop": {"x": number, "y": number, "width": number, "height": number} | null}`;
+    const FOOD_CROP_SYSTEM_PROMPT = `Du bist ein Bildanalyse-Assistent für Rezept-Scans. Prüfe das Bild: Ist ein eingebettetes Lebensmittelfoto erkennbar (Foto des fertigen Gerichts oder der Zutaten)? Falls ja, gib die EXAKTEN Koordinaten des eingebetteten Fotos als Prozentwerte zurück. WICHTIG: Erkenne den genauen Bildrand des Fotos und schneide NUR das Foto selbst aus – ohne umliegenden Seitentext, Rezepttext, QR-Codes, Bildunterschriften oder weißen Seitenhintergrund. Die x/y/width/height-Werte sollen eng am tatsächlichen Fotorand enden, kein Leerraum außen. Falls kein Lebensmittelfoto erkennbar ist, gib null zurück. Antworte NUR mit reinem JSON ohne Markdown, ohne Backticks: {"foodImageCrop": {"x": number, "y": number, "width": number, "height": number} | null}`;
 
     const isCropCoords = (c: unknown): c is { x: number; y: number; width: number; height: number } =>
       c !== null &&
@@ -2779,6 +2780,7 @@ router.post("/recipes/:id/extract-all-photos-from-source", authMiddleware, async
 
         const croppedBuffer = await sharp(entry.buffer)
           .extract({ left: cropX, top: cropY, width: cropW, height: cropH })
+          .trim({ threshold: 12 })
           .resize(800, 800, { fit: "inside", withoutEnlargement: true })
           .webp({ quality: 82 })
           .toBuffer();
@@ -2971,7 +2973,7 @@ router.post("/admin/extract-scan-photos", authMiddleware, async (req, res) => {
     const storageService = new ObjectStorageService();
     const sharp = (await import("sharp")).default;
 
-    const FOOD_CROP_SYSTEM_PROMPT = `Du bist ein Bildanalyse-Assistent. Prüfe das Bild: Ist ein verwertbares Lebensmittelfoto erkennbar (Foto des fertigen Gerichts oder der Zutaten, das als Rezeptbild geeignet wäre)? Falls ja, gib die Koordinaten des besten Bildausschnitts als Prozentwerte zurück. Falls kein geeignetes Lebensmittelfoto erkennbar ist, gib null zurück. Antworte NUR mit reinem JSON ohne Markdown, ohne Backticks: {"foodImageCrop": {"x": number, "y": number, "width": number, "height": number} | null}`;
+    const FOOD_CROP_SYSTEM_PROMPT = `Du bist ein Bildanalyse-Assistent für Rezept-Scans. Prüfe das Bild: Ist ein eingebettetes Lebensmittelfoto erkennbar (Foto des fertigen Gerichts oder der Zutaten)? Falls ja, gib die EXAKTEN Koordinaten des eingebetteten Fotos als Prozentwerte zurück. WICHTIG: Erkenne den genauen Bildrand des Fotos und schneide NUR das Foto selbst aus – ohne umliegenden Seitentext, Rezepttext, QR-Codes, Bildunterschriften oder weißen Seitenhintergrund. Die x/y/width/height-Werte sollen eng am tatsächlichen Fotorand enden, kein Leerraum außen. Falls kein Lebensmittelfoto erkennbar ist, gib null zurück. Antworte NUR mit reinem JSON ohne Markdown, ohne Backticks: {"foodImageCrop": {"x": number, "y": number, "width": number, "height": number} | null}`;
 
     const renderPdfToImages = async (pdfBuffer: Buffer): Promise<Buffer[]> => {
       const pdfjsLib = await import("pdfjs-dist/legacy/build/pdf.mjs");
@@ -2982,7 +2984,7 @@ router.post("/admin/extract-scan-photos", authMiddleware, async (req, res) => {
       const pages: Buffer[] = [];
       for (let i = 1; i <= pdfDoc.numPages; i++) {
         const page = await pdfDoc.getPage(i);
-        const viewport = page.getViewport({ scale: 1.5 });
+        const viewport = page.getViewport({ scale: 2.0 });
         const canvas = createCanvas(Math.ceil(viewport.width), Math.ceil(viewport.height));
         const ctx = canvas.getContext("2d");
         await page.render({ canvasContext: ctx as unknown as Parameters<typeof page.render>[0]["canvasContext"], viewport }).promise;
@@ -3108,6 +3110,7 @@ router.post("/admin/extract-scan-photos", authMiddleware, async (req, res) => {
 
         const croppedBuffer = await sharp(foundPageBuffer)
           .extract({ left: cropX, top: cropY, width: cropW, height: cropH })
+          .trim({ threshold: 12 })
           .resize(800, 800, { fit: "inside", withoutEnlargement: true })
           .webp({ quality: 82 })
           .toBuffer();

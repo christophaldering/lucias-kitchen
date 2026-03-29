@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback } from "react";
 import { AdminNeedBox, AdminActionCard } from "@/components/AdminUI";
-import { Loader2, Trash2, Check, RefreshCw, Copy } from "lucide-react";
+import { Loader2, Trash2, RefreshCw, Copy } from "lucide-react";
 import { authFetch, authHeaders } from "@/lib/authFetch";
 
 const API_BASE = "/api";
@@ -34,38 +34,51 @@ const CATEGORY_EMOJIS: Record<string, string> = {
   Fisch: "🐟", Geflügel: "🍗", Fleisch: "🥩", Vegetarisch: "🌿", Pasta: "🍝",
 };
 
-function RecipeCard({ recipe, isKept, onKeep, busy }: {
+function RecipeCard({ recipe, isMarked, canMark, onToggle }: {
   recipe: DuplicateRecipe;
-  isKept: boolean;
-  onKeep: () => void;
-  busy: boolean;
+  isMarked: boolean;
+  canMark: boolean;
+  onToggle: () => void;
 }) {
   const dateLabel = recipe.createdAt
     ? new Date(recipe.createdAt).toLocaleDateString("de-DE", { day: "2-digit", month: "2-digit", year: "numeric" })
     : "–";
 
   return (
-    <div className={`flex flex-col rounded-2xl border-2 p-4 transition-all ${
-      isKept
-        ? "border-[#4A7C59] bg-[#4A7C59]/5 shadow-md"
-        : "border-border bg-white"
-    }`}>
-      <div className="flex items-start gap-2 mb-3">
+    <div
+      onClick={canMark || isMarked ? onToggle : undefined}
+      className={`relative flex flex-col rounded-2xl border-2 p-4 transition-all select-none ${
+        isMarked
+          ? "border-red-500 bg-red-50 shadow-md cursor-pointer"
+          : canMark
+          ? "border-border bg-white hover:border-red-300 hover:bg-red-50/30 cursor-pointer"
+          : "border-border bg-white opacity-60 cursor-not-allowed"
+      }`}
+    >
+      {isMarked && (
+        <div className="absolute inset-0 rounded-2xl bg-red-500/8 flex items-center justify-center pointer-events-none">
+          <Trash2 className="w-10 h-10 text-red-400/40" />
+        </div>
+      )}
+
+      <div className="flex items-start gap-2 mb-3 relative">
         <span className="text-xl flex-shrink-0">{CATEGORY_EMOJIS[recipe.category] ?? "🍽️"}</span>
         <div className="flex-1 min-w-0">
-          <p className="font-serif font-semibold text-sm leading-snug line-clamp-2">{recipe.title}</p>
+          <p className={`font-serif font-semibold text-sm leading-snug line-clamp-2 ${isMarked ? "line-through text-red-700/70" : ""}`}>
+            {recipe.title}
+          </p>
           <span className="inline-block mt-1 text-xs px-2 py-0.5 rounded-full bg-[#4A7C59]/10 text-[#4A7C59] font-medium">
             {recipe.category}
           </span>
         </div>
-        {isKept && (
-          <span className="flex-shrink-0 flex items-center gap-1 text-xs font-semibold text-[#4A7C59] bg-[#4A7C59]/10 px-2 py-1 rounded-full">
-            <Check className="w-3 h-3" /> Behalten
+        {isMarked && (
+          <span className="flex-shrink-0 flex items-center gap-1 text-xs font-semibold text-red-600 bg-red-100 px-2 py-1 rounded-full">
+            <Trash2 className="w-3 h-3" /> Löschen
           </span>
         )}
       </div>
 
-      <div className="space-y-1 text-xs text-muted-foreground mb-4 flex-1">
+      <div className="space-y-1 text-xs text-muted-foreground mb-2 flex-1 relative">
         <div className="flex justify-between">
           <span>Zutaten</span>
           <span className="font-medium text-foreground">{recipe.ingredientCount}</span>
@@ -95,27 +108,24 @@ function RecipeCard({ recipe, isKept, onKeep, busy }: {
         </div>
       </div>
 
-      {!isKept && (
-        <button
-          onClick={onKeep}
-          disabled={busy}
-          className="w-full py-2 px-3 rounded-xl bg-[#4A7C59] text-white text-xs font-semibold hover:bg-[#3d6849] transition-colors disabled:opacity-50 flex items-center justify-center gap-1.5"
-        >
-          <Check className="w-3.5 h-3.5" />
-          Dieses behalten & andere löschen
-        </button>
+      {!isMarked && !canMark && (
+        <p className="text-xs text-center text-muted-foreground mt-1 relative">Letzte Karte — wird behalten</p>
       )}
     </div>
   );
 }
 
 
+function groupKey(group: DuplicateGroup): string {
+  return group.recipes.map((r) => r.id).sort((a, b) => a - b).join(",");
+}
+
 export default function DuplicatesTab() {
   const [groups, setGroups] = useState<DuplicateGroup[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [busyGroup, setBusyGroup] = useState<number | null>(null);
-  const [keptId, setKeptId] = useState<number | null>(null);
+  const [busyGroupKey, setBusyGroupKey] = useState<string | null>(null);
+  const [selectedToDelete, setSelectedToDelete] = useState<Map<string, Set<number>>>(new Map());
   const [totalDeleted, setTotalDeleted] = useState(0);
 
   const fetchDuplicates = useCallback(async () => {
@@ -126,6 +136,7 @@ export default function DuplicatesTab() {
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const data = await res.json();
       setGroups(data.groups ?? []);
+      setSelectedToDelete(new Map());
     } catch {
       setError("Duplikate konnten nicht geladen werden.");
     } finally {
@@ -137,18 +148,32 @@ export default function DuplicatesTab() {
     fetchDuplicates();
   }, [fetchDuplicates]);
 
-  const handleKeep = async (groupIndex: number, keepId: number) => {
-    const group = groups[groupIndex];
-    const toDelete = group.recipes.filter((r) => r.id !== keepId);
+  const toggleMark = (key: string, recipeId: number, totalInGroup: number) => {
+    setSelectedToDelete((prev) => {
+      const next = new Map(prev);
+      const groupSet = new Set(next.get(key) ?? []);
+      if (groupSet.has(recipeId)) {
+        groupSet.delete(recipeId);
+      } else {
+        if (groupSet.size >= totalInGroup - 1) return prev;
+        groupSet.add(recipeId);
+      }
+      next.set(key, groupSet);
+      return next;
+    });
+  };
 
-    setBusyGroup(groupIndex);
-    setKeptId(keepId);
+  const handleDelete = async (key: string) => {
+    const markedIds = Array.from(selectedToDelete.get(key) ?? []);
+    if (markedIds.length === 0) return;
+
+    setBusyGroupKey(key);
     try {
       let deleted = 0;
       let failed = 0;
-      for (const recipe of toDelete) {
+      for (const id of markedIds) {
         try {
-          const res = await authFetch(`${API_BASE}/recipes/${recipe.id}`, {
+          const res = await authFetch(`${API_BASE}/recipes/${id}`, {
             method: "DELETE",
             headers: authHeaders(),
           });
@@ -163,7 +188,12 @@ export default function DuplicatesTab() {
       }
       setTotalDeleted((prev) => prev + deleted);
       if (failed === 0) {
-        setGroups((prev) => prev.filter((_, i) => i !== groupIndex));
+        setGroups((prev) => prev.filter((g) => groupKey(g) !== key));
+        setSelectedToDelete((prev) => {
+          const next = new Map(prev);
+          next.delete(key);
+          return next;
+        });
         toast(`${deleted} Rezept${deleted !== 1 ? "e" : ""} gelöscht`);
       } else if (deleted > 0) {
         await fetchDuplicates();
@@ -174,13 +204,17 @@ export default function DuplicatesTab() {
     } catch {
       toast("Fehler beim Löschen", "err");
     } finally {
-      setBusyGroup(null);
-      setKeptId(null);
+      setBusyGroupKey(null);
     }
   };
 
-  const handleIgnore = (groupIndex: number) => {
-    setGroups((prev) => prev.filter((_, i) => i !== groupIndex));
+  const handleIgnore = (key: string) => {
+    setGroups((prev) => prev.filter((g) => groupKey(g) !== key));
+    setSelectedToDelete((prev) => {
+      const next = new Map(prev);
+      next.delete(key);
+      return next;
+    });
     toast("Gruppe ignoriert");
   };
 
@@ -208,7 +242,7 @@ export default function DuplicatesTab() {
   return (
     <div className="space-y-6">
       <AdminNeedBox>
-        Ich vermute, dass manche Rezepte doppelt vorhanden sind und möchte Ordnung schaffen. Das Programm sucht nach Rezepten mit sehr ähnlichem Titel und zeigt sie paarweise an. Für jedes Paar kannst du entscheiden: <em>behalten</em> (dieses Rezept bleibt, das andere wird gelöscht) oder <em>ignorieren</em> (das Paar wird als kein Duplikat markiert und nicht mehr angezeigt).
+        Ich vermute, dass manche Rezepte doppelt vorhanden sind und möchte Ordnung schaffen. Das Programm sucht nach Rezepten mit sehr ähnlichem Titel und zeigt sie paarweise an. Klicke auf eine Karte, um sie zum Löschen zu markieren – erst ein abschließender Bestätigungs-Button löscht sie wirklich. Du kannst die Markierung auch wieder aufheben. Mindestens eine Karte bleibt immer erhalten.
       </AdminNeedBox>
 
       <AdminActionCard
@@ -245,50 +279,73 @@ export default function DuplicatesTab() {
             </span>
           </div>
 
-          {groups.map((group, groupIndex) => (
-            <div key={groupIndex} className="bg-white rounded-2xl border border-border shadow-sm p-5">
-              <div className="flex items-center justify-between mb-4 flex-wrap gap-2">
-                <div>
-                  <h4 className="font-semibold text-sm text-foreground">
-                    Gruppe {groupIndex + 1}
-                    <span className="ml-2 text-xs text-muted-foreground font-normal">
-                      {group.recipes.length} mögliche Duplikate
-                    </span>
-                  </h4>
-                </div>
-                <button
-                  onClick={() => handleIgnore(groupIndex)}
-                  disabled={busyGroup === groupIndex}
-                  className="text-xs px-3 py-1.5 rounded-xl border border-border text-muted-foreground hover:text-foreground hover:border-foreground/30 transition-colors disabled:opacity-50"
-                >
-                  Kein Duplikat — ignorieren
-                </button>
-              </div>
+          {groups.map((group, groupIndex) => {
+            const key = groupKey(group);
+            const markedSet = selectedToDelete.get(key) ?? new Set<number>();
+            const markedCount = markedSet.size;
+            const isBusy = busyGroupKey === key;
 
-              <div className={`grid gap-3 ${
-                group.recipes.length === 2 ? "grid-cols-1 sm:grid-cols-2" :
-                group.recipes.length === 3 ? "grid-cols-1 sm:grid-cols-3" :
-                "grid-cols-1 sm:grid-cols-2 lg:grid-cols-3"
-              }`}>
-                {group.recipes.map((recipe) => (
-                  <RecipeCard
-                    key={recipe.id}
-                    recipe={recipe}
-                    isKept={busyGroup === groupIndex && keptId === recipe.id}
-                    onKeep={() => handleKeep(groupIndex, recipe.id)}
-                    busy={busyGroup === groupIndex}
-                  />
-                ))}
-              </div>
-
-              {busyGroup === groupIndex && (
-                <div className="mt-3 flex items-center justify-center gap-2 text-sm text-muted-foreground">
-                  <Loader2 className="w-4 h-4 animate-spin" />
-                  Löschen…
+            return (
+              <div key={key} className="bg-white rounded-2xl border border-border shadow-sm p-5">
+                <div className="flex items-center justify-between mb-4 flex-wrap gap-2">
+                  <div>
+                    <h4 className="font-semibold text-sm text-foreground">
+                      Gruppe {groupIndex + 1}
+                      <span className="ml-2 text-xs text-muted-foreground font-normal">
+                        {group.recipes.length} mögliche Duplikate
+                      </span>
+                    </h4>
+                  </div>
+                  <button
+                    onClick={() => handleIgnore(key)}
+                    disabled={isBusy}
+                    className="text-xs px-3 py-1.5 rounded-xl border border-border text-muted-foreground hover:text-foreground hover:border-foreground/30 transition-colors disabled:opacity-50"
+                  >
+                    Kein Duplikat — ignorieren
+                  </button>
                 </div>
-              )}
-            </div>
-          ))}
+
+                <div className={`grid gap-3 ${
+                  group.recipes.length === 2 ? "grid-cols-1 sm:grid-cols-2" :
+                  group.recipes.length === 3 ? "grid-cols-1 sm:grid-cols-3" :
+                  "grid-cols-1 sm:grid-cols-2 lg:grid-cols-3"
+                }`}>
+                  {group.recipes.map((recipe) => {
+                    const isMarked = markedSet.has(recipe.id);
+                    const canMark = !isMarked && markedSet.size < group.recipes.length - 1;
+                    return (
+                      <RecipeCard
+                        key={recipe.id}
+                        recipe={recipe}
+                        isMarked={isMarked}
+                        canMark={canMark}
+                        onToggle={() => toggleMark(key, recipe.id, group.recipes.length)}
+                      />
+                    );
+                  })}
+                </div>
+
+                {markedCount > 0 && (
+                  <div className="mt-4">
+                    {isBusy ? (
+                      <div className="flex items-center justify-center gap-2 text-sm text-muted-foreground py-2">
+                        <Loader2 className="w-4 h-4 animate-spin" />
+                        Löschen…
+                      </div>
+                    ) : (
+                      <button
+                        onClick={() => handleDelete(key)}
+                        className="w-full py-2.5 px-4 rounded-xl bg-red-600 text-white text-sm font-semibold hover:bg-red-700 transition-colors flex items-center justify-center gap-2"
+                      >
+                        <Trash2 className="w-4 h-4" />
+                        {markedCount} {markedCount === 1 ? "Duplikat" : "Duplikate"} löschen
+                      </button>
+                    )}
+                  </div>
+                )}
+              </div>
+            );
+          })}
         </>
       )}
     </div>

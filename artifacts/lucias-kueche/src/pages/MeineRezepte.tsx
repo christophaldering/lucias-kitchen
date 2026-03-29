@@ -424,7 +424,7 @@ const FILTER_LABELS: Record<RecipeFilter, string> = {
 
 export default function MeineRezepte({ onNavigate: _onNavigate, initialOpenRecipeId, onRecipeOpened, initialSortOrder, onSortOrderApplied, refreshToken }: MeineRezepteProps) {
   const [recipeFilter, setRecipeFilter] = useState<RecipeFilter>("all");
-  const { recipes, totalRecipes, loading, error, addRecipes, refetch, patchRecipeSilent, deleteRecipeSilent, deleteRecipe, updateRecipe, toggleFavorite, fetchNextPage, hasNextPage, isFetchingNextPage } = useRecipes(recipeFilter);
+  const { recipes, totalRecipes, loading, error, addRecipes, refetch, patchRecipeSilent, patchRecipeLocal, deleteRecipeSilent, deleteRecipe, updateRecipe, toggleFavorite, fetchNextPage, hasNextPage, isFetchingNextPage } = useRecipes(recipeFilter);
   const fetchNextPageRef = useRef(fetchNextPage);
   const hasNextPageRef = useRef(hasNextPage);
   const isFetchingNextPageRef = useRef(isFetchingNextPage);
@@ -1237,6 +1237,10 @@ export default function MeineRezepte({ onNavigate: _onNavigate, initialOpenRecip
               onDeleteRecipe={deleteRecipe}
               allRecipes={allRecipesForModal}
               onOpenRecipe={(r) => openRecipe(r.id)}
+              onRecipeUpdated={(updated) => {
+                const u = updated as { id: number; imageUrl?: string | null; isAiGenerated?: boolean; imageSource?: string | null };
+                patchRecipeLocal(u.id, { imageUrl: u.imageUrl ?? null, isAiGenerated: u.isAiGenerated ?? false, imageSource: u.imageSource ?? null });
+              }}
               onCreateVariant={(baseRecipe) => {
                 setVariantBaseRecipe(baseRecipe);
                 setSelectedId(null);

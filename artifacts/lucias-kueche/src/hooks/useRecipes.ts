@@ -205,6 +205,22 @@ export function useRecipes(filter: RecipeFilter = "all", options?: { loadAll?: b
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
   }
 
+  function patchRecipeLocal(id: number, patch: Record<string, unknown>) {
+    queryClient.setQueriesData<import("@tanstack/react-query").InfiniteData<RecipePage>>(
+      { queryKey: ["recipes"] },
+      (old) => {
+        if (!old) return old;
+        return {
+          ...old,
+          pages: old.pages.map((page) => ({
+            ...page,
+            recipes: page.recipes.map((r) => (r.id === id ? { ...r, ...patch } : r)),
+          })),
+        };
+      },
+    );
+  }
+
   async function patchRecipe(id: number, patch: Record<string, unknown>) {
     return patchRecipeMutation.mutateAsync({ id, patch });
   }
@@ -243,6 +259,7 @@ export function useRecipes(filter: RecipeFilter = "all", options?: { loadAll?: b
     updateRecipe,
     patchRecipe,
     patchRecipeSilent,
+    patchRecipeLocal,
     deleteRecipe,
     deleteRecipeSilent,
     deleteAllRecipes,

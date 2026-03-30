@@ -517,6 +517,32 @@ export default function MeineRezepte({ onNavigate: _onNavigate, initialOpenRecip
   useEffect(() => { hasNextPageRef.current = hasNextPage; }, [hasNextPage]);
   useEffect(() => { isFetchingNextPageRef.current = isFetchingNextPage; }, [isFetchingNextPage]);
 
+  const loadTrackRef = useRef<{ time: number; count: number } | null>(null);
+  const [loadEstSecs, setLoadEstSecs] = useState<number | null>(null);
+  useEffect(() => {
+    if (hasNextPage && !loading) {
+      const total = totalRecipes ?? recipes.length;
+      const loaded = recipes.length;
+      if (!loadTrackRef.current && loaded > 0) {
+        loadTrackRef.current = { time: Date.now(), count: loaded };
+      }
+      if (loadTrackRef.current) {
+        const elapsed = (Date.now() - loadTrackRef.current.time) / 1000;
+        const loadedSince = loaded - loadTrackRef.current.count;
+        if (elapsed >= 3 && loadedSince > 0) {
+          const rate = loadedSince / elapsed;
+          const remaining = total - loaded;
+          setLoadEstSecs(Math.round(remaining / rate));
+        } else {
+          setLoadEstSecs(null);
+        }
+      }
+    } else {
+      loadTrackRef.current = null;
+      setLoadEstSecs(null);
+    }
+  }, [recipes.length, hasNextPage, loading, totalRecipes]);
+
   const observerRef = useRef<IntersectionObserver | null>(null);
   const sentinelRef = useCallback((node: HTMLDivElement | null) => {
     if (observerRef.current) {
@@ -1085,6 +1111,18 @@ export default function MeineRezepte({ onNavigate: _onNavigate, initialOpenRecip
                         style={{ width: `${pct}%` }}
                       />
                     </div>
+                    {!allLoaded && (
+                      <div className="flex items-center justify-between mt-1">
+                        <span className="text-xs text-[#4A7C59]/60">
+                          {loadEstSecs !== null
+                            ? loadEstSecs < 60
+                              ? `noch ca. ${loadEstSecs} Sek.`
+                              : `noch ca. ${Math.round(loadEstSecs / 60)} Min.`
+                            : "wird berechnet…"}
+                        </span>
+                        <span className="text-xs text-[#4A7C59]/60">{pct}%</span>
+                      </div>
+                    )}
                   </div>
                 );
               })()}

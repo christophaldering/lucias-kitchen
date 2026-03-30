@@ -15,6 +15,7 @@ export const usersTable = pgTable("users", {
   onboardingCompleted: boolean("onboarding_completed").notNull().default(false),
   activeBulkImportSessionId: integer("active_bulk_import_session_id"),
   createdAt: timestamp("created_at").notNull().defaultNow(),
+  lastLoginAt: timestamp("last_login_at"),
 });
 
 export const insertUserSchema = createInsertSchema(usersTable).omit({ id: true, createdAt: true });

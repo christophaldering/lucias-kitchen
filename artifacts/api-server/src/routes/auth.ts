@@ -149,13 +149,19 @@ router.post("/auth/login", async (req, res) => {
       return;
     }
 
+    const [updatedUser] = await db
+      .update(usersTable)
+      .set({ lastLoginAt: new Date() })
+      .where(eq(usersTable.id, user.id))
+      .returning();
+
     const token = jwt.sign(
       { id: user.id, email: user.email, displayName: user.displayName },
       JWT_SECRET,
       { expiresIn: "30d" }
     );
 
-    res.json({ token, user: sanitizeUser(user) });
+    res.json({ token, user: sanitizeUser(updatedUser ?? user) });
   } catch (err) {
     if (err instanceof z.ZodError) {
       res.status(400).json({ error: "validation_error", issues: err.issues });

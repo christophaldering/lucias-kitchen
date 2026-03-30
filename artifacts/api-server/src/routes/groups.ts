@@ -310,6 +310,7 @@ router.get("/groups/:id/members", authMiddleware, async (req, res) => {
         displayName: usersTable.displayName,
         email: usersTable.email,
         avatarUrl: usersTable.avatarUrl,
+        lastLoginAt: usersTable.lastLoginAt,
       })
       .from(groupMembersTable)
       .leftJoin(usersTable, eq(groupMembersTable.userId, usersTable.id))

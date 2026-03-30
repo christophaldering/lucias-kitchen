@@ -120,6 +120,13 @@
       "when": 1774875188401,
       "tag": "0019_add_photo_thumbnail_url",
       "breakpoints": true
+    },
+    {
+      "idx": 17,
+      "version": "7",
+      "when": 1774876787215,
+      "tag": "0017_add_last_login_at",
+      "breakpoints": true
     }
   ]
 }

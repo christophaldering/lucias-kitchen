@@ -347,11 +347,25 @@ export default function GroupMembersModal({ group, onClose, isOwner }: Props) {
                       </div>
                       <div className="flex items-center gap-1.5 flex-shrink-0">
                         {m.role === "owner" ? (
-                          <span className="text-xs px-2 py-0.5 rounded-full bg-[#4A7C59]/10 text-[#4A7C59] font-medium">Eigentümer</span>
+                          <div className="flex flex-col items-end gap-0.5">
+                            <span className="text-xs px-2 py-0.5 rounded-full bg-[#4A7C59]/10 text-[#4A7C59] font-medium">Eigentümer</span>
+                            {m.lastLoginAt ? (
+                              <span className="text-xs text-muted-foreground px-1">Zuletzt angemeldet: {formatDate(m.lastLoginAt)}</span>
+                            ) : (
+                              <span className="text-xs text-muted-foreground px-1">Noch kein Login</span>
+                            )}
+                          </div>
                         ) : m.memberStatus === "joined" ? (
-                          <span className="flex items-center gap-1 text-xs px-2 py-0.5 rounded-full bg-[#4A7C59]/10 text-[#4A7C59] font-medium">
-                            <CheckCircle2 className="w-3 h-3" /> Angenommen
-                          </span>
+                          <div className="flex flex-col items-end gap-0.5">
+                            <span className="flex items-center gap-1 text-xs px-2 py-0.5 rounded-full bg-[#4A7C59]/10 text-[#4A7C59] font-medium">
+                              <CheckCircle2 className="w-3 h-3" /> Angenommen
+                            </span>
+                            {m.lastLoginAt ? (
+                              <span className="text-xs text-muted-foreground px-1">Zuletzt angemeldet: {formatDate(m.lastLoginAt)}</span>
+                            ) : (
+                              <span className="text-xs text-muted-foreground px-1">Noch kein Login</span>
+                            )}
+                          </div>
                         ) : (
                           <span className="flex items-center gap-1 text-xs px-2 py-0.5 rounded-full bg-amber-100 text-amber-700 font-medium">
                             <Clock className="w-3 h-3" /> Ausstehend

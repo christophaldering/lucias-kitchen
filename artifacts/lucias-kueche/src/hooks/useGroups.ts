@@ -33,6 +33,7 @@ export interface GroupMember {
   displayName: string | null;
   email: string | null;
   avatarUrl: string | null;
+  lastLoginAt: string | null;
 }
 
 function authHeaders(): Record<string, string> {

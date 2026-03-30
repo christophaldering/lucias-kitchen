@@ -1,17 +1,31 @@
 /**
  * Applies an escalating trim to remove uniform-color borders from an image.
- * Starts with threshold 20 and escalates through 40, 60, 80.
- * Stops as soon as the image dimensions stop shrinking (stable result).
- * Falls back gracefully if any trim step fails.
+ *
+ * Algorithm:
+ * 1. Apply trim(12) as the safe baseline (same as the old single-pass value).
+ * 2. Try trim(20) on the baseline; if the image shrinks, keep escalating
+ *    through 40 → 60 → 80, stopping as soon as dimensions stabilize.
+ * 3. If trim(20) makes no difference, return the trim(12) result.
+ *
+ * This removes cream-white, light-gray, and off-white book-paper margins that
+ * threshold 12 alone cannot detect, without incurring any extra AI cost.
  */
 export async function escalatingTrim(buffer: Buffer): Promise<Buffer> {
   const sharp = (await import("sharp")).default;
 
+  // Baseline: trim(12) — always applied, mirrors the old behaviour
   let current = buffer;
-  const initialMeta = await sharp(current).metadata();
-  let currentWidth = initialMeta.width ?? 0;
-  let currentHeight = initialMeta.height ?? 0;
+  try {
+    current = await sharp(buffer).trim({ threshold: 12 }).toBuffer();
+  } catch {
+    // keep original if trim fails for any reason
+  }
 
+  const baselineMeta = await sharp(current).metadata();
+  let currentWidth = baselineMeta.width ?? 0;
+  let currentHeight = baselineMeta.height ?? 0;
+
+  // Escalation: 20 → 40 → 60 → 80, stop when stable
   for (const threshold of [20, 40, 60, 80]) {
     let trimmed: Buffer;
     try {

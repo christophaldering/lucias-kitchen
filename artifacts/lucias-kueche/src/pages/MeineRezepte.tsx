@@ -135,10 +135,26 @@ function RecipeCardImage({
   const [loaded, setLoaded] = useState(false);
 
   const thumbUrl = recipe.mainPhotoThumbnailUrl ?? null;
-  const fullUrl = recipe.mainPhotoUrl ?? recipe.imageUrl ?? null;
-  const displayUrl = thumbUrl ?? fullUrl;
+  const mainUrl = recipe.mainPhotoUrl ?? null;
+  const recipeUrl = recipe.imageUrl ?? null;
 
-  if (!displayUrl) {
+  const urlChain = Array.from(new Set(
+    [thumbUrl, mainUrl, recipeUrl].filter((u): u is string => u != null)
+  ));
+
+  const [urlIndex, setUrlIndex] = useState(0);
+  const [failed, setFailed] = useState(false);
+  const currentUrl = urlChain[urlIndex] ?? null;
+
+  const handleError = () => {
+    if (urlIndex + 1 < urlChain.length) {
+      setUrlIndex(urlIndex + 1);
+    } else {
+      setFailed(true);
+    }
+  };
+
+  if (!currentUrl || failed) {
     return (
       <div
         className="absolute inset-0 flex items-center justify-center text-6xl"
@@ -162,11 +178,12 @@ function RecipeCardImage({
         />
       )}
       <img
-        src={displayUrl}
+        src={currentUrl}
         alt={recipe.title}
         loading="lazy"
         decoding="async"
         onLoad={() => setLoaded(true)}
+        onError={handleError}
         className="absolute inset-0 w-full h-full object-cover transition-transform duration-300"
         style={{
           transform: hovered ? "scale(1.04)" : "scale(1)",

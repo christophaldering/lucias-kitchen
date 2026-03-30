@@ -2,12 +2,24 @@ import { useState, useRef, useCallback, useEffect } from "react";
 import { Loader2, X, CheckCircle, AlertCircle, ExternalLink } from "lucide-react";
 import { useImportStatusContext } from "@/contexts/ImportStatusContext";
 
+function formatTimeRemaining(seconds: number): string {
+  if (seconds < 60) {
+    return `noch ca. ${seconds} Sek.`;
+  }
+  const mins = Math.floor(seconds / 60);
+  const secs = seconds % 60;
+  if (secs === 0) {
+    return `noch ca. ${mins} Min.`;
+  }
+  return `noch ca. ${mins} Min. ${secs} Sek.`;
+}
+
 interface BulkImportProgressBarProps {
   onNavigateToImport: () => void;
 }
 
 export function BulkImportProgressBar({ onNavigateToImport }: BulkImportProgressBarProps) {
-  const { session, isActive, percent } = useImportStatusContext();
+  const { session, isActive, percent, estimatedSecondsRemaining } = useImportStatusContext();
   const [dismissed, setDismissed] = useState(false);
   const lastSessionIdRef = useRef<number | null>(null);
 
@@ -121,7 +133,14 @@ export function BulkImportProgressBar({ onNavigateToImport }: BulkImportProgress
             style={{ width: `${percent}%` }}
           />
         </div>
-        <p className="text-xs text-green-400 mt-1 text-right">{percent}%</p>
+        <div className="flex items-center justify-between mt-1">
+          <p className="text-xs text-green-400">
+            {estimatedSecondsRemaining !== null
+              ? formatTimeRemaining(estimatedSecondsRemaining)
+              : "wird berechnet…"}
+          </p>
+          <p className="text-xs text-green-400">{percent}%</p>
+        </div>
       </div>
     </div>
   );

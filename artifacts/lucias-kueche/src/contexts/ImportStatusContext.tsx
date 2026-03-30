@@ -5,12 +5,14 @@ interface ImportStatusContextValue {
   session: ImportSession | null;
   isActive: boolean;
   percent: number;
+  estimatedSecondsRemaining: number | null;
 }
 
 const ImportStatusContext = createContext<ImportStatusContextValue>({
   session: null,
   isActive: false,
   percent: 0,
+  estimatedSecondsRemaining: null,
 });
 
 interface ImportStatusProviderProps {

@@ -21,16 +21,20 @@ export interface UseImportStatusResult {
   session: ImportSession | null;
   isActive: boolean;
   percent: number;
+  estimatedSecondsRemaining: number | null;
 }
 
 export function useImportStatus(options?: UseImportStatusOptions): UseImportStatusResult {
   const { onImportDone } = options ?? {};
   const [session, setSession] = useState<ImportSession | null>(null);
+  const [estimatedSecondsRemaining, setEstimatedSecondsRemaining] = useState<number | null>(null);
   const pollingRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const lastSessionIdRef = useRef<number | null>(null);
   const doneTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const onImportDoneRef = useRef(onImportDone);
   useEffect(() => { onImportDoneRef.current = onImportDone; }, [onImportDone]);
+
+  const trackingRef = useRef<{ startTime: number; startProcessed: number } | null>(null);
 
   const completionStateRef = useRef<"none" | "success" | "failed">("none");
 
@@ -54,8 +58,29 @@ export function useImportStatus(options?: UseImportStatusOptions): UseImportStat
       const data = await res.json() as ImportSession;
       setSession(data);
 
+      if (data.status === "processing" || data.status === "pending") {
+        const now = Date.now();
+        if (!trackingRef.current) {
+          trackingRef.current = { startTime: now, startProcessed: data.processedFiles };
+          setEstimatedSecondsRemaining(null);
+        } else {
+          const elapsedSeconds = (now - trackingRef.current.startTime) / 1000;
+          const filesProcessedSinceStart = data.processedFiles - trackingRef.current.startProcessed;
+          const filesRemaining = data.totalFiles - data.processedFiles;
+          if (elapsedSeconds >= 5 && filesProcessedSinceStart > 0) {
+            const rate = filesProcessedSinceStart / elapsedSeconds;
+            const remaining = filesRemaining / rate;
+            setEstimatedSecondsRemaining(Math.round(remaining));
+          } else {
+            setEstimatedSecondsRemaining(null);
+          }
+        }
+      }
+
       if (data.status === "done") {
         stopPolling();
+        setEstimatedSecondsRemaining(null);
+        trackingRef.current = null;
         completionStateRef.current = "success";
         onImportDoneRef.current?.();
         doneTimerRef.current = setTimeout(() => {
@@ -65,6 +90,8 @@ export function useImportStatus(options?: UseImportStatusOptions): UseImportStat
         }, 10000);
       } else if (data.status === "failed") {
         stopPolling();
+        setEstimatedSecondsRemaining(null);
+        trackingRef.current = null;
         completionStateRef.current = "failed";
         doneTimerRef.current = setTimeout(() => {
           completionStateRef.current = "none";
@@ -97,6 +124,8 @@ export function useImportStatus(options?: UseImportStatusOptions): UseImportStat
       if (lastSessionIdRef.current !== data.id) {
         lastSessionIdRef.current = data.id;
         completionStateRef.current = "none";
+        trackingRef.current = null;
+        setEstimatedSecondsRemaining(null);
         if (doneTimerRef.current) {
           clearTimeout(doneTimerRef.current);
           doneTimerRef.current = null;
@@ -124,5 +153,5 @@ export function useImportStatus(options?: UseImportStatusOptions): UseImportStat
     ? Math.round((session.processedFiles / session.totalFiles) * 100)
     : 0;
 
-  return { session, isActive, percent };
+  return { session, isActive, percent, estimatedSecondsRemaining };
 }

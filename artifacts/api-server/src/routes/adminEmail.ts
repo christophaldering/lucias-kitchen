@@ -42,6 +42,7 @@ router.get("/admin/email-config", authMiddleware, async (req, res) => {
     const hasPassword = hasDbPassword || hasEnvPassword;
     const appUrl = (await getSetting("app_url")) ?? null;
     const defaultAppUrl = (() => {
+      if (process.env["APP_URL"]) return process.env["APP_URL"].replace(/\/$/, "");
       const domain = process.env["REPLIT_DOMAINS"]?.split(",")[0] || process.env["REPLIT_DEV_DOMAIN"];
       return domain ? `https://${domain}` : null;
     })();

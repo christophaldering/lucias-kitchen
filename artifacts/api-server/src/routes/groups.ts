@@ -29,6 +29,7 @@ async function getAppBaseUrl(): Promise<string> {
   } catch {
     // fall through
   }
+  if (process.env["APP_URL"]) return process.env["APP_URL"].replace(/\/$/, "");
   const domain = process.env["REPLIT_DOMAINS"]?.split(",")[0] || process.env["REPLIT_DEV_DOMAIN"];
   if (domain) return `https://${domain}`;
   return "http://localhost:5173";

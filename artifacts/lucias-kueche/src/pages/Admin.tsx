@@ -947,6 +947,42 @@ function AppSettings() {
   const [showNotes, setShowNotes] = useLocalStorage<boolean>("lk_showNotes", true);
   const [showCookCount, setShowCookCount] = useLocalStorage<boolean>("lk_showCookCount", true);
 
+  const [appUrlData, setAppUrlData] = useState<{ appUrl: string | null; defaultAppUrl: string | null } | null>(null);
+  const [appUrlInput, setAppUrlInput] = useState("");
+  const [savingAppUrl, setSavingAppUrl] = useState(false);
+
+  const loadAppUrl = useCallback(async () => {
+    try {
+      const res = await fetch("/api/admin/email-config", { headers: authHeaders() });
+      if (res.ok) {
+        const data = await res.json();
+        setAppUrlData({ appUrl: data.appUrl, defaultAppUrl: data.defaultAppUrl });
+        setAppUrlInput(data.appUrl ?? "");
+      }
+    } catch { }
+  }, []);
+
+  useEffect(() => { loadAppUrl(); }, [loadAppUrl]);
+
+  const handleSaveAppUrl = async () => {
+    if (!appUrlInput.trim()) return;
+    setSavingAppUrl(true);
+    try {
+      const res = await fetch("/api/admin/email-config", {
+        method: "POST",
+        headers: { ...authHeaders(), "Content-Type": "application/json" },
+        body: JSON.stringify({ appUrl: appUrlInput.trim() }),
+      });
+      if (!res.ok) throw new Error("Speichern fehlgeschlagen");
+      toast("App-URL gespeichert ✓");
+      await loadAppUrl();
+    } catch (err) {
+      toast(err instanceof Error ? err.message : "Fehler beim Speichern", "err");
+    } finally {
+      setSavingAppUrl(false);
+    }
+  };
+
   const Toggle = ({ value, onChange, label }: { value: boolean; onChange: (v: boolean) => void; label: string }) => (
     <div className="flex items-center justify-between py-3 border-b border-border/50 last:border-0">
       <span className="text-sm font-medium text-foreground">{label}</span>
@@ -962,6 +998,47 @@ function AppSettings() {
       <AdminNeedBox>
         Ich möchte grundlegende Einstellungen der App anpassen, damit sie zu meiner Arbeitsweise passt.
       </AdminNeedBox>
+
+      <AdminActionCard
+        title="🔗 App-URL (Produktions-URL)"
+        description="Die öffentliche URL der App, die in Einladungs- und Erinnerungsmails verwendet wird. Ohne diese Einstellung zeigen Links auf die Entwicklungsumgebung."
+      >
+        {appUrlData && !appUrlData.appUrl && (
+          <div className="flex items-start gap-2 p-3 rounded-xl bg-amber-50 border border-amber-200 text-amber-800 text-sm mb-4">
+            <AlertTriangle className="w-4 h-4 mt-0.5 flex-shrink-0" />
+            <span><strong>Keine feste URL in der Datenbank gespeichert</strong> – Einladungslinks verwenden aktuell die automatisch erkannte URL ({appUrlData.defaultAppUrl ?? "unbekannt"}). Für stabile Links bitte die öffentliche Produktions-URL eintragen.</span>
+          </div>
+        )}
+        {appUrlData?.appUrl && (
+          <div className="flex items-center gap-2 p-3 rounded-xl bg-[#4A7C59]/10 text-[#4A7C59] text-sm mb-4">
+            <CheckCircle className="w-4 h-4 flex-shrink-0" />
+            <span>Aktuelle URL: <strong className="break-all">{appUrlData.appUrl}</strong></span>
+          </div>
+        )}
+        <div className="space-y-3">
+          <input
+            type="url"
+            value={appUrlInput}
+            onChange={(e) => setAppUrlInput(e.target.value)}
+            placeholder="z.B. https://lucias-kueche.replit.app"
+            className="w-full px-3 py-2.5 rounded-xl border border-border bg-white text-sm focus:outline-none focus:ring-2 focus:ring-[#4A7C59]/30"
+          />
+          <p className="text-xs text-muted-foreground">
+            Die stabile URL der veröffentlichten App – ohne abschließenden Schrägstrich.
+            {appUrlData?.defaultAppUrl && !appUrlData.appUrl && (
+              <> Erkannter Wert (Entwicklungsumgebung): <em>{appUrlData.defaultAppUrl}</em></>
+            )}
+          </p>
+          <button
+            onClick={handleSaveAppUrl}
+            disabled={savingAppUrl || !appUrlInput.trim()}
+            className="flex items-center gap-2 px-4 py-2 bg-[#4A7C59] text-white rounded-xl text-sm font-semibold hover:bg-[#3d6849] transition-colors disabled:opacity-50"
+          >
+            {savingAppUrl ? <Loader2 className="w-4 h-4 animate-spin" /> : <Check className="w-4 h-4" />}
+            URL speichern
+          </button>
+        </div>
+      </AdminActionCard>
 
       <AdminActionCard
         title="🖥️ Ansicht beim Starten"

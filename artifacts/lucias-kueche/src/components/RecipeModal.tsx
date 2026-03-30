@@ -750,24 +750,6 @@ function RecipeModalInner({ recipe, onClose, onAddToWeek, onToggleFavorite, onRe
                 </div>
               )}
 
-              {!isOwner && onToggleFavorite && (
-                <div className="flex flex-col items-center gap-0.5">
-                  <button
-                    onClick={handleToggleFavorite}
-                    disabled={favLoading}
-                    className={`flex items-center gap-2 px-4 py-2.5 rounded-xl text-sm font-semibold transition-colors disabled:opacity-60 ${
-                      isFavorite
-                        ? "bg-amber-500 text-white hover:bg-amber-600"
-                        : "border border-border text-foreground hover:bg-secondary"
-                    }`}
-                  >
-                    <Star className={`w-4 h-4 ${isFavorite ? "fill-white" : ""}`} />
-                    {isFavorite ? "Gemerkt ✓" : "⭐ Merken"}
-                  </button>
-                  <span className="text-xs text-muted-foreground text-center leading-tight">Rezept für später merken</span>
-                </div>
-              )}
-
               {onAddToWeek && (
                 <div className="flex flex-col items-center gap-0.5">
                   <button
@@ -790,6 +772,24 @@ function RecipeModalInner({ recipe, onClose, onAddToWeek, onToggleFavorite, onRe
                 </button>
                 <span className="text-xs text-muted-foreground text-center leading-tight">An Familienmitglied teilen</span>
               </div>
+
+              {!isOwner && onToggleFavorite && (
+                <div className="flex flex-col items-center gap-0.5">
+                  <button
+                    onClick={handleToggleFavorite}
+                    disabled={favLoading}
+                    className={`flex items-center gap-2 px-4 py-2.5 rounded-xl text-sm font-semibold transition-colors disabled:opacity-60 ${
+                      isFavorite
+                        ? "bg-amber-500 text-white hover:bg-amber-600"
+                        : "border border-border text-foreground hover:bg-secondary"
+                    }`}
+                  >
+                    <Star className={`w-4 h-4 ${isFavorite ? "fill-white" : ""}`} />
+                    {isFavorite ? "Gemerkt ✓" : "⭐ Merken"}
+                  </button>
+                  <span className="text-xs text-muted-foreground text-center leading-tight">Rezept für später merken</span>
+                </div>
+              )}
             </div>
 
             {/* Trennlinie: Verwaltung */}
@@ -944,12 +944,15 @@ function RecipeModalInner({ recipe, onClose, onAddToWeek, onToggleFavorite, onRe
                 </>
               )}
 
-              <button
-                onClick={onClose}
-                className="px-4 py-2.5 border border-border rounded-xl text-sm font-medium hover:bg-secondary transition-colors"
-              >
-                Schließen
-              </button>
+              <div className="flex flex-col items-center gap-0.5">
+                <button
+                  onClick={onClose}
+                  className="px-4 py-2.5 border border-border rounded-xl text-sm font-medium hover:bg-secondary transition-colors"
+                >
+                  Schließen
+                </button>
+                <span className="text-xs text-muted-foreground text-center leading-tight">Fenster ohne Änderungen schließen</span>
+              </div>
             </div>
           </div>
 

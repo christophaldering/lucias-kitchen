@@ -11,7 +11,7 @@ import fs from "fs";
 import { createHash, randomUUID } from "crypto";
 import { generateTagsForRecipe } from "../lib/generateRecipeTags";
 import { openai } from "@workspace/integrations-openai-ai-server";
-import { escalatingTrim } from "../lib/imageUtils";
+import { escalatingTrim, generateThumbnail } from "../lib/imageUtils";
 
 const ADMIN_EMAIL = "lucia.aldering@googlemail.com";
 function isAdmin(email: string) {
@@ -170,6 +170,14 @@ async function getRecipesWithIngredients(currentUserId?: number, filter?: string
         ORDER BY rpl.sort_order, p.created_at DESC
         LIMIT 1
       ) AS "mainPhotoUrl",
+      (
+        SELECT p.thumbnail_url
+        FROM recipe_photo_links rpl
+        INNER JOIN photos p ON p.id = rpl.photo_id
+        WHERE rpl.recipe_id = r.id AND rpl.is_main = true
+        ORDER BY rpl.sort_order, p.created_at DESC
+        LIMIT 1
+      ) AS "mainPhotoThumbnailUrl",
       COALESCE(
         json_agg(
           json_build_object(
@@ -214,6 +222,7 @@ async function getRecipesWithIngredients(currentUserId?: number, filter?: string
     hasSteps: boolean;
     imageUrl: string | null;
     mainPhotoUrl: string | null;
+    mainPhotoThumbnailUrl: string | null;
     createdAt: Date | string | null;
     seasons: string[] | null;
     tags: string[] | null;
@@ -250,6 +259,7 @@ async function getRecipesWithIngredients(currentUserId?: number, filter?: string
     hasSteps: r.hasSteps ?? false,
     imageUrl: sanitizeImageUrl(r.imageUrl),
     mainPhotoUrl: r.mainPhotoUrl ?? null,
+    mainPhotoThumbnailUrl: r.mainPhotoThumbnailUrl ?? null,
     createdAt: r.createdAt,
     seasons: r.seasons ?? [],
     tags: r.tags ?? [],
@@ -1749,9 +1759,12 @@ router.post("/recipes/:id/photos", singleImageUploadMiddleware, async (req, res)
     const imageUrl = `/api/uploads/${req.file.filename}`;
     const uploadedBy = req.authUser?.id ?? null;
 
+    const thumbFilename = await generateThumbnail(req.file.path, UPLOADS_DIR);
+    const thumbnailUrl = thumbFilename ? `/api/uploads/${thumbFilename}` : null;
+
     const [photo] = await db
       .insert(photosTable)
-      .values({ imageUrl, uploadedBy, source: "cooked" })
+      .values({ imageUrl, thumbnailUrl, uploadedBy, source: "cooked" })
       .returning();
 
     const [link] = await db
@@ -1783,6 +1796,7 @@ router.post("/recipes/:id/photos", singleImageUploadMiddleware, async (req, res)
     res.status(201).json({
       id: photo.id,
       imageUrl: photo.imageUrl,
+      thumbnailUrl: photo.thumbnailUrl,
       caption: photo.caption,
       uploadedBy: photo.uploadedBy,
       source: photo.source,

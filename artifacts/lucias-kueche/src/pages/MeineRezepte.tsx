@@ -124,6 +124,60 @@ function OwnerBadge({ recipe }: { recipe: Recipe }) {
   );
 }
 
+function RecipeCardImage({
+  recipe,
+  hovered,
+}: {
+  recipe: Recipe;
+  hovered: boolean;
+}) {
+  const emoji = CATEGORY_EMOJIS[recipe.category] ?? "🍽️";
+  const [loaded, setLoaded] = useState(false);
+
+  const thumbUrl = recipe.mainPhotoThumbnailUrl ?? null;
+  const fullUrl = recipe.mainPhotoUrl ?? recipe.imageUrl ?? null;
+  const displayUrl = thumbUrl ?? fullUrl;
+
+  if (!displayUrl) {
+    return (
+      <div
+        className="absolute inset-0 flex items-center justify-center text-6xl"
+        style={{ background: "linear-gradient(135deg, #f5ede0, #f0e0c8)" }}
+      >
+        {emoji}
+      </div>
+    );
+  }
+
+  return (
+    <>
+      {!loaded && (
+        <div
+          className="absolute inset-0"
+          style={{
+            background: "linear-gradient(90deg, #f0e8dd 25%, #f8f2ec 50%, #f0e8dd 75%)",
+            backgroundSize: "200% 100%",
+            animation: "shimmer 1.5s infinite",
+          }}
+        />
+      )}
+      <img
+        src={displayUrl}
+        alt={recipe.title}
+        loading="lazy"
+        decoding="async"
+        onLoad={() => setLoaded(true)}
+        className="absolute inset-0 w-full h-full object-cover transition-transform duration-300"
+        style={{
+          transform: hovered ? "scale(1.04)" : "scale(1)",
+          opacity: loaded ? 1 : 0,
+          transition: "opacity 0.3s ease, transform 0.3s ease",
+        }}
+      />
+    </>
+  );
+}
+
 function RecipeCard({
   recipe,
   onClick,
@@ -170,27 +224,7 @@ function RecipeCard({
     >
       {/* 4:3 image area */}
       <div className="relative w-full overflow-hidden" style={{ paddingTop: "75%" }}>
-        {(() => {
-          const displayUrl = recipe.mainPhotoUrl ?? recipe.imageUrl ?? null;
-          if (displayUrl) {
-            return (
-              <img
-                src={displayUrl}
-                alt={recipe.title}
-                className="absolute inset-0 w-full h-full object-cover transition-transform duration-300"
-                style={{ transform: hovered ? "scale(1.04)" : "scale(1)" }}
-              />
-            );
-          }
-          return (
-            <div
-              className="absolute inset-0 flex items-center justify-center text-6xl"
-              style={{ background: "linear-gradient(135deg, #f5ede0, #f0e0c8)" }}
-            >
-              {emoji}
-            </div>
-          );
-        })()}
+        <RecipeCardImage recipe={recipe} hovered={hovered} />
 
         {/* Category badge overlay */}
         <div className="absolute top-2.5 left-2.5">

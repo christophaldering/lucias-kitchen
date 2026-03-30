@@ -1,5 +1,6 @@
 import { Router, type IRouter } from "express";
 import { imageUpload, handleImageUploadError, UPLOADS_DIR } from "../lib/imageUpload";
+import { generateThumbnail } from "../lib/imageUtils";
 import path from "path";
 import fs from "fs";
 import { randomUUID } from "crypto";
@@ -26,6 +27,9 @@ function singleImageUploadMiddlewareWithWebP(req: Request, res: Response, next: 
       req.file.filename = webpFilename;
       req.file.path = webpPath;
       req.file.mimetype = "image/webp";
+
+      const thumbFilename = await generateThumbnail(webpPath, UPLOADS_DIR);
+      (req as Request & { thumbnailFilename?: string | null }).thumbnailFilename = thumbFilename;
     } catch {
     }
 
@@ -39,7 +43,9 @@ router.post("/upload-image", singleImageUploadMiddlewareWithWebP, (req, res) => 
     return;
   }
   const imageUrl = `/api/uploads/${req.file.filename}`;
-  res.json({ imageUrl });
+  const thumbFilename = (req as Request & { thumbnailFilename?: string | null }).thumbnailFilename;
+  const thumbnailUrl = thumbFilename ? `/api/uploads/${thumbFilename}` : null;
+  res.json({ imageUrl, thumbnailUrl });
 });
 
 export default router;

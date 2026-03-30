@@ -11,6 +11,7 @@ export const PHOTO_SOURCE_LABELS: Record<PhotoSource, string> = {
 export interface RecipePhoto {
   id: number;
   imageUrl: string;
+  thumbnailUrl?: string | null;
   caption: string | null;
   uploadedBy: number | null;
   source: PhotoSource | null;
@@ -87,6 +88,7 @@ export interface Recipe {
   ingredients: RecipeIngredient[];
   imageUrl?: string | null;
   mainPhotoUrl?: string | null;
+  mainPhotoThumbnailUrl?: string | null;
   createdAt?: string | null;
   seasons?: Season[] | null;
   tags?: string[] | null;

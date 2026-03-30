@@ -113,6 +113,13 @@
       "when": 1774800000000,
       "tag": "0018_recipe_performance_indexes",
       "breakpoints": true
+    },
+    {
+      "idx": 16,
+      "version": "7",
+      "when": 1774875188401,
+      "tag": "0019_add_photo_thumbnail_url",
+      "breakpoints": true
     }
   ]
 }

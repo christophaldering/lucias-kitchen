@@ -1,3 +1,54 @@
+import path from "path";
+import { randomUUID } from "crypto";
+
+export const THUMBNAIL_WIDTH = 400;
+
+/**
+ * Generates a 400px-wide WebP thumbnail from a local file path.
+ * Returns the thumbnail filename (basename only) on success, null on failure.
+ */
+export async function generateThumbnail(
+  sourcePath: string,
+  uploadsDir: string,
+): Promise<string | null> {
+  try {
+    const sharp = (await import("sharp")).default;
+    const thumbFilename = `${randomUUID()}_thumb.webp`;
+    const thumbPath = path.join(uploadsDir, thumbFilename);
+    await sharp(sourcePath)
+      .rotate()
+      .resize({ width: THUMBNAIL_WIDTH, withoutEnlargement: true })
+      .webp({ quality: 75 })
+      .toFile(thumbPath);
+    return thumbFilename;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Generates a 400px-wide WebP thumbnail from a Buffer.
+ * Returns the thumbnail filename (basename only) on success, null on failure.
+ */
+export async function generateThumbnailFromBuffer(
+  buffer: Buffer,
+  uploadsDir: string,
+): Promise<string | null> {
+  try {
+    const sharp = (await import("sharp")).default;
+    const thumbFilename = `${randomUUID()}_thumb.webp`;
+    const thumbPath = path.join(uploadsDir, thumbFilename);
+    await sharp(buffer)
+      .rotate()
+      .resize({ width: THUMBNAIL_WIDTH, withoutEnlargement: true })
+      .webp({ quality: 75 })
+      .toFile(thumbPath);
+    return thumbFilename;
+  } catch {
+    return null;
+  }
+}
+
 /**
  * Applies an escalating trim to remove uniform-color borders from an image.
  *

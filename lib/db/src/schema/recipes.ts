@@ -80,6 +80,7 @@ export const photoSourceEnum = pgEnum("photo_source", ["original", "upload", "ai
 export const photosTable = pgTable("photos", {
   id: serial("id").primaryKey(),
   imageUrl: text("image_url").notNull(),
+  thumbnailUrl: text("thumbnail_url"),
   uploadedBy: integer("uploaded_by").references(() => usersTable.id, { onDelete: "set null" }),
   caption: text("caption"),
   source: photoSourceEnum("source"),

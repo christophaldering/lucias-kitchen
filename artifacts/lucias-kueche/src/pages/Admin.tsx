@@ -4,7 +4,7 @@ import {
   Loader2, Trash2, Edit2, Download, Tag, RefreshCw,
   Upload, Check, AlertTriangle, Settings, Database, Sliders,
   X, Plus, ChevronsUpDown, Users, CheckCircle, XCircle, Clock, FolderOpen, Copy, RotateCcw, RotateCw, Images,
-  Mail, Eye, EyeOff, Send, ShieldCheck, ShieldAlert
+  Mail, Eye, EyeOff, Send, ShieldCheck, ShieldAlert, ChevronLeft, Camera
 } from "lucide-react";
 import { AdminNeedBox, AdminActionCard } from "@/components/AdminUI";
 import { useRecipes } from "@/hooks/useRecipes";
@@ -2767,37 +2767,244 @@ function BatchExtractionTab() {
   );
 }
 
+type AdminBadges = {
+  duplicates: number | null;
+  trash: number | null;
+  missingImages: number | null;
+};
+
+function useAdminBadges(): { badges: AdminBadges; refresh: () => void } {
+  const [badges, setBadges] = useState<AdminBadges>({ duplicates: null, trash: null, missingImages: null });
+
+  const fetchBadges = useCallback(async () => {
+    try {
+      const [dupRes, trashRes, imgRes] = await Promise.allSettled([
+        fetch("/api/recipes/duplicates", { headers: authHeaders() }),
+        fetch("/api/recipes/trash", { headers: authHeaders() }),
+        fetch("/api/admin/recipes-without-images", { headers: authHeaders() }),
+      ]);
+
+      let duplicates: number | null = null;
+      let trash: number | null = null;
+      let missingImages: number | null = null;
+
+      if (dupRes.status === "fulfilled" && dupRes.value.ok) {
+        const data = await dupRes.value.json();
+        duplicates = Array.isArray(data) ? data.length : null;
+      }
+      if (trashRes.status === "fulfilled" && trashRes.value.ok) {
+        const data = await trashRes.value.json();
+        trash = Array.isArray(data) ? data.length : null;
+      }
+      if (imgRes.status === "fulfilled" && imgRes.value.ok) {
+        const data = await imgRes.value.json();
+        missingImages = Array.isArray(data) ? data.length : null;
+      }
+
+      setBadges({ duplicates, trash, missingImages });
+    } catch {
+    }
+  }, []);
+
+  useEffect(() => {
+    fetchBadges();
+  }, [fetchBadges]);
+
+  return { badges, refresh: fetchBadges };
+}
+
+const SECTION_GROUPS = [
+  {
+    label: "Rezepte & Daten",
+    color: "bg-green-50 border-green-200",
+    iconColor: "text-[#4A7C59]",
+    sections: [
+      {
+        id: "categories" as SectionTab,
+        label: "Kategorien",
+        icon: Tag,
+        description: "Themengruppen für Rezepte anlegen, umbenennen und zusammenführen. Rezepte werden automatisch verschoben.",
+      },
+      {
+        id: "tags" as SectionTab,
+        label: "Tags",
+        icon: Tag,
+        description: "Saisonale und thematische Tags automatisch für alle Rezepte generieren und verwalten.",
+      },
+      {
+        id: "duplicates" as SectionTab,
+        label: "Duplikate",
+        icon: Copy,
+        description: "Doppelt vorhandene Rezepte erkennen und bereinigen, um die Sammlung übersichtlich zu halten.",
+        badgeKey: "duplicates" as keyof AdminBadges,
+      },
+      {
+        id: "trash" as SectionTab,
+        label: "Papierkorb",
+        icon: Trash2,
+        description: "Gelöschte Rezepte wiederherstellen oder endgültig entfernen.",
+        badgeKey: "trash" as keyof AdminBadges,
+      },
+    ],
+  },
+  {
+    label: "Import & Bilder",
+    color: "bg-orange-50 border-orange-200",
+    iconColor: "text-[#C1693A]",
+    sections: [
+      {
+        id: "backup" as SectionTab,
+        label: "Backup & Import",
+        icon: Database,
+        description: "Alle Rezepte als JSON oder Excel exportieren oder eine frühere Sicherung wieder einspielen.",
+      },
+      {
+        id: "bulk-import" as SectionTab,
+        label: "Massen-Import",
+        icon: FolderOpen,
+        description: "Viele Rezepte auf einmal aus Foto-Ordnern importieren und automatisch strukturieren.",
+      },
+      {
+        id: "recipe-images" as SectionTab,
+        label: "Rezeptbilder",
+        icon: Upload,
+        description: "Bilder für Rezepte hochladen, rotieren und als Hauptbild festlegen.",
+        badgeKey: "missingImages" as keyof AdminBadges,
+      },
+      {
+        id: "image-optimization" as SectionTab,
+        label: "Bildoptimierung",
+        icon: RefreshCw,
+        description: "KI generiert passende Bilder für Rezepte, die noch kein Foto haben.",
+      },
+      {
+        id: "batch-extraction" as SectionTab,
+        label: "Foto-Extraktion",
+        icon: Camera,
+        description: "Rezeptbilder aus gescannten Kochbuch-Fotos automatisch erkennen und zuordnen.",
+      },
+    ],
+  },
+  {
+    label: "Nutzer & Gruppen",
+    color: "bg-blue-50 border-blue-200",
+    iconColor: "text-blue-600",
+    sections: [
+      {
+        id: "groups" as SectionTab,
+        label: "Gruppen",
+        icon: Users,
+        description: "Gruppen-Anfragen von Nutzerinnen prüfen, freigeben oder ablehnen.",
+      },
+      {
+        id: "email" as SectionTab,
+        label: "E-Mail-Versand",
+        icon: Mail,
+        description: "E-Mail-Server konfigurieren und Test-Nachrichten versenden.",
+      },
+    ],
+  },
+  {
+    label: "Einstellungen",
+    color: "bg-gray-50 border-gray-200",
+    iconColor: "text-gray-600",
+    sections: [
+      {
+        id: "settings" as SectionTab,
+        label: "App-Einstellungen",
+        icon: Sliders,
+        description: "Globale App-Parameter wie Sprache, Features und Verhalten konfigurieren.",
+      },
+    ],
+  },
+];
+
+function AdminOverview({ onSelect, badges }: { onSelect: (id: SectionTab) => void; badges: AdminBadges }) {
+  return (
+    <div className="space-y-8">
+      {SECTION_GROUPS.map((group) => (
+        <div key={group.label}>
+          <h3 className="font-serif text-base font-semibold text-foreground mb-3 flex items-center gap-2">
+            <span className="w-1 h-4 rounded-full bg-[#4A7C59] inline-block" />
+            {group.label}
+          </h3>
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-3">
+            {group.sections.map((sec) => {
+              const badge = sec.badgeKey ? badges[sec.badgeKey] : null;
+              const showBadge = badge !== null && badge > 0;
+              return (
+                <button
+                  key={sec.id}
+                  onClick={() => onSelect(sec.id)}
+                  className={`relative text-left p-5 rounded-2xl border ${group.color} hover:shadow-md hover:-translate-y-0.5 transition-all duration-150 group`}
+                >
+                  {showBadge && (
+                    <span className="absolute top-3 right-3 min-w-[1.4rem] h-[1.4rem] px-1.5 flex items-center justify-center rounded-full bg-[#C1693A] text-white text-xs font-bold">
+                      {badge}
+                    </span>
+                  )}
+                  <div className={`w-9 h-9 rounded-xl flex items-center justify-center mb-3 ${group.color} border ${group.color.split(" ")[1]}`}>
+                    <sec.icon className={`w-5 h-5 ${group.iconColor}`} />
+                  </div>
+                  <p className="font-semibold text-sm text-foreground mb-1 group-hover:text-[#4A7C59] transition-colors">{sec.label}</p>
+                  <p className="text-xs text-muted-foreground leading-snug">{sec.description}</p>
+                </button>
+              );
+            })}
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function getSectionLabel(id: SectionTab): string {
+  for (const group of SECTION_GROUPS) {
+    const found = group.sections.find((s) => s.id === id);
+    if (found) return found.label;
+  }
+  return id;
+}
+
 export default function Admin({ initialTab, navToken, onTabInitialized }: { initialTab?: string; navToken?: number; onTabInitialized?: () => void }) {
   const validTabs = SECTION_TABS.map((t) => t.id);
-  const resolvedTab: SectionTab = (validTabs.includes(initialTab as SectionTab) ? initialTab : "categories") as SectionTab;
-  const [section, setSection] = useState<SectionTab>(resolvedTab);
+  const hasInitialTab = initialTab && validTabs.includes(initialTab as SectionTab);
+  const [section, setSection] = useState<SectionTab | null>(
+    hasInitialTab ? (initialTab as SectionTab) : null
+  );
   const [isBulkUploading, setIsBulkUploading] = useState(false);
-  const [pendingTab, setPendingTab] = useState<SectionTab | null>(null);
+  const [pendingNav, setPendingNav] = useState<{ target: SectionTab | null } | null>(null);
+  const { badges, refresh: refreshBadges } = useAdminBadges();
 
-  const handleTabClick = (tabId: SectionTab) => {
-    if (tabId === section) return;
-    if (isBulkUploading && section === "bulk-import") {
-      setPendingTab(tabId);
+  const navigateTo = (tabId: SectionTab | null) => {
+    if (isBulkUploading && section === "bulk-import" && tabId !== section) {
+      setPendingNav({ target: tabId });
       return;
+    }
+    if (tabId === null) {
+      refreshBadges();
     }
     setSection(tabId);
   };
 
   const confirmNavigation = () => {
-    if (pendingTab) {
-      setSection(pendingTab);
-      setPendingTab(null);
+    if (pendingNav !== null) {
+      if (pendingNav.target === null) {
+        refreshBadges();
+      }
+      setSection(pendingNav.target);
+      setPendingNav(null);
     }
   };
 
   const cancelNavigation = () => {
-    setPendingTab(null);
+    setPendingNav(null);
   };
 
   useEffect(() => {
     if (navToken && initialTab && validTabs.includes(initialTab as SectionTab)) {
       if (isBulkUploading && section === "bulk-import") {
-        setPendingTab(initialTab as SectionTab);
+        setPendingNav({ target: initialTab as SectionTab });
       } else {
         setSection(initialTab as SectionTab);
         onTabInitialized?.();
@@ -2807,7 +3014,7 @@ export default function Admin({ initialTab, navToken, onTabInitialized }: { init
 
   return (
     <div className="max-w-6xl mx-auto px-4 py-6 pb-28">
-      {pendingTab && (
+      {pendingNav !== null && (
         <div className="fixed inset-0 z-[200] flex items-center justify-center bg-black/50 p-4">
           <div className="bg-white rounded-2xl shadow-2xl p-6 max-w-sm w-full">
             <div className="text-center mb-4">
@@ -2837,23 +3044,33 @@ export default function Admin({ initialTab, navToken, onTabInitialized }: { init
 
       <div className="mb-6 flex items-center gap-3">
         <Settings className="w-6 h-6 text-[#4A7C59]" />
-        <h2 className="font-serif text-2xl font-semibold text-foreground">Admin-Bereich</h2>
+        <div className="flex items-center gap-1.5 flex-1 min-w-0">
+          {section ? (
+            <>
+              <span className="font-serif text-xl font-semibold text-muted-foreground">Admin-Bereich</span>
+              <span className="text-muted-foreground text-lg">›</span>
+              <span className="font-serif text-xl font-semibold text-foreground truncate">{getSectionLabel(section)}</span>
+            </>
+          ) : (
+            <h2 className="font-serif text-2xl font-semibold text-foreground">Admin-Bereich</h2>
+          )}
+        </div>
         <RecipeCountBadge />
       </div>
 
-      <div className="flex gap-1 mb-6 flex-wrap">
-        {SECTION_TABS.map((tab) => (
-          <button key={tab.id} onClick={() => handleTabClick(tab.id)}
-            className={`flex items-center gap-1.5 px-4 py-2 rounded-xl text-sm font-medium transition-colors ${
-              section === tab.id
-                ? "bg-[#4A7C59] text-white shadow-sm"
-                : "bg-white border border-border text-foreground hover:border-[#4A7C59]/40"
-            }`}>
-            <tab.icon className="w-3.5 h-3.5" />
-            {tab.label}
-          </button>
-        ))}
-      </div>
+      {section && (
+        <button
+          onClick={() => navigateTo(null)}
+          className="flex items-center gap-1.5 px-3 py-1.5 mb-5 rounded-xl text-sm font-medium text-[#4A7C59] hover:bg-[#4A7C59]/10 transition-colors border border-[#4A7C59]/20"
+        >
+          <ChevronLeft className="w-4 h-4" />
+          Übersicht
+        </button>
+      )}
+
+      {section === null && (
+        <AdminOverview onSelect={(id) => navigateTo(id)} badges={badges} />
+      )}
 
       {section === "categories" && <CategoryManagerWithData />}
 

@@ -40,8 +40,11 @@ function getGreeting(name: string): string {
   return `Guten ${time}, ${first}!`;
 }
 
+const ADMIN_EMAIL = "lucia.aldering@googlemail.com";
+
 function AvatarDropdown({ onNavigate }: { onNavigate: (tab: Tab, savePrev?: boolean) => void }) {
   const { user, logout } = useAuth();
+  const isAdmin = user?.email === ADMIN_EMAIL;
   const [open, setOpen] = useState(false);
   const dropdownRef = useRef<HTMLDivElement>(null);
 
@@ -97,13 +100,15 @@ function AvatarDropdown({ onNavigate }: { onNavigate: (tab: Tab, savePrev?: bool
               <User className="w-4 h-4 text-muted-foreground" />
               Mein Profil
             </button>
-            <button
-              onClick={() => { onNavigate("admin", true); setOpen(false); }}
-              className="flex items-center gap-3 w-full px-4 py-3 text-sm text-foreground hover:bg-[#4A7C59]/5 transition-colors min-h-[48px]"
-            >
-              <Settings className="w-4 h-4 text-muted-foreground" />
-              Admin
-            </button>
+            {isAdmin && (
+              <button
+                onClick={() => { onNavigate("admin", true); setOpen(false); }}
+                className="flex items-center gap-3 w-full px-4 py-3 text-sm text-foreground hover:bg-[#4A7C59]/5 transition-colors min-h-[48px]"
+              >
+                <Settings className="w-4 h-4 text-muted-foreground" />
+                Admin
+              </button>
+            )}
           </div>
           <div className="border-t border-border py-1">
             <button
@@ -215,6 +220,7 @@ function getSessionOnboardingDone(userId: number): boolean {
 
 function AppShell() {
   const { user, loading } = useAuth();
+  const isAdmin = user?.email === ADMIN_EMAIL;
   const [inviteToken, setInviteToken] = useState<string | null>(getInviteTokenFromUrl);
   const [activeTab, setActiveTab] = useState<Tab>("rezepte");
   const [previousTab, setPreviousTab] = useState<Tab>("rezepte");
@@ -391,7 +397,14 @@ function AppShell() {
         {activeTab === "was-koche-ich" && <WasKocheIch />}
         {activeTab === "wochenplan" && <Wochenplan onNavigate={(tab) => setActiveTab(tab as Tab)} />}
         {activeTab === "statistiken" && <Statistiken />}
-        {activeTab === "admin" && <Admin initialTab={adminInitialTab ?? "categories"} navToken={adminNavToken} onTabInitialized={() => setAdminInitialTab(null)} />}
+        {activeTab === "admin" && isAdmin && <Admin initialTab={adminInitialTab ?? "categories"} navToken={adminNavToken} onTabInitialized={() => setAdminInitialTab(null)} />}
+        {activeTab === "admin" && !isAdmin && (
+          <div className="flex flex-col items-center justify-center min-h-[60vh] gap-4 text-center px-6">
+            <Settings className="w-12 h-12 text-muted-foreground/30" />
+            <p className="text-lg font-semibold text-muted-foreground">Kein Zugriff</p>
+            <p className="text-sm text-muted-foreground">Dieser Bereich ist nur für Administratoren zugänglich.</p>
+          </div>
+        )}
         {activeTab === "profil" && <Profil />}
         {activeTab === "meine-kueche" && <MeineKueche onOpenRecipe={(recipeId) => { setActiveTab("rezepte"); setOpenRecipeId(recipeId); }} />}
       </main>

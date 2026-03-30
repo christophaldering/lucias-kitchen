@@ -710,92 +710,126 @@ function RecipeModalInner({ recipe, onClose, onAddToWeek, onToggleFavorite, onRe
               </div>
             ) : null}
 
+            {/* Gruppe 1: Koch-Aktionen */}
             <div className="flex gap-3 flex-wrap">
               {recipe.steps && (recipe.steps as string[]).length > 0 && (
-                <button
-                  onClick={() => setCookingMode(true)}
-                  className="flex items-center gap-2 px-4 py-2.5 bg-[#C1693A] text-white rounded-xl text-sm font-semibold hover:bg-[#a85830] transition-colors"
-                >
-                  <UtensilsCrossed className="w-4 h-4" />
-                  Kochen starten
-                </button>
+                <div className="flex flex-col items-center gap-0.5">
+                  <button
+                    onClick={() => setCookingMode(true)}
+                    className="flex items-center gap-2 px-4 py-2.5 bg-[#C1693A] text-white rounded-xl text-sm font-semibold hover:bg-[#a85830] transition-colors"
+                  >
+                    <UtensilsCrossed className="w-4 h-4" />
+                    Kochen starten
+                  </button>
+                  <span className="text-xs text-muted-foreground text-center leading-tight">Schritt für Schritt durch das Rezept</span>
+                </div>
               )}
 
-              <button
-                onClick={handleTodayCookedClick}
-                disabled={stockReductionLoading}
-                className="flex items-center gap-2 px-4 py-2.5 bg-[#4A7C59] text-white rounded-xl text-sm font-semibold hover:bg-[#3d6849] disabled:opacity-70 transition-colors"
-              >
-                {stockReductionLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : <UtensilsCrossed className="w-4 h-4" />}
-                Heute gekocht
-              </button>
+              <div className="flex flex-col items-center gap-0.5">
+                <button
+                  onClick={handleTodayCookedClick}
+                  disabled={stockReductionLoading}
+                  className="flex items-center gap-2 px-4 py-2.5 bg-[#4A7C59] text-white rounded-xl text-sm font-semibold hover:bg-[#3d6849] disabled:opacity-70 transition-colors"
+                >
+                  {stockReductionLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : <UtensilsCrossed className="w-4 h-4" />}
+                  Heute gekocht
+                </button>
+                <span className="text-xs text-muted-foreground text-center leading-tight">Als heute gekocht markieren</span>
+              </div>
 
               {!showDatePicker && (
-                <button
-                  onClick={() => setShowDatePicker(true)}
-                  className="flex items-center gap-2 px-4 py-2.5 bg-secondary text-foreground border border-border rounded-xl text-sm font-semibold hover:bg-secondary/80 transition-colors"
-                >
-                  <CalendarPlus className="w-4 h-4" />
-                  Zum Kalender
-                </button>
+                <div className="flex flex-col items-center gap-0.5">
+                  <button
+                    onClick={() => setShowDatePicker(true)}
+                    className="flex items-center gap-2 px-4 py-2.5 bg-secondary text-foreground border border-border rounded-xl text-sm font-semibold hover:bg-secondary/80 transition-colors"
+                  >
+                    <CalendarPlus className="w-4 h-4" />
+                    Zum Kalender
+                  </button>
+                  <span className="text-xs text-muted-foreground text-center leading-tight">Für ein Datum einplanen</span>
+                </div>
               )}
 
               {!isOwner && onToggleFavorite && (
-                <button
-                  onClick={handleToggleFavorite}
-                  disabled={favLoading}
-                  className={`flex items-center gap-2 px-4 py-2.5 rounded-xl text-sm font-semibold transition-colors disabled:opacity-60 ${
-                    isFavorite
-                      ? "bg-amber-500 text-white hover:bg-amber-600"
-                      : "border border-border text-foreground hover:bg-secondary"
-                  }`}
-                >
-                  <Star className={`w-4 h-4 ${isFavorite ? "fill-white" : ""}`} />
-                  {isFavorite ? "Gemerkt ✓" : "⭐ Merken"}
-                </button>
+                <div className="flex flex-col items-center gap-0.5">
+                  <button
+                    onClick={handleToggleFavorite}
+                    disabled={favLoading}
+                    className={`flex items-center gap-2 px-4 py-2.5 rounded-xl text-sm font-semibold transition-colors disabled:opacity-60 ${
+                      isFavorite
+                        ? "bg-amber-500 text-white hover:bg-amber-600"
+                        : "border border-border text-foreground hover:bg-secondary"
+                    }`}
+                  >
+                    <Star className={`w-4 h-4 ${isFavorite ? "fill-white" : ""}`} />
+                    {isFavorite ? "Gemerkt ✓" : "⭐ Merken"}
+                  </button>
+                  <span className="text-xs text-muted-foreground text-center leading-tight">Rezept für später merken</span>
+                </div>
               )}
 
               {onAddToWeek && (
-                <button
-                  onClick={() => { onAddToWeek(recipe.id); onClose(); }}
-                  className="flex items-center gap-2 px-4 py-2.5 bg-secondary text-foreground border border-border rounded-xl text-sm font-semibold hover:bg-secondary/80 transition-colors"
-                >
-                  Zur Woche
-                </button>
+                <div className="flex flex-col items-center gap-0.5">
+                  <button
+                    onClick={() => { onAddToWeek(recipe.id); onClose(); }}
+                    className="flex items-center gap-2 px-4 py-2.5 bg-secondary text-foreground border border-border rounded-xl text-sm font-semibold hover:bg-secondary/80 transition-colors"
+                  >
+                    Zur Woche
+                  </button>
+                  <span className="text-xs text-muted-foreground text-center leading-tight">Zum Wochenplan hinzufügen</span>
+                </div>
               )}
 
-              <button
-                onClick={() => setShowSuggestModal(true)}
-                className="flex items-center gap-2 px-4 py-2.5 bg-secondary text-foreground border border-border rounded-xl text-sm font-semibold hover:bg-secondary/80 transition-colors"
-                title="An Familienmitglied vorschlagen"
-              >
-                <Share2 className="w-4 h-4" />
-                Vorschlagen
-              </button>
+              <div className="flex flex-col items-center gap-0.5">
+                <button
+                  onClick={() => setShowSuggestModal(true)}
+                  className="flex items-center gap-2 px-4 py-2.5 bg-secondary text-foreground border border-border rounded-xl text-sm font-semibold hover:bg-secondary/80 transition-colors"
+                >
+                  <Share2 className="w-4 h-4" />
+                  Vorschlagen
+                </button>
+                <span className="text-xs text-muted-foreground text-center leading-tight">An Familienmitglied teilen</span>
+              </div>
+            </div>
 
+            {/* Trennlinie: Verwaltung */}
+            <div className="flex items-center gap-2 pt-1">
+              <div className="h-px bg-border flex-1" />
+              <span className="text-xs text-muted-foreground font-medium uppercase tracking-wide px-1">Verwaltung</span>
+              <div className="h-px bg-border flex-1" />
+            </div>
+
+            {/* Gruppe 2: Verwaltungs-Aktionen */}
+            <div className="flex gap-3 flex-wrap">
               {recipe.sourceDocumentUrl && (
-                <button
-                  onClick={() => setShowOriginalModal(true)}
-                  className="flex items-center gap-2 px-4 py-2.5 bg-secondary text-foreground border border-border rounded-xl text-sm font-semibold hover:bg-secondary/80 transition-colors"
-                >
-                  <FileText className="w-4 h-4" />
-                  Original ansehen
-                </button>
+                <div className="flex flex-col items-center gap-0.5">
+                  <button
+                    onClick={() => setShowOriginalModal(true)}
+                    className="flex items-center gap-2 px-4 py-2.5 bg-secondary text-foreground border border-border rounded-xl text-sm font-semibold hover:bg-secondary/80 transition-colors"
+                  >
+                    <FileText className="w-4 h-4" />
+                    Original ansehen
+                  </button>
+                  <span className="text-xs text-muted-foreground text-center leading-tight">Das eingescannte Dokument öffnen</span>
+                </div>
               )}
 
               {isOwner && recipe.sourceDocumentUrl && (
-                <button
-                  onClick={handleExtractScanImage}
-                  disabled={extractingScanImage || generatingImage || extractingSourceImage || extractingAllPhotos}
-                  className="flex items-center gap-2 px-4 py-2.5 bg-orange-50 border border-orange-200 text-orange-700 rounded-xl text-sm font-semibold hover:bg-orange-100 transition-colors disabled:opacity-60"
-                >
-                  {extractingScanImage ? <Loader2 className="w-4 h-4 animate-spin" /> : <FileText className="w-4 h-4" />}
-                  {extractingScanImage ? "Scan wird extrahiert…" : "Scan Foto extrahieren"}
-                </button>
+                <div className="flex flex-col items-center gap-0.5">
+                  <button
+                    onClick={handleExtractScanImage}
+                    disabled={extractingScanImage || generatingImage || extractingSourceImage || extractingAllPhotos}
+                    className="flex items-center gap-2 px-4 py-2.5 bg-orange-50 border border-orange-200 text-orange-700 rounded-xl text-sm font-semibold hover:bg-orange-100 transition-colors disabled:opacity-60"
+                  >
+                    {extractingScanImage ? <Loader2 className="w-4 h-4 animate-spin" /> : <FileText className="w-4 h-4" />}
+                    {extractingScanImage ? "Scan wird extrahiert…" : "Scan Foto extrahieren"}
+                  </button>
+                  <span className="text-xs text-orange-600/80 text-center leading-tight">Bestes Foto direkt aus dem Scan ausschneiden</span>
+                </div>
               )}
 
               {isOwner && recipe.sourceDocumentUrl && (
-                <div className="flex flex-col gap-1">
+                <div className="flex flex-col items-center gap-0.5">
                   <button
                     onClick={handleExtractAllPhotos}
                     disabled={extractingAllPhotos || extractingScanImage || generatingImage || extractingSourceImage}
@@ -804,6 +838,7 @@ function RecipeModalInner({ recipe, onClose, onAddToWeek, onToggleFavorite, onRe
                     {extractingAllPhotos ? <Loader2 className="w-4 h-4 animate-spin" /> : <Images className="w-4 h-4" />}
                     {extractingAllPhotos ? "Fotos werden extrahiert…" : "Alle Fotos aus PDF"}
                   </button>
+                  <span className="text-xs text-teal-600/80 text-center leading-tight">Alle Lebensmittelfotos in die Galerie laden</span>
                   {extractAllPhotosResult && (
                     <span className="text-xs text-teal-700 text-center">
                       {extractAllPhotosResult.photosAdded > 0
@@ -817,13 +852,16 @@ function RecipeModalInner({ recipe, onClose, onAddToWeek, onToggleFavorite, onRe
               )}
 
               {isOwner && !localImageUrl && !recipe.mainPhotoUrl && hasPhotosForRecipe === true && (
-                <button
-                  onClick={openPhotoPicker}
-                  className="flex items-center gap-2 px-4 py-2.5 bg-[#4A7C59]/10 border border-[#4A7C59]/30 text-[#4A7C59] rounded-xl text-sm font-semibold hover:bg-[#4A7C59]/20 transition-colors"
-                >
-                  <Images className="w-4 h-4" />
-                  Aus Fotos wählen
-                </button>
+                <div className="flex flex-col items-center gap-0.5">
+                  <button
+                    onClick={openPhotoPicker}
+                    className="flex items-center gap-2 px-4 py-2.5 bg-[#4A7C59]/10 border border-[#4A7C59]/30 text-[#4A7C59] rounded-xl text-sm font-semibold hover:bg-[#4A7C59]/20 transition-colors"
+                  >
+                    <Images className="w-4 h-4" />
+                    Aus Fotos wählen
+                  </button>
+                  <span className="text-xs text-muted-foreground text-center leading-tight">Aus vorhandenen Galeriefotos auswählen</span>
+                </div>
               )}
 
               {isOwner && !localImageUrl && !recipe.mainPhotoUrl && (() => {
@@ -831,23 +869,29 @@ function RecipeModalInner({ recipe, onClose, onAddToWeek, onToggleFavorite, onRe
                 return (
                   <>
                     {isSourceUrl && (
-                      <button
-                        onClick={handleExtractSourceImage}
-                        disabled={extractingSourceImage || generatingImage || extractingScanImage}
-                        className="flex items-center gap-2 px-4 py-2.5 bg-blue-50 border border-blue-200 text-blue-700 rounded-xl text-sm font-semibold hover:bg-blue-100 transition-colors disabled:opacity-60"
-                      >
-                        {extractingSourceImage ? <Loader2 className="w-4 h-4 animate-spin" /> : <Globe className="w-4 h-4" />}
-                        {extractingSourceImage ? "Bild wird geholt…" : "Bild aus Originalseite"}
-                      </button>
+                      <div className="flex flex-col items-center gap-0.5">
+                        <button
+                          onClick={handleExtractSourceImage}
+                          disabled={extractingSourceImage || generatingImage || extractingScanImage}
+                          className="flex items-center gap-2 px-4 py-2.5 bg-blue-50 border border-blue-200 text-blue-700 rounded-xl text-sm font-semibold hover:bg-blue-100 transition-colors disabled:opacity-60"
+                        >
+                          {extractingSourceImage ? <Loader2 className="w-4 h-4 animate-spin" /> : <Globe className="w-4 h-4" />}
+                          {extractingSourceImage ? "Bild wird geholt…" : "Bild aus Originalseite"}
+                        </button>
+                        <span className="text-xs text-blue-600/80 text-center leading-tight">Foto von der Rezeptwebseite laden</span>
+                      </div>
                     )}
-                    <button
-                      onClick={handleGenerateImage}
-                      disabled={generatingImage || extractingSourceImage || extractingScanImage}
-                      className="flex items-center gap-2 px-4 py-2.5 bg-amber-50 border border-amber-200 text-amber-700 rounded-xl text-sm font-semibold hover:bg-amber-100 transition-colors disabled:opacity-60"
-                    >
-                      {generatingImage ? <Loader2 className="w-4 h-4 animate-spin" /> : <Sparkles className="w-4 h-4" />}
-                      {generatingImage ? "Bild wird generiert…" : "KI-Bild generieren"}
-                    </button>
+                    <div className="flex flex-col items-center gap-0.5">
+                      <button
+                        onClick={handleGenerateImage}
+                        disabled={generatingImage || extractingSourceImage || extractingScanImage}
+                        className="flex items-center gap-2 px-4 py-2.5 bg-amber-50 border border-amber-200 text-amber-700 rounded-xl text-sm font-semibold hover:bg-amber-100 transition-colors disabled:opacity-60"
+                      >
+                        {generatingImage ? <Loader2 className="w-4 h-4 animate-spin" /> : <Sparkles className="w-4 h-4" />}
+                        {generatingImage ? "Bild wird generiert…" : "KI-Bild generieren"}
+                      </button>
+                      <span className="text-xs text-amber-600/80 text-center leading-tight">Automatisch ein passendes Foto erstellen</span>
+                    </div>
                     {extractSourceImageError && (
                       <div className="w-full flex items-center gap-2 text-xs text-red-600 bg-red-50 border border-red-200 rounded-lg px-3 py-2">
                         <span>{extractSourceImageError}</span>
@@ -865,13 +909,16 @@ function RecipeModalInner({ recipe, onClose, onAddToWeek, onToggleFavorite, onRe
               })()}
 
               {isOwner && onDeleteRecipe && !showDeleteConfirm && (
-                <button
-                  onClick={() => setShowDeleteConfirm(true)}
-                  className="flex items-center gap-2 px-4 py-2.5 border border-red-200 text-red-600 rounded-xl text-sm font-semibold hover:bg-red-50 transition-colors"
-                >
-                  <Trash2 className="w-4 h-4" />
-                  Löschen
-                </button>
+                <div className="flex flex-col items-center gap-0.5">
+                  <button
+                    onClick={() => setShowDeleteConfirm(true)}
+                    className="flex items-center gap-2 px-4 py-2.5 border border-red-200 text-red-600 rounded-xl text-sm font-semibold hover:bg-red-50 transition-colors"
+                  >
+                    <Trash2 className="w-4 h-4" />
+                    Löschen
+                  </button>
+                  <span className="text-xs text-red-400/80 text-center leading-tight">Dieses Rezept endgültig entfernen</span>
+                </div>
               )}
 
               {isOwner && onDeleteRecipe && showDeleteConfirm && (

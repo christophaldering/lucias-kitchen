@@ -1,7 +1,7 @@
 import { Router, type IRouter } from "express";
 import { db } from "@workspace/db";
-import { recipesTable, recipeIngredientsTable, recipePhotosTable, recipeFavoritesTable, usersTable, groupMembersTable, groupsTable, photosTable, recipePhotoLinksTable } from "@workspace/db/schema";
-import { eq, inArray, sql, desc, and, isNull } from "drizzle-orm";
+import { recipesTable, recipeIngredientsTable, recipePhotosTable, recipeFavoritesTable, usersTable, groupMembersTable, groupsTable, photosTable, recipePhotoLinksTable, deleteConfirmationTokensTable } from "@workspace/db/schema";
+import { eq, inArray, sql, desc, and, isNull, lt } from "drizzle-orm";
 import { z } from "zod/v4";
 import { seedRecipes } from "../db/seedRecipes";
 import { singleImageUploadMiddleware, UPLOADS_DIR } from "../lib/imageUpload";
@@ -13,6 +13,8 @@ import { generateTagsForRecipe } from "../lib/generateRecipeTags";
 import { openai } from "@workspace/integrations-openai-ai-server";
 import { escalatingTrim, generateThumbnail } from "../lib/imageUtils";
 import { registerPhotoForRecipe } from "../utils/registerPhotoForRecipe";
+import { sendEmail } from "../lib/email";
+import { deleteConfirmationEmail } from "../lib/emailTemplates";
 
 const ADMIN_EMAIL = "lucia.aldering@googlemail.com";
 function isAdmin(email: string) {
@@ -837,6 +839,67 @@ router.get("/recipes/duplicates", authMiddleware, async (req, res) => {
   }
 });
 
+router.get("/recipes/confirm-delete", async (req, res) => {
+  try {
+    const token = String(req.query["token"] ?? "").trim();
+    if (!token) {
+      res.status(400).json({ error: "missing_token" });
+      return;
+    }
+
+    const [tokenRow] = await db
+      .select()
+      .from(deleteConfirmationTokensTable)
+      .where(eq(deleteConfirmationTokensTable.token, token));
+
+    if (!tokenRow) {
+      res.status(404).json({ error: "invalid_token", message: "Token ungültig oder nicht gefunden." });
+      return;
+    }
+
+    if (tokenRow.usedAt) {
+      res.status(410).json({ error: "token_used", message: "Dieser Link wurde bereits verwendet." });
+      return;
+    }
+
+    if (new Date() > tokenRow.expiresAt) {
+      res.status(410).json({ error: "token_expired", message: "Dieser Link ist abgelaufen (15 Minuten Gültigkeitsdauer)." });
+      return;
+    }
+
+    await db.transaction(async (tx) => {
+      const updated = await tx.update(deleteConfirmationTokensTable)
+        .set({ usedAt: new Date() })
+        .where(
+          and(
+            eq(deleteConfirmationTokensTable.id, tokenRow.id),
+            isNull(deleteConfirmationTokensTable.usedAt)
+          )
+        )
+        .returning({ id: deleteConfirmationTokensTable.id });
+
+      if (updated.length === 0) {
+        throw Object.assign(new Error("token_used"), { code: "token_used" });
+      }
+
+      await tx.delete(recipeIngredientsTable);
+      await tx.delete(recipesTable);
+    });
+
+    invalidateRecipeListCache();
+
+    res.json({ success: true });
+  } catch (err) {
+    const code = (err as { code?: string }).code;
+    if (code === "token_used") {
+      res.status(410).json({ error: "token_used", message: "Dieser Link wurde bereits verwendet." });
+      return;
+    }
+    req.log.error({ err }, "Failed to confirm delete all recipes");
+    res.status(500).json({ error: "internal_error", message: "Fehler beim Löschen der Rezepte." });
+  }
+});
+
 router.get("/recipes/:id", authMiddleware, async (req, res) => {
   try {
     const id = Number(req.params.id);
@@ -1577,14 +1640,97 @@ router.post("/recipes/seed", async (req, res) => {
   }
 });
 
-router.delete("/recipes", async (req, res) => {
+async function issueDeleteAllConfirmation(userId: number): Promise<{ email: string }> {
+  const [countRow] = await db
+    .select({ count: sql<number>`count(*)` })
+    .from(recipesTable)
+    .where(isNull(recipesTable.deletedAt));
+  const recipeCount = Number(countRow?.count ?? 0);
+
+  const token = randomUUID();
+  const expiresAt = new Date(Date.now() + 15 * 60 * 1000);
+
+  await db.delete(deleteConfirmationTokensTable).where(
+    eq(deleteConfirmationTokensTable.userId, userId)
+  );
+
+  await db.insert(deleteConfirmationTokensTable).values({
+    token,
+    userId,
+    expiresAt,
+  });
+
+  const appBaseUrl = process.env["APP_BASE_URL"] ?? `https://${process.env["REPLIT_DEV_DOMAIN"]}`;
+  const confirmLink = `${appBaseUrl}/confirm-delete?token=${token}`;
+
+  const [userRow] = await db
+    .select({ email: usersTable.email, displayName: usersTable.displayName })
+    .from(usersTable)
+    .where(eq(usersTable.id, userId));
+
+  if (!userRow) {
+    throw Object.assign(new Error("user_not_found"), { code: "user_not_found" });
+  }
+
+  await sendEmail(
+    userRow.email,
+    "Bestätigung: Alle Rezepte löschen – Lucia's Küche",
+    deleteConfirmationEmail({
+      userName: userRow.displayName,
+      userEmail: userRow.email,
+      recipeCount,
+      confirmLink,
+    })
+  );
+
+  return { email: userRow.email };
+}
+
+router.post("/recipes/request-delete", authMiddleware, async (req, res) => {
   try {
-    await db.delete(recipeIngredientsTable);
-    await db.delete(recipesTable);
-    res.json({ success: true });
+    const user = req.authUser;
+    if (!user) {
+      res.status(401).json({ error: "unauthorized" });
+      return;
+    }
+    if (!isAdmin(user.email)) {
+      res.status(403).json({ error: "forbidden", message: "Nur Administratoren dürfen alle Rezepte löschen." });
+      return;
+    }
+    const { email } = await issueDeleteAllConfirmation(user.id);
+    res.json({ success: true, email });
   } catch (err) {
-    req.log.error({ err }, "Failed to delete all recipes");
-    res.status(500).json({ error: "internal_error", message: "Failed to delete all recipes" });
+    const code = (err as { code?: string }).code;
+    if (code === "user_not_found") {
+      res.status(404).json({ error: "user_not_found" });
+      return;
+    }
+    req.log.error({ err }, "Failed to request delete confirmation");
+    res.status(500).json({ error: "internal_error", message: "Fehler beim Senden der Bestätigungs-E-Mail" });
+  }
+});
+
+router.delete("/recipes", authMiddleware, async (req, res) => {
+  try {
+    const user = req.authUser;
+    if (!user) {
+      res.status(401).json({ error: "unauthorized" });
+      return;
+    }
+    if (!isAdmin(user.email)) {
+      res.status(403).json({ error: "forbidden", message: "Nur Administratoren dürfen alle Rezepte löschen." });
+      return;
+    }
+    const { email } = await issueDeleteAllConfirmation(user.id);
+    res.status(202).json({ success: true, email, message: "Bestätigungs-E-Mail wurde gesendet. Bitte E-Mail bestätigen, um die Löschung abzuschließen." });
+  } catch (err) {
+    const code = (err as { code?: string }).code;
+    if (code === "user_not_found") {
+      res.status(404).json({ error: "user_not_found" });
+      return;
+    }
+    req.log.error({ err }, "Failed to initiate delete all recipes via email");
+    res.status(500).json({ error: "internal_error", message: "Fehler beim Senden der Bestätigungs-E-Mail" });
   }
 });
 

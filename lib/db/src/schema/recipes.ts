@@ -193,3 +193,12 @@ export const bulkImportItemsTable = pgTable("bulk_import_items", {
 export type BulkImportSession = typeof bulkImportSessionsTable.$inferSelect;
 export type BulkImportFile = typeof bulkImportFilesTable.$inferSelect;
 export type BulkImportItem = typeof bulkImportItemsTable.$inferSelect;
+
+export const deleteConfirmationTokensTable = pgTable("delete_confirmation_tokens", {
+  id: serial("id").primaryKey(),
+  token: text("token").notNull().unique(),
+  userId: integer("user_id").notNull().references(() => usersTable.id, { onDelete: "cascade" }),
+  expiresAt: timestamp("expires_at").notNull(),
+  usedAt: timestamp("used_at"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+});

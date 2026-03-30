@@ -151,6 +151,17 @@ export function useRecipes(filter: RecipeFilter = "all", options?: { loadAll?: b
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ["recipes"] }),
   });
 
+  const requestDeleteAllMutation = useMutation({
+    mutationFn: async (): Promise<{ email: string }> => {
+      const res = await authFetch(`${API_BASE}/recipes/request-delete`, { method: "POST", headers: authHeaders() });
+      if (!res.ok) {
+        const errBody = await res.json().catch(() => ({}));
+        throw new Error((errBody as { message?: string }).message ?? `HTTP ${res.status}`);
+      }
+      return res.json();
+    },
+  });
+
   const restoreDemoMutation = useMutation({
     mutationFn: async () => {
       const res = await authFetch(`${API_BASE}/recipes/seed`, { method: "POST", headers: authHeaders() });
@@ -241,6 +252,10 @@ export function useRecipes(filter: RecipeFilter = "all", options?: { loadAll?: b
     return deleteAllRecipesMutation.mutateAsync();
   }
 
+  async function requestDeleteAll(): Promise<{ email: string }> {
+    return requestDeleteAllMutation.mutateAsync();
+  }
+
   async function restoreDemo() {
     return restoreDemoMutation.mutateAsync();
   }
@@ -263,6 +278,7 @@ export function useRecipes(filter: RecipeFilter = "all", options?: { loadAll?: b
     deleteRecipe,
     deleteRecipeSilent,
     deleteAllRecipes,
+    requestDeleteAll,
     restoreDemo,
     toggleFavorite,
     fetchNextPage: infiniteQuery.fetchNextPage,

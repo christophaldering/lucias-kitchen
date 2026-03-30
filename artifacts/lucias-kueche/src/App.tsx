@@ -11,6 +11,7 @@ import Onboarding from "@/pages/Onboarding";
 import WasKocheIch from "@/pages/WasKocheIch";
 import MeineKueche from "@/pages/MeineKueche";
 import InviteAccept from "@/pages/InviteAccept";
+import ConfirmDelete from "@/pages/ConfirmDelete";
 import { AuthProvider, useAuth } from "@/contexts/AuthContext";
 import { ImportStatusProvider } from "@/contexts/ImportStatusContext";
 import { NotificationBell } from "@/components/NotificationBell";
@@ -240,6 +241,17 @@ function getInviteTokenFromUrl(): string | null {
   return match ? match[1]! : null;
 }
 
+function getConfirmDeleteTokenFromUrl(): string | null {
+  if (!window.location.pathname.includes("/confirm-delete")) return null;
+  const params = new URLSearchParams(window.location.search);
+  return params.get("token");
+}
+
+function shouldOpenAdminOnLoad(): boolean {
+  const params = new URLSearchParams(window.location.search);
+  return params.get("admin") === "1";
+}
+
 function getTodayLocalStr(): string {
   const d = new Date();
   const y = d.getFullYear();
@@ -257,7 +269,8 @@ function AppShell() {
   const { user, loading } = useAuth();
   const isAdmin = user?.email === ADMIN_EMAIL;
   const [inviteToken, setInviteToken] = useState<string | null>(getInviteTokenFromUrl);
-  const [activeTab, setActiveTab] = useState<Tab>("rezepte");
+  const [confirmDeleteToken] = useState<string | null>(getConfirmDeleteTokenFromUrl);
+  const [activeTab, setActiveTab] = useState<Tab>(() => shouldOpenAdminOnLoad() ? "admin" : "rezepte");
   const [previousTab, setPreviousTab] = useState<Tab>("rezepte");
   const [openRecipeId, setOpenRecipeId] = useState<number | null>(null);
   const [adminInitialTab, setAdminInitialTab] = useState<string | null>(null);
@@ -341,6 +354,10 @@ function AppShell() {
       </div>
     </div>
   ) : null;
+
+  if (confirmDeleteToken) {
+    return <ConfirmDelete token={confirmDeleteToken} />;
+  }
 
   if (isStillLoading) {
     return loadingScreen ?? null;

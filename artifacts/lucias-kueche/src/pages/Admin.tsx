@@ -310,6 +310,7 @@ function BackupSection({
   totalCount,
   addRecipes,
   deleteAllRecipes,
+  requestDeleteAll,
   restoreDemo,
   refetch,
 }: {
@@ -317,6 +318,7 @@ function BackupSection({
   totalCount?: number | null;
   addRecipes: (r: Partial<Recipe>[]) => Promise<number[]>;
   deleteAllRecipes: () => Promise<void>;
+  requestDeleteAll: () => Promise<{ email: string }>;
   restoreDemo: () => Promise<void>;
   refetch: () => Promise<void>;
 }) {
@@ -325,6 +327,10 @@ function BackupSection({
   const [importPreview, setImportPreview] = useState<Partial<Recipe>[] | null>(null);
   const [deleteConfirmText, setDeleteConfirmText] = useState("");
   const [showDeleteAll, setShowDeleteAll] = useState(false);
+  const [showDeleteConfirm2, setShowDeleteConfirm2] = useState(false);
+  const [deleteEmailSentTo, setDeleteEmailSentTo] = useState<string | null>(
+    () => sessionStorage.getItem("deleteAllEmailPending")
+  );
   const [showRestoreConfirm, setShowRestoreConfirm] = useState(false);
   const [busy, setBusy] = useState(false);
 
@@ -402,16 +408,32 @@ function BackupSection({
     finally { setBusy(false); }
   };
 
-  const doDeleteAll = async () => {
+  const doDeleteAll = () => {
     if (deleteConfirmText !== "LÖSCHEN") return;
+    setShowDeleteAll(false);
+    setShowDeleteConfirm2(true);
+  };
+
+  const doRequestDeleteEmail = async () => {
     setBusy(true);
     try {
-      await deleteAllRecipes();
-      toast("Alle Rezepte gelöscht");
-      setShowDeleteAll(false);
-      setDeleteConfirmText("");
-    } catch { toast("Fehler", "err"); }
-    finally { setBusy(false); }
+      const { email } = await requestDeleteAll();
+      sessionStorage.setItem("deleteAllEmailPending", email);
+      setShowDeleteConfirm2(false);
+      setDeleteEmailSentTo(email);
+    } catch (err) {
+      toast(err instanceof Error ? err.message : "Fehler beim Senden der E-Mail", "err");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const closeDeleteFlow = () => {
+    sessionStorage.removeItem("deleteAllEmailPending");
+    setShowDeleteAll(false);
+    setShowDeleteConfirm2(false);
+    setDeleteEmailSentTo(null);
+    setDeleteConfirmText("");
   };
 
   return (
@@ -452,21 +474,86 @@ function BackupSection({
               <AlertTriangle className="w-12 h-12 text-red-500 mx-auto mb-2" />
               <h3 className="font-serif text-lg font-semibold">Alle Rezepte löschen?</h3>
               <p className="text-sm text-muted-foreground mt-1">Diese Aktion kann nicht rückgängig gemacht werden!</p>
+              <p className="text-xs text-red-500 font-medium mt-1">Schritt 1 von 3</p>
             </div>
             <p className="text-sm mb-2 font-medium">Tippe <strong>LÖSCHEN</strong> zur Bestätigung:</p>
             <input value={deleteConfirmText} onChange={(e) => setDeleteConfirmText(e.target.value)}
               placeholder="LÖSCHEN" className="w-full px-3 py-2 rounded-xl border border-border bg-white text-sm focus:outline-none focus:ring-2 focus:ring-red-300 mb-4" />
             <div className="flex gap-3">
-              <button onClick={() => { setShowDeleteAll(false); setDeleteConfirmText(""); }}
+              <button onClick={closeDeleteFlow}
                 className="flex-1 py-2 border border-border rounded-xl text-sm hover:bg-secondary transition-colors">
                 Abbrechen
               </button>
-              <button onClick={doDeleteAll} disabled={deleteConfirmText !== "LÖSCHEN" || busy}
-                className="flex-1 py-2 bg-red-600 text-white rounded-xl text-sm font-semibold hover:bg-red-700 transition-colors disabled:opacity-50 flex items-center justify-center gap-2">
-                {busy ? <Loader2 className="w-4 h-4 animate-spin" /> : null}
-                Alles löschen
+              <button onClick={doDeleteAll} disabled={deleteConfirmText !== "LÖSCHEN"}
+                className="flex-1 py-2 bg-red-600 text-white rounded-xl text-sm font-semibold hover:bg-red-700 transition-colors disabled:opacity-50">
+                Weiter →
               </button>
             </div>
+          </div>
+        </div>
+      )}
+
+      {showDeleteConfirm2 && (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/50 p-4">
+          <div className="bg-white rounded-2xl shadow-2xl p-6 max-w-sm w-full">
+            <div className="text-center mb-4">
+              <div className="w-16 h-16 rounded-full bg-red-100 flex items-center justify-center mx-auto mb-3">
+                <Trash2 className="w-8 h-8 text-red-600" />
+              </div>
+              <h3 className="font-serif text-lg font-semibold text-red-700">Letzte Warnung!</h3>
+              <p className="text-xs text-red-500 font-medium mt-1">Schritt 2 von 3</p>
+            </div>
+            <div className="bg-red-50 border border-red-200 rounded-xl p-4 mb-4">
+              <p className="text-sm text-red-800 font-semibold text-center">
+                Du bist dabei, <strong>{displayCount} Rezepte</strong> unwiderruflich zu löschen.
+              </p>
+              <p className="text-xs text-red-700 text-center mt-2">
+                Alle Rezepte, Zutaten, Zubereitungsschritte und Bilder werden dauerhaft entfernt. Diese Aktion kann nicht rückgängig gemacht werden.
+              </p>
+            </div>
+            <p className="text-sm text-muted-foreground mb-4 text-center">
+              Im nächsten Schritt erhältst du eine Bestätigungs-E-Mail. Erst nach dem Klick auf den Link in der E-Mail werden die Daten gelöscht.
+            </p>
+            <div className="flex gap-3">
+              <button onClick={closeDeleteFlow}
+                className="flex-1 py-2 border border-border rounded-xl text-sm hover:bg-secondary transition-colors">
+                Abbrechen
+              </button>
+              <button onClick={doRequestDeleteEmail} disabled={busy}
+                className="flex-1 py-2 bg-red-600 text-white rounded-xl text-sm font-semibold hover:bg-red-700 transition-colors disabled:opacity-50 flex items-center justify-center gap-2">
+                {busy ? <Loader2 className="w-4 h-4 animate-spin" /> : <Mail className="w-4 h-4" />}
+                E-Mail senden
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {deleteEmailSentTo && (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/50 p-4">
+          <div className="bg-white rounded-2xl shadow-2xl p-6 max-w-sm w-full">
+            <div className="text-center mb-4">
+              <div className="w-16 h-16 rounded-full bg-amber-100 flex items-center justify-center mx-auto mb-3">
+                <Mail className="w-8 h-8 text-amber-600" />
+              </div>
+              <h3 className="font-serif text-lg font-semibold">E-Mail gesendet</h3>
+              <p className="text-xs text-amber-600 font-medium mt-1">Schritt 3 von 3</p>
+            </div>
+            <p className="text-sm text-center text-muted-foreground mb-3">
+              Eine Bestätigungs-E-Mail wurde an <strong>{deleteEmailSentTo}</strong> gesendet.
+            </p>
+            <p className="text-sm text-center text-muted-foreground mb-4">
+              Bitte öffne den Link in der E-Mail, um die Löschung abzuschließen. Der Link ist <strong>15 Minuten</strong> gültig.
+            </p>
+            <div className="bg-amber-50 border border-amber-200 rounded-xl p-3 mb-4">
+              <p className="text-xs text-amber-800 text-center">
+                Die Rezepte werden erst gelöscht, wenn du den Link in der E-Mail anklickst.
+              </p>
+            </div>
+            <button onClick={closeDeleteFlow}
+              className="w-full py-2 bg-[#4A7C59] text-white rounded-xl text-sm font-semibold hover:bg-[#3d6849] transition-colors">
+              Verstanden
+            </button>
           </div>
         </div>
       )}
@@ -530,10 +617,22 @@ function BackupSection({
           description={`Das Programm löscht alle ${displayCount} Rezepte unwiderruflich aus der Datenbank. Diese Aktion kann nicht rückgängig gemacht werden – sichere deine Daten vorher mit dem Export.`}
           variant="danger"
         >
-          <button onClick={() => setShowDeleteAll(true)}
-            className="flex items-center gap-2 px-4 py-2.5 bg-red-600 text-white rounded-xl text-sm font-semibold hover:bg-red-700 transition-colors">
-            <Trash2 className="w-4 h-4" /> Alle Rezepte löschen
-          </button>
+          {deleteEmailSentTo ? (
+            <div className="space-y-2">
+              <div className="flex items-center gap-2 text-amber-700 bg-amber-50 border border-amber-200 rounded-xl px-3 py-2">
+                <Mail className="w-4 h-4 flex-shrink-0" />
+                <p className="text-xs font-medium">Bestätigungs-E-Mail gesendet an <strong>{deleteEmailSentTo}</strong>. Bitte Link in der E-Mail klicken.</p>
+              </div>
+              <button onClick={closeDeleteFlow} className="text-xs text-muted-foreground underline">
+                Abbrechen
+              </button>
+            </div>
+          ) : (
+            <button onClick={() => setShowDeleteAll(true)}
+              className="flex items-center gap-2 px-4 py-2.5 bg-red-600 text-white rounded-xl text-sm font-semibold hover:bg-red-700 transition-colors">
+              <Trash2 className="w-4 h-4" /> Alle Rezepte löschen
+            </button>
+          )}
         </AdminActionCard>
       </div>
     </div>
@@ -1403,7 +1502,7 @@ function CategoryManagerWithData() {
 }
 
 function BackupSectionWithData() {
-  const { recipes, loading, error, refetch, addRecipes, deleteAllRecipes, restoreDemo } = useRecipes("all", { loadAll: true });
+  const { recipes, loading, error, refetch, addRecipes, deleteAllRecipes, requestDeleteAll, restoreDemo } = useRecipes("all", { loadAll: true });
   const { count: totalCount, refetch: refetchCount } = useRecipeCount();
 
   const handleRefetch = useCallback(async () => {
@@ -1438,6 +1537,7 @@ function BackupSectionWithData() {
       totalCount={totalCount}
       addRecipes={addRecipes}
       deleteAllRecipes={deleteAllRecipes}
+      requestDeleteAll={requestDeleteAll}
       restoreDemo={restoreDemo}
       refetch={handleRefetch}
     />

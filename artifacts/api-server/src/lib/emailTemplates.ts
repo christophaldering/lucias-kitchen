@@ -180,6 +180,42 @@ export function mealReminderEmail(opts: {
       </div>`);
 }
 
+export function deleteConfirmationEmail(opts: {
+  userName: string;
+  userEmail: string;
+  recipeCount: number;
+  confirmLink: string;
+}): string {
+  return baseLayout(`
+      <div class="body">
+        <p>Hallo ${opts.userName},</p>
+        <p>
+          Du hast beantragt, <strong style="color:#dc2626;">alle ${opts.recipeCount} Rezepte</strong> aus Lucia's Küche unwiderruflich zu löschen.
+        </p>
+        <p style="background:#fff0f0; border-left:4px solid #dc2626; padding:12px 16px; border-radius:8px; color:#dc2626; font-weight:600;">
+          ⚠️ Diese Aktion kann NICHT rückgängig gemacht werden. Alle Rezepte, Zutaten und Zubereitungsschritte werden dauerhaft gelöscht.
+        </p>
+        <p>
+          Klicke auf den Button, um die Löschung zu bestätigen. Der Link ist <strong>15 Minuten</strong> gültig.
+        </p>
+        <p style="text-align:center; margin: 24px 0;">
+          <a href="${opts.confirmLink}" style="display:inline-block; background:#dc2626; color:#ffffff !important; text-decoration:none; padding:14px 36px; border-radius:14px; font-size:16px; font-weight:700; margin:8px 0 16px;">
+            Alle Rezepte endgültig löschen
+          </a>
+        </p>
+        <p style="font-size:13px; color:${TEXT_MUTED};">
+          Wenn der Button nicht funktioniert, kopiere diesen Link in deinen Browser:<br/>
+          <a href="${opts.confirmLink}" style="color:#dc2626; word-break:break-all;">${opts.confirmLink}</a>
+        </p>
+        <p style="font-size:13px; color:${TEXT_MUTED};">
+          Falls du diese Aktion nicht beantragt hast, kannst du diese E-Mail ignorieren. Es wurden noch keine Daten gelöscht.
+        </p>
+      </div>
+      <div class="footer">
+        <p>Diese E-Mail wurde an ${opts.userEmail} gesendet, weil eine Löschung aller Rezepte beantragt wurde.</p>
+      </div>`);
+}
+
 export function reminderEmail(opts: {
   inviterName: string;
   groupName: string;

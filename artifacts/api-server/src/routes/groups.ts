@@ -1,7 +1,7 @@
 import { Router, type IRouter } from "express";
 import crypto from "crypto";
 import { db } from "@workspace/db";
-import { groupsTable, groupMembersTable, usersTable, notificationsTable } from "@workspace/db/schema";
+import { groupsTable, groupMembersTable, usersTable, notificationsTable, appSettingsTable } from "@workspace/db/schema";
 import { eq, and, or } from "drizzle-orm";
 import { z } from "zod/v4";
 import { authMiddleware } from "./auth";
@@ -18,8 +18,18 @@ function inviteExpiresAt(): Date {
   return d;
 }
 
-function getAppBaseUrl(): string {
-  const domain = process.env["REPLIT_DEV_DOMAIN"] || process.env["REPLIT_DOMAINS"]?.split(",")[0];
+async function getAppBaseUrl(): Promise<string> {
+  try {
+    const row = await db
+      .select()
+      .from(appSettingsTable)
+      .where(eq(appSettingsTable.key, "app_url"))
+      .then((r) => r[0]);
+    if (row?.value) return row.value.replace(/\/$/, "");
+  } catch {
+    // fall through
+  }
+  const domain = process.env["REPLIT_DOMAINS"]?.split(",")[0] || process.env["REPLIT_DEV_DOMAIN"];
   if (domain) return `https://${domain}`;
   return "http://localhost:5173";
 }
@@ -396,7 +406,7 @@ router.post("/groups/:id/invite", authMiddleware, async (req, res) => {
 
       const inviter = await db.select({ displayName: usersTable.displayName, email: usersTable.email }).from(usersTable).where(eq(usersTable.id, userId)).then((r) => r[0]);
       if (inviter) {
-        const inviteLink = `${getAppBaseUrl()}/invite/${token}`;
+        const inviteLink = `${await getAppBaseUrl()}/invite/${token}`;
         try {
           await sendEmail(normalizedEmail, `${inviter.displayName} lädt dich zu Lucia's Küche ein!`, invitationEmail({ inviterName: inviter.displayName, groupName: group!.name, inviteLink, invitedEmail: normalizedEmail }));
           await sendEmail(inviter.email, `Einladung an ${normalizedEmail} versandt`, confirmationEmail({ inviterName: inviter.displayName, invitedEmail: normalizedEmail, groupName: group!.name }));
@@ -449,7 +459,7 @@ router.post("/groups/:id/invite", authMiddleware, async (req, res) => {
 
     const inviter = await db.select({ displayName: usersTable.displayName, email: usersTable.email }).from(usersTable).where(eq(usersTable.id, userId)).then((r) => r[0]);
     if (inviter) {
-      const inviteLink = `${getAppBaseUrl()}/invite/${token}`;
+      const inviteLink = `${await getAppBaseUrl()}/invite/${token}`;
       try {
         await sendEmail(invitedUser.email, `${inviter.displayName} lädt dich zu Lucia's Küche ein!`, invitationEmail({ inviterName: inviter.displayName, groupName: group!.name, inviteLink, invitedEmail: invitedUser.email }));
         await sendEmail(inviter.email, `Einladung an ${invitedUser.email} versandt`, confirmationEmail({ inviterName: inviter.displayName, invitedEmail: invitedUser.email, groupName: group!.name }));
@@ -629,7 +639,7 @@ router.post("/groups/family-invite", authMiddleware, async (req, res) => {
         .returning();
 
       if (inviter) {
-        const inviteLink = `${getAppBaseUrl()}/invite/${token}`;
+        const inviteLink = `${await getAppBaseUrl()}/invite/${token}`;
         try {
           await sendEmail(normalizedEmail, `${inviter.displayName} lädt dich zu Lucia's Küche ein!`, invitationEmail({ inviterName: inviter.displayName, groupName: group?.name ?? "Meine Familie", inviteLink, invitedEmail: normalizedEmail }));
           await sendEmail(inviter.email, `Einladung an ${normalizedEmail} versandt`, confirmationEmail({ inviterName: inviter.displayName, invitedEmail: normalizedEmail, groupName: group?.name ?? "Meine Familie" }));
@@ -753,7 +763,7 @@ async function handleInviteRemindOrResend(req: any, res: any) {
       .where(eq(usersTable.id, userId))
       .then((r) => r[0]);
 
-    const inviteLink = `${getAppBaseUrl()}/invite/${newToken}`;
+    const inviteLink = `${await getAppBaseUrl()}/invite/${newToken}`;
     let emailSent = false;
     if (sender && targetMember.invitedEmail) {
       if (!await isEmailConfigured()) {

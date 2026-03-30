@@ -1012,9 +1012,16 @@ function AppSettings() {
 }
 
 function EmailSettings() {
-  const [config, setConfig] = useState<{ senderEmail: string; passwordConfigured: boolean; passwordSource: string } | null>(null);
+  const [config, setConfig] = useState<{
+    senderEmail: string;
+    passwordConfigured: boolean;
+    passwordSource: string;
+    appUrl: string | null;
+    defaultAppUrl: string | null;
+  } | null>(null);
   const [loading, setLoading] = useState(true);
   const [emailInput, setEmailInput] = useState("");
+  const [appUrlInput, setAppUrlInput] = useState("");
   const [passwordInput, setPasswordInput] = useState("");
   const [showPassword, setShowPassword] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -1030,6 +1037,7 @@ function EmailSettings() {
         const data = await res.json();
         setConfig(data);
         setEmailInput(data.senderEmail ?? "");
+        setAppUrlInput(data.appUrl ?? data.defaultAppUrl ?? "");
       }
     } catch {
       toast("Konfiguration konnte nicht geladen werden", "err");
@@ -1041,12 +1049,13 @@ function EmailSettings() {
   useEffect(() => { loadConfig(); }, [loadConfig]);
 
   const handleSave = async () => {
-    if (!emailInput.trim() && !passwordInput.trim()) return;
+    if (!emailInput.trim() && !passwordInput.trim() && !appUrlInput.trim()) return;
     setSaving(true);
     try {
       const body: Record<string, string> = {};
       if (emailInput.trim()) body.senderEmail = emailInput.trim();
       if (passwordInput.trim()) body.password = passwordInput.trim();
+      if (appUrlInput.trim()) body.appUrl = appUrlInput.trim();
       const res = await fetch("/api/admin/email-config", {
         method: "POST",
         headers: { ...authHeaders(), "Content-Type": "application/json" },
@@ -1097,15 +1106,24 @@ function EmailSettings() {
         <>
           <AdminActionCard
             title="📊 Aktueller Status"
-            description="Zeigt an, welche E-Mail-Adresse für den Versand verwendet wird und ob das Passwort konfiguriert ist."
+            description="Zeigt an, welche Adressen und Zugangsdaten für den E-Mail-Versand verwendet werden."
           >
-            <div className="space-y-3">
+            <div className="space-y-0">
               <div className="flex items-center justify-between py-3 border-b border-border/50">
                 <div>
                   <p className="text-sm font-medium">Absender-Adresse</p>
                   <p className="text-xs text-muted-foreground mt-0.5">{config?.senderEmail ?? "–"}</p>
                 </div>
                 <Mail className="w-5 h-5 text-[#4A7C59]" />
+              </div>
+              <div className="flex items-center justify-between py-3 border-b border-border/50">
+                <div>
+                  <p className="text-sm font-medium">App-URL (für Einladungslinks)</p>
+                  <p className="text-xs text-muted-foreground mt-0.5 break-all">{config?.appUrl ?? config?.defaultAppUrl ?? "–"}</p>
+                  {!config?.appUrl && (
+                    <p className="text-xs text-amber-600 mt-0.5">⚠ Keine feste URL gespeichert – Einladungslinks können sich ändern!</p>
+                  )}
+                </div>
               </div>
               <div className="flex items-center justify-between py-3">
                 <div>
@@ -1129,9 +1147,22 @@ function EmailSettings() {
 
           <AdminActionCard
             title="✏️ Konfiguration ändern"
-            description="Trage die Gmail-Adresse ein, von der Einladungen versendet werden sollen. Das App-Passwort ist ein 16-stelliger Google-Schlüssel (nicht dein normales Passwort)."
+            description="Trage hier die App-URL (stabile Produktions-URL), die Absender-E-Mail-Adresse und das Gmail App-Passwort ein."
           >
             <div className="space-y-4">
+              <div>
+                <label className="block text-xs font-semibold text-muted-foreground mb-1 uppercase tracking-wide">App-URL (für Einladungslinks) *</label>
+                <input
+                  type="url"
+                  value={appUrlInput}
+                  onChange={(e) => setAppUrlInput(e.target.value)}
+                  placeholder="z.B. https://luciaas-kueche.replit.app"
+                  className="w-full px-3 py-2.5 rounded-xl border border-border bg-white text-sm focus:outline-none focus:ring-2 focus:ring-[#4A7C59]/30"
+                />
+                <p className="text-xs text-muted-foreground mt-1">
+                  Die stabile URL der veröffentlichten App. Einladungslinks zeigen auf diese Adresse.
+                </p>
+              </div>
               <div>
                 <label className="block text-xs font-semibold text-muted-foreground mb-1 uppercase tracking-wide">Absender-E-Mail-Adresse</label>
                 <input

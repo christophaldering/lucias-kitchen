@@ -40,11 +40,18 @@ router.get("/admin/email-config", authMiddleware, async (req, res) => {
     const hasDbPassword = !!(await getSetting("smtp_password"));
     const hasEnvPassword = !!process.env["GMAIL_APP_PASSWORD"];
     const hasPassword = hasDbPassword || hasEnvPassword;
+    const appUrl = (await getSetting("app_url")) ?? null;
+    const defaultAppUrl = (() => {
+      const domain = process.env["REPLIT_DOMAINS"]?.split(",")[0] || process.env["REPLIT_DEV_DOMAIN"];
+      return domain ? `https://${domain}` : null;
+    })();
 
     res.json({
       senderEmail,
       passwordConfigured: hasPassword,
       passwordSource: hasDbPassword ? "database" : hasEnvPassword ? "environment" : "none",
+      appUrl,
+      defaultAppUrl,
     });
   } catch (err) {
     req.log.error({ err }, "Failed to get email config");
@@ -62,15 +69,19 @@ router.post("/admin/email-config", authMiddleware, async (req, res) => {
     const schema = z.object({
       senderEmail: z.string().email().optional(),
       password: z.string().min(1).optional(),
+      appUrl: z.string().url().optional(),
     });
 
-    const { senderEmail, password } = schema.parse(req.body);
+    const { senderEmail, password, appUrl } = schema.parse(req.body);
 
     if (senderEmail) {
       await setSetting("smtp_sender_email", senderEmail);
     }
     if (password) {
       await setSetting("smtp_password", password);
+    }
+    if (appUrl !== undefined) {
+      await setSetting("app_url", appUrl.replace(/\/$/, ""));
     }
 
     res.json({ success: true });

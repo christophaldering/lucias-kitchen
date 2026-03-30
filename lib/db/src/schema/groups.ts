@@ -1,4 +1,4 @@
-import { pgTable, text, serial, integer, timestamp, pgEnum } from "drizzle-orm/pg-core";
+import { pgTable, text, serial, integer, timestamp, pgEnum, json } from "drizzle-orm/pg-core";
 import { usersTable } from "./users";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod/v4";
@@ -28,6 +28,7 @@ export const groupMembersTable = pgTable("group_members", {
   memberStatus: groupMemberStatusEnum("member_status").notNull().default("invited"),
   inviteToken: text("invite_token").unique(),
   inviteTokenExpiresAt: timestamp("invite_token_expires_at"),
+  remindersSentAt: json("reminders_sent_at").$type<string[]>().default([]),
   createdAt: timestamp("created_at").notNull().defaultNow(),
 });
 

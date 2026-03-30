@@ -305,6 +305,7 @@ router.get("/groups/:id/members", authMiddleware, async (req, res) => {
         role: groupMembersTable.role,
         memberStatus: groupMembersTable.memberStatus,
         createdAt: groupMembersTable.createdAt,
+        remindersSentAt: groupMembersTable.remindersSentAt,
         displayName: usersTable.displayName,
         email: usersTable.email,
         avatarUrl: usersTable.avatarUrl,
@@ -746,9 +747,14 @@ async function handleInviteRemindOrResend(req: any, res: any) {
     }
 
     const newToken = generateInviteToken();
+    const existingReminders: string[] = Array.isArray(targetMember.remindersSentAt) ? targetMember.remindersSentAt as string[] : [];
     await db
       .update(groupMembersTable)
-      .set({ inviteToken: newToken, inviteTokenExpiresAt: inviteExpiresAt() })
+      .set({
+        inviteToken: newToken,
+        inviteTokenExpiresAt: inviteExpiresAt(),
+        remindersSentAt: [...existingReminders, new Date().toISOString()],
+      })
       .where(eq(groupMembersTable.id, targetMember.id));
 
     const group = await db

@@ -107,6 +107,7 @@ export default function GroupMembersModal({ group, onClose, isOwner }: Props) {
       } else {
         toast(`Erinnerung an „${member.displayName ?? member.invitedEmail ?? "Eingeladene Person"}" versandt ✉️`);
         setRemindedIds((prev) => new Set(prev).add(member.id));
+        await loadMembers();
         setTimeout(() => {
           setRemindedIds((prev) => {
             const next = new Set(prev);
@@ -368,16 +369,29 @@ export default function GroupMembersModal({ group, onClose, isOwner }: Props) {
                       </div>
                     </div>
                     {m.memberStatus === "invited" && (
-                      <div className="mt-2 pt-2 border-t border-amber-200/60 flex items-center justify-between gap-2">
-                        <p className="text-xs text-amber-700 flex items-center gap-1">
-                          <Clock className="w-3 h-3" />
-                          Eingeladen am {formatDate(m.createdAt)} · noch nicht reagiert
-                        </p>
+                      <div className="mt-2 pt-2 border-t border-amber-200/60 flex items-start justify-between gap-2">
+                        <div className="flex flex-col gap-0.5 text-xs text-amber-700 min-w-0">
+                          <span className="flex items-center gap-1">
+                            <Clock className="w-3 h-3 flex-shrink-0" />
+                            Eingeladen am {formatDate(m.createdAt)}
+                          </span>
+                          {m.remindersSentAt && m.remindersSentAt.length > 0 && (
+                            <div className="flex flex-col gap-0.5 pl-4">
+                              {m.remindersSentAt.map((ts, i) => (
+                                <span key={i} className="flex items-center gap-1 text-amber-600">
+                                  <RotateCcw className="w-2.5 h-2.5 flex-shrink-0" />
+                                  Erinnert am {formatDate(ts)}
+                                </span>
+                              ))}
+                            </div>
+                          )}
+                          <span className="text-amber-500 pl-4">noch nicht reagiert</span>
+                        </div>
                         {isOwner && (
                           <button
                             onClick={() => handleRemind(m)}
                             disabled={remindingIds.has(m.id) || remindedIds.has(m.id)}
-                            className="flex items-center gap-1 px-2.5 py-1 rounded-lg bg-amber-100 hover:bg-amber-200 text-amber-800 text-xs font-medium transition-colors disabled:opacity-50"
+                            className="flex items-center gap-1 px-2.5 py-1 rounded-lg bg-amber-100 hover:bg-amber-200 text-amber-800 text-xs font-medium transition-colors disabled:opacity-50 flex-shrink-0"
                             title="Einladung erneut senden"
                           >
                             {remindingIds.has(m.id) ? (

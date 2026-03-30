@@ -29,6 +29,7 @@ export interface GroupMember {
   role: "owner" | "member";
   memberStatus: "invited" | "joined";
   createdAt: string;
+  remindersSentAt: string[] | null;
   displayName: string | null;
   email: string | null;
   avatarUrl: string | null;

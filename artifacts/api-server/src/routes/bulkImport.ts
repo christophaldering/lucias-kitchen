@@ -13,6 +13,7 @@ import {
 } from "@workspace/db/schema";
 import { eq, and, desc, sql, or, inArray } from "drizzle-orm";
 import { anthropic } from "@workspace/integrations-anthropic-ai";
+import { escalatingTrim } from "../lib/imageUtils";
 import { openai } from "@workspace/integrations-openai-ai-server";
 import { ObjectStorageService, objectStorageClient } from "../lib/objectStorage";
 import {
@@ -427,22 +428,26 @@ async function processPdfFile(
                   const cropY = Math.max(0, Math.round((crop.y / 100) * imgHeight));
                   const cropW = Math.min(imgWidth - cropX, Math.max(1, Math.round((crop.width / 100) * imgWidth)));
                   const cropH = Math.min(imgHeight - cropY, Math.max(1, Math.round((crop.height / 100) * imgHeight)));
-                  finalBuffer = await sharpLib(embImg.data)
+                  const extractedBulk = await sharpLib(embImg.data)
                     .extract({ left: cropX, top: cropY, width: cropW, height: cropH })
-                    .trim({ threshold: 12 })
+                    .toBuffer();
+                  const trimmedBulk = await escalatingTrim(extractedBulk);
+                  finalBuffer = await sharpLib(trimmedBulk)
                     .resize(800, 800, { fit: "inside", withoutEnlargement: true })
                     .webp({ quality: 82 })
                     .toBuffer();
                 } else {
-                  finalBuffer = await sharpLib(embImg.data)
-                    .trim({ threshold: 30 })
+                  const rawBulkElse = await sharpLib(embImg.data).toBuffer();
+                  const trimmedBulkElse = await escalatingTrim(rawBulkElse);
+                  finalBuffer = await sharpLib(trimmedBulkElse)
                     .resize(800, 800, { fit: "inside", withoutEnlargement: true })
                     .webp({ quality: 82 })
                     .toBuffer();
                 }
               } catch {
-                finalBuffer = await sharpLib(embImg.data)
-                  .trim({ threshold: 30 })
+                const rawBulkCatch = await sharpLib(embImg.data).toBuffer();
+                const trimmedBulkCatch = await escalatingTrim(rawBulkCatch);
+                finalBuffer = await sharpLib(trimmedBulkCatch)
                   .resize(800, 800, { fit: "inside", withoutEnlargement: true })
                   .webp({ quality: 82 })
                   .toBuffer();

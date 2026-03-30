@@ -11,6 +11,7 @@ import fs from "fs";
 import { createHash, randomUUID } from "crypto";
 import { generateTagsForRecipe } from "../lib/generateRecipeTags";
 import { openai } from "@workspace/integrations-openai-ai-server";
+import { escalatingTrim } from "../lib/imageUtils";
 
 const ADMIN_EMAIL = "lucia.aldering@googlemail.com";
 function isAdmin(email: string) {
@@ -2585,9 +2586,11 @@ router.post("/recipes/:id/extract-image-from-source", authMiddleware, async (req
       const cropW = Math.min(imgWidth - cropX, Math.max(1, Math.round((crop.width / 100) * imgWidth)));
       const cropH = Math.min(imgHeight - cropY, Math.max(1, Math.round((crop.height / 100) * imgHeight)));
 
-      const croppedBuffer = await sharp(foundPageBuffer)
+      const extractedBuf0 = await sharp(foundPageBuffer)
         .extract({ left: cropX, top: cropY, width: cropW, height: cropH })
-        .trim({ threshold: 12 })
+        .toBuffer();
+      const trimmedBuf0 = await escalatingTrim(extractedBuf0);
+      const croppedBuffer = await sharp(trimmedBuf0)
         .resize(800, 800, { fit: "inside", withoutEnlargement: true })
         .webp({ quality: 82 })
         .toBuffer();
@@ -2778,9 +2781,11 @@ router.post("/recipes/:id/extract-all-photos-from-source", authMiddleware, async
         const cropW = Math.min(imgWidth - cropX, Math.max(1, Math.round((crop.width / 100) * imgWidth)));
         const cropH = Math.min(imgHeight - cropY, Math.max(1, Math.round((crop.height / 100) * imgHeight)));
 
-        const croppedBuffer = await sharp(entry.buffer)
+        const extractedBuf1 = await sharp(entry.buffer)
           .extract({ left: cropX, top: cropY, width: cropW, height: cropH })
-          .trim({ threshold: 12 })
+          .toBuffer();
+        const trimmedBuf1 = await escalatingTrim(extractedBuf1);
+        const croppedBuffer = await sharp(trimmedBuf1)
           .resize(800, 800, { fit: "inside", withoutEnlargement: true })
           .webp({ quality: 82 })
           .toBuffer();
@@ -3108,9 +3113,11 @@ router.post("/admin/extract-scan-photos", authMiddleware, async (req, res) => {
         const cropW = Math.min(imgWidth - cropX, Math.max(1, Math.round((crop.width / 100) * imgWidth)));
         const cropH = Math.min(imgHeight - cropY, Math.max(1, Math.round((crop.height / 100) * imgHeight)));
 
-        const croppedBuffer = await sharp(foundPageBuffer)
+        const extractedBuf2 = await sharp(foundPageBuffer)
           .extract({ left: cropX, top: cropY, width: cropW, height: cropH })
-          .trim({ threshold: 12 })
+          .toBuffer();
+        const trimmedBuf2 = await escalatingTrim(extractedBuf2);
+        const croppedBuffer = await sharp(trimmedBuf2)
           .resize(800, 800, { fit: "inside", withoutEnlargement: true })
           .webp({ quality: 82 })
           .toBuffer();

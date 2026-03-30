@@ -9,6 +9,7 @@ import { eq, and, isNull, isNotNull, notInArray, sql } from "drizzle-orm";
 import { authMiddleware } from "./auth";
 import { openai } from "@workspace/integrations-openai-ai-server";
 import { invalidateRecipeListCache } from "./recipes";
+import { escalatingTrim } from "../lib/imageUtils";
 
 const ADMIN_EMAIL = "lucia.aldering@googlemail.com";
 function isAdmin(email: string) {
@@ -195,9 +196,11 @@ async function processRecipe(
       const cropW = Math.min(imgWidth - cropX, Math.max(1, Math.round((crop.width / 100) * imgWidth)));
       const cropH = Math.min(imgHeight - cropY, Math.max(1, Math.round((crop.height / 100) * imgHeight)));
 
-      const croppedBuffer = await sharp(entry.buffer)
+      const extractedBuf = await sharp(entry.buffer)
         .extract({ left: cropX, top: cropY, width: cropW, height: cropH })
-        .trim({ threshold: 12 })
+        .toBuffer();
+      const trimmedBuf = await escalatingTrim(extractedBuf);
+      const croppedBuffer = await sharp(trimmedBuf)
         .resize(800, 800, { fit: "inside", withoutEnlargement: true })
         .webp({ quality: 82 })
         .toBuffer();

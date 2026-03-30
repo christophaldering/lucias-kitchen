@@ -8,7 +8,7 @@ import {
   usersTable,
   recipesTable,
 } from "@workspace/db/schema";
-import { eq, and, or, inArray } from "drizzle-orm";
+import { eq, and, or, inArray, sql } from "drizzle-orm";
 import { z } from "zod/v4";
 import { authMiddleware } from "./auth";
 import { sendEmail, isEmailConfigured } from "../lib/email";
@@ -541,8 +541,16 @@ router.post("/meal-invitations/:id/remind", authMiddleware, async (req, res) => 
     }
 
     const appLink = `${process.env["APP_BASE_URL"] ?? "https://lucias-kueche.replit.app"}/meal-invitations/${id}`;
+    const nowIso = new Date().toISOString();
 
     for (const member of pendingMembers) {
+      await db
+        .update(mealInvitationMembersTable)
+        .set({
+          remindersSentAt: sql`coalesce(${mealInvitationMembersTable.remindersSentAt}, '[]'::jsonb) || ${JSON.stringify([nowIso])}::jsonb`,
+        })
+        .where(eq(mealInvitationMembersTable.id, member.id));
+
       await createNotification(
         member.userId,
         "reminder",
@@ -572,6 +580,107 @@ router.post("/meal-invitations/:id/remind", authMiddleware, async (req, res) => 
   } catch (err) {
     req.log.error({ err }, "Failed to send reminders");
     res.status(500).json({ error: "internal_error", message: "Failed to send reminders" });
+  }
+});
+
+router.post("/meal-invitations/:id/guests/:guestId/remind", authMiddleware, async (req, res) => {
+  try {
+    const id = Number(req.params.id);
+    const guestId = Number(req.params.guestId);
+    if (isNaN(id) || isNaN(guestId)) {
+      res.status(400).json({ error: "bad_request", message: "Invalid id" });
+      return;
+    }
+
+    const userId = req.authUser!.id;
+
+    const [invitation] = await db
+      .select()
+      .from(mealInvitationsTable)
+      .where(eq(mealInvitationsTable.id, id));
+
+    if (!invitation) {
+      res.status(404).json({ error: "not_found", message: "Invitation not found" });
+      return;
+    }
+
+    if (invitation.hostUserId !== userId) {
+      res.status(403).json({ error: "forbidden", message: "Only the host can send reminders" });
+      return;
+    }
+
+    if (invitation.status !== "open") {
+      res.status(400).json({ error: "bad_request", message: "Reminders can only be sent for open invitations" });
+      return;
+    }
+
+    const [member] = await db
+      .select()
+      .from(mealInvitationMembersTable)
+      .where(
+        and(
+          eq(mealInvitationMembersTable.id, guestId),
+          eq(mealInvitationMembersTable.mealInvitationId, id)
+        )
+      );
+
+    if (!member) {
+      res.status(404).json({ error: "not_found", message: "Guest not found" });
+      return;
+    }
+
+    if (member.rsvp !== "pending") {
+      res.status(400).json({ error: "bad_request", message: "Guest has already responded" });
+      return;
+    }
+
+    const [host] = await db
+      .select({ displayName: usersTable.displayName })
+      .from(usersTable)
+      .where(eq(usersTable.id, userId));
+
+    const nowIso = new Date().toISOString();
+
+    await db
+      .update(mealInvitationMembersTable)
+      .set({
+        remindersSentAt: sql`coalesce(${mealInvitationMembersTable.remindersSentAt}, '[]'::jsonb) || ${JSON.stringify([nowIso])}::jsonb`,
+      })
+      .where(eq(mealInvitationMembersTable.id, member.id));
+
+    await createNotification(
+      member.userId,
+      "reminder",
+      `Du wurdest an die Einladung zum Kochabend am ${invitation.date} erinnert – bitte antworte noch.`,
+      id
+    );
+
+    if (await isEmailConfigured()) {
+      const [guestUser] = await db
+        .select({ id: usersTable.id, email: usersTable.email })
+        .from(usersTable)
+        .where(eq(usersTable.id, member.userId));
+
+      if (guestUser?.email) {
+        try {
+          const appLink = `${process.env["APP_BASE_URL"] ?? "https://lucias-kueche.replit.app"}/meal-invitations/${id}`;
+          const html = mealReminderEmail({
+            hostName: host?.displayName ?? "Dein Gastgeber",
+            date: invitation.date,
+            appLink,
+            guestEmail: guestUser.email,
+          });
+          await sendEmail(guestUser.email, `Erinnerung: Kochabend am ${invitation.date}`, html);
+        } catch (emailErr) {
+          req.log.warn({ err: emailErr, userId: member.userId }, "Failed to send reminder email to guest");
+        }
+      }
+    }
+
+    res.json({ success: true, reminded: 1 });
+  } catch (err) {
+    req.log.error({ err }, "Failed to send individual reminder");
+    res.status(500).json({ error: "internal_error", message: "Failed to send reminder" });
   }
 });
 

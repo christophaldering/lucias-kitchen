@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { X, Utensils, CheckCircle, ThumbsUp, ThumbsDown, Clock, Bell } from "lucide-react";
+import { X, Utensils, CheckCircle, ThumbsUp, ThumbsDown, Clock, Bell, Loader2, Check, RotateCcw } from "lucide-react";
 import type { MealInvitation } from "@/hooks/useInvitations";
 import type { Recipe } from "@/types/recipe";
 
@@ -10,14 +10,18 @@ interface Props {
   onDecide: (finalRecipeId: number) => Promise<void>;
   onCancel: () => Promise<void>;
   onRemind: () => Promise<{ success: boolean; reminded: number }>;
+  onRemindGuest?: (guestId: number) => Promise<{ success: boolean; reminded: number }>;
+  onRefresh?: () => void;
 }
 
-export default function InvitationHostDialog({ invitation, recipes, onClose, onDecide, onCancel, onRemind }: Props) {
+export default function InvitationHostDialog({ invitation, recipes, onClose, onDecide, onCancel, onRemind, onRemindGuest, onRefresh }: Props) {
   const [showRecipePicker, setShowRecipePicker] = useState(false);
   const [selectedRecipeId, setSelectedRecipeId] = useState<number | null>(invitation.finalRecipeId);
   const [deciding, setDeciding] = useState(false);
   const [cancelling, setCancelling] = useState(false);
   const [reminding, setReminding] = useState(false);
+  const [remindingGuestIds, setRemindingGuestIds] = useState<Set<number>>(new Set());
+  const [remindedGuestIds, setRemindedGuestIds] = useState<Set<number>>(new Set());
   const [toast, setToast] = useState<string | null>(null);
   const [error, setError] = useState("");
 
@@ -46,6 +50,13 @@ export default function InvitationHostDialog({ invitation, recipes, onClose, onD
   const recipeOptions = (invitation.recipeOptions ?? []).map((rid: number) =>
     recipes.find((r) => r.id === rid)
   ).filter(Boolean) as Recipe[];
+
+  const formatDate = (dateStr: string | null | undefined) => {
+    if (!dateStr) return "";
+    try {
+      return new Date(dateStr).toLocaleDateString("de-DE", { day: "2-digit", month: "2-digit", year: "numeric" });
+    } catch { return ""; }
+  };
 
   async function handleDecide() {
     if (!selectedRecipeId) return;
@@ -78,10 +89,38 @@ export default function InvitationHostDialog({ invitation, recipes, onClose, onD
       const result = await onRemind();
       setToast(`Erinnerung an ${result.reminded} Gast${result.reminded !== 1 ? "e" : ""} gesendet.`);
       setTimeout(() => setToast(null), 4000);
+      onRefresh?.();
     } catch (e: unknown) {
       setError(e instanceof Error ? e.message : "Fehler beim Erinnern");
     } finally {
       setReminding(false);
+    }
+  }
+
+  async function handleRemindGuest(guestId: number) {
+    if (!onRemindGuest || remindingGuestIds.has(guestId) || remindedGuestIds.has(guestId)) return;
+    setRemindingGuestIds((prev) => new Set(prev).add(guestId));
+    try {
+      await onRemindGuest(guestId);
+      setRemindedGuestIds((prev) => new Set(prev).add(guestId));
+      setToast("Erinnerung gesendet.");
+      setTimeout(() => {
+        setToast(null);
+        setRemindedGuestIds((prev) => {
+          const next = new Set(prev);
+          next.delete(guestId);
+          return next;
+        });
+      }, 3000);
+      onRefresh?.();
+    } catch (e: unknown) {
+      setError(e instanceof Error ? e.message : "Fehler beim Erinnern");
+    } finally {
+      setRemindingGuestIds((prev) => {
+        const next = new Set(prev);
+        next.delete(guestId);
+        return next;
+      });
     }
   }
 
@@ -131,46 +170,88 @@ export default function InvitationHostDialog({ invitation, recipes, onClose, onD
             </p>
             <div className="space-y-2">
               {invitation.members.map((member) => (
-                <div key={member.id} className="flex items-start gap-3 p-3 bg-gray-50 rounded-xl">
-                  <div className="w-8 h-8 rounded-full overflow-hidden border border-gray-200 flex-shrink-0">
-                    {member.user?.avatarUrl ? (
-                      <img src={member.user.avatarUrl} alt="" className="w-full h-full object-cover" />
-                    ) : (
-                      <div className="w-full h-full bg-[#C1693A] flex items-center justify-center">
-                        <span className="text-white text-xs font-bold">
-                          {member.user?.displayName.slice(0, 2).toUpperCase() ?? "?"}
+                <div key={member.id} className={`p-3 rounded-xl ${member.rsvp === "pending" ? "bg-amber-50/60 border border-amber-200/60" : "bg-gray-50"}`}>
+                  <div className="flex items-start gap-3">
+                    <div className="w-8 h-8 rounded-full overflow-hidden border border-gray-200 flex-shrink-0">
+                      {member.user?.avatarUrl ? (
+                        <img src={member.user.avatarUrl} alt="" className="w-full h-full object-cover" />
+                      ) : (
+                        <div className="w-full h-full bg-[#C1693A] flex items-center justify-center">
+                          <span className="text-white text-xs font-bold">
+                            {member.user?.displayName.slice(0, 2).toUpperCase() ?? "?"}
+                          </span>
+                        </div>
+                      )}
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <span className="text-sm font-medium text-gray-900">{member.user?.displayName ?? "Unbekannt"}</span>
+                        <span className={`text-xs px-2 py-0.5 rounded-full ${
+                          member.rsvp === "coming" ? "bg-green-100 text-green-700" :
+                          member.rsvp === "not_coming" ? "bg-red-100 text-red-600" :
+                          "bg-amber-100 text-amber-700"
+                        }`}>
+                          {member.rsvp === "coming" ? "Kommt" : member.rsvp === "not_coming" ? "Kommt nicht" : "Ausstehend"}
                         </span>
                       </div>
-                    )}
-                  </div>
-                  <div className="flex-1 min-w-0">
-                    <div className="flex items-center gap-2">
-                      <span className="text-sm font-medium text-gray-900">{member.user?.displayName ?? "Unbekannt"}</span>
-                      <span className={`text-xs px-2 py-0.5 rounded-full ${
-                        member.rsvp === "coming" ? "bg-green-100 text-green-700" :
-                        member.rsvp === "not_coming" ? "bg-red-100 text-red-600" :
-                        "bg-gray-100 text-gray-500"
-                      }`}>
-                        {member.rsvp === "coming" ? "Kommt" : member.rsvp === "not_coming" ? "Kommt nicht" : "Ausstehend"}
-                      </span>
+                      {member.wish ? (
+                        <div className="mt-1">
+                          {member.wish.wishText && (
+                            <p className="text-xs text-gray-600">💬 {member.wish.wishText}</p>
+                          )}
+                          {member.wish.recipeId && (
+                            <p className="text-xs text-gray-600">
+                              🍽️ {recipes.find((r) => r.id === member.wish?.recipeId)?.title ?? `Rezept #${member.wish.recipeId}`}
+                            </p>
+                          )}
+                          {member.wish.constraints && (
+                            <p className="text-xs text-orange-600">⚠️ {member.wish.constraints}</p>
+                          )}
+                        </div>
+                      ) : (
+                        <p className="text-xs text-gray-400 mt-0.5">Noch keine Antwort</p>
+                      )}
+
+                      {/* Reminder history for pending guests */}
+                      {member.rsvp === "pending" && invitation.status === "open" && (
+                        <div className="mt-2 pt-2 border-t border-amber-200/60">
+                          <div className="flex flex-col gap-0.5 text-xs text-amber-700 mb-1.5">
+                            {member.createdAt && (
+                              <span className="flex items-center gap-1">
+                                <Clock className="w-3 h-3 flex-shrink-0" />
+                                Eingeladen am {formatDate(member.createdAt)}
+                              </span>
+                            )}
+                            {member.remindersSentAt && member.remindersSentAt.length > 0 && (
+                              <div className="flex flex-col gap-0.5 pl-4">
+                                {member.remindersSentAt.map((ts, i) => (
+                                  <span key={i} className="flex items-center gap-1 text-amber-600">
+                                    <RotateCcw className="w-2.5 h-2.5 flex-shrink-0" />
+                                    Erinnert am {formatDate(ts)}
+                                  </span>
+                                ))}
+                              </div>
+                            )}
+                          </div>
+                          {onRemindGuest && (
+                            <button
+                              onClick={() => handleRemindGuest(member.id)}
+                              disabled={remindingGuestIds.has(member.id) || remindedGuestIds.has(member.id)}
+                              className="flex items-center gap-1 px-2.5 py-1 rounded-lg bg-amber-100 hover:bg-amber-200 text-amber-800 text-xs font-medium transition-colors disabled:opacity-50"
+                            >
+                              {remindingGuestIds.has(member.id) ? (
+                                <Loader2 className="w-3 h-3 animate-spin" />
+                              ) : remindedGuestIds.has(member.id) ? (
+                                <Check className="w-3 h-3 text-[#4A7C59]" />
+                              ) : (
+                                <RotateCcw className="w-3 h-3" />
+                              )}
+                              {remindedGuestIds.has(member.id) ? "Versandt" : "Erinnern"}
+                            </button>
+                          )}
+                        </div>
+                      )}
                     </div>
-                    {member.wish ? (
-                      <div className="mt-1">
-                        {member.wish.wishText && (
-                          <p className="text-xs text-gray-600">💬 {member.wish.wishText}</p>
-                        )}
-                        {member.wish.recipeId && (
-                          <p className="text-xs text-gray-600">
-                            🍽️ {recipes.find((r) => r.id === member.wish?.recipeId)?.title ?? `Rezept #${member.wish.recipeId}`}
-                          </p>
-                        )}
-                        {member.wish.constraints && (
-                          <p className="text-xs text-orange-600">⚠️ {member.wish.constraints}</p>
-                        )}
-                      </div>
-                    ) : (
-                      <p className="text-xs text-gray-400 mt-0.5">Noch keine Antwort</p>
-                    )}
                   </div>
                 </div>
               ))}

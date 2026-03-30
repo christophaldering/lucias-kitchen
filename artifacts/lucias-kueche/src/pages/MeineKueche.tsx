@@ -482,7 +482,7 @@ function GesendetSection({
   onOpenRecipe?: (recipeId: number) => void;
 }) {
   const { groups, loading: groupsLoading, getMembers, remindMember } = useGroups();
-  const { invitations, loading: invLoading, updateInvitation, cancelInvitation, remindGuests, refetch } = useInvitations();
+  const { invitations, loading: invLoading, updateInvitation, cancelInvitation, remindGuests, remindGuest, refetch } = useInvitations();
   const { recipes } = useRecipes("all", { loadAll: true });
   const { suggestions: outgoing, loading: outgoingLoading } = useOutgoingSuggestions();
 
@@ -803,6 +803,10 @@ function GesendetSection({
           onRemind={async () => {
             return await remindGuests(managingInvitation.id);
           }}
+          onRemindGuest={async (guestId) => {
+            return await remindGuest(managingInvitation.id, guestId);
+          }}
+          onRefresh={() => refetch()}
         />
       )}
     </div>
@@ -926,7 +930,7 @@ function SuggestionCard({
 }
 
 function KocheinladungenSection({ user }: { user: ReturnType<typeof useAuth>["user"] }) {
-  const { invitations, loading, submitWish, updateRsvp, updateInvitation, cancelInvitation, remindGuests, refetch } = useInvitations();
+  const { invitations, loading, submitWish, updateRsvp, updateInvitation, cancelInvitation, remindGuests, remindGuest, refetch } = useInvitations();
   const { data: notifications = [] } = useNotifications();
   const markReadMutation = useMarkNotificationRead();
   const markAllReadMutation = useMarkAllNotificationsRead();
@@ -1162,6 +1166,10 @@ function KocheinladungenSection({ user }: { user: ReturnType<typeof useAuth>["us
           onRemind={async () => {
             return await remindGuests(managingInvitation.id);
           }}
+          onRemindGuest={async (guestId) => {
+            return await remindGuest(managingInvitation.id, guestId);
+          }}
+          onRefresh={() => refetch()}
         />
       )}
     </div>

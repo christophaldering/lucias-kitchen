@@ -23,6 +23,8 @@ export const mealInvitationMembersTable = pgTable("meal_invitation_members", {
   mealInvitationId: integer("meal_invitation_id").notNull().references(() => mealInvitationsTable.id, { onDelete: "cascade" }),
   userId: integer("user_id").notNull().references(() => usersTable.id, { onDelete: "cascade" }),
   rsvp: rsvpEnum("rsvp").notNull().default("pending"),
+  remindersSentAt: jsonb("reminders_sent_at").$type<string[]>().default([]),
+  createdAt: timestamp("created_at").defaultNow(),
 });
 
 export const mealWishesTable = pgTable("meal_wishes", {

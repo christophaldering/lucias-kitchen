@@ -16,6 +16,8 @@ export interface InvitationMember {
   mealInvitationId: number;
   userId: number;
   rsvp: RsvpStatus;
+  remindersSentAt: string[] | null;
+  createdAt: string | null;
   user: { id: number; displayName: string; avatarUrl: string | null } | null;
   wish: MealWish | null;
 }
@@ -212,6 +214,18 @@ export function useInvitations() {
     return res.json();
   }
 
+  async function remindGuest(invitationId: number, guestId: number): Promise<{ success: boolean; reminded: number }> {
+    const res = await authFetch(`${API_BASE}/meal-invitations/${invitationId}/guests/${guestId}/remind`, {
+      method: "POST",
+      headers: authHeaders(),
+    });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      throw new Error(err.message ?? "Fehler beim Senden der Erinnerung");
+    }
+    return res.json();
+  }
+
   return {
     invitations,
     loading,
@@ -223,6 +237,7 @@ export function useInvitations() {
     submitWish,
     updateRsvp,
     remindGuests,
+    remindGuest,
   };
 }
 

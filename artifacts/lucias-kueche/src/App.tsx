@@ -42,6 +42,41 @@ function getGreeting(name: string): string {
 
 const ADMIN_EMAIL = "lucia.aldering@googlemail.com";
 
+function useNavHiding() {
+  const [enabled, setEnabled] = useState(() => localStorage.getItem("lk_hideNavOnScroll") === "true");
+  const [hidden, setHidden] = useState(false);
+  const lastY = useRef(0);
+
+  useEffect(() => {
+    const onSettings = (e: Event) => {
+      const ce = e as CustomEvent<{ key: string; value: boolean }>;
+      if (ce.detail?.key === "hideNavOnScroll") setEnabled(ce.detail.value);
+    };
+    window.addEventListener("lk_settings_changed", onSettings);
+    return () => window.removeEventListener("lk_settings_changed", onSettings);
+  }, []);
+
+  useEffect(() => {
+    if (!enabled) { setHidden(false); return; }
+    const handler = () => {
+      if (window.innerWidth >= 768) { setHidden(false); return; }
+      const y = window.scrollY;
+      if (y < 50) { setHidden(false); return; }
+      const goingDown = y > lastY.current;
+      lastY.current = y;
+      setHidden(goingDown);
+    };
+    window.addEventListener("scroll", handler, { passive: true });
+    window.addEventListener("resize", handler, { passive: true });
+    return () => {
+      window.removeEventListener("scroll", handler);
+      window.removeEventListener("resize", handler);
+    };
+  }, [enabled]);
+
+  return hidden;
+}
+
 function AvatarDropdown({ onNavigate }: { onNavigate: (tab: Tab, savePrev?: boolean) => void }) {
   const { user, logout } = useAuth();
   const isAdmin = user?.email === ADMIN_EMAIL;
@@ -133,11 +168,11 @@ const NAV_TABS: { id: Tab; label: string; Icon: React.ElementType }[] = [
   { id: "statistiken", label: "Statistiken", Icon: BarChart3 },
 ];
 
-const BottomNav = memo(function BottomNav({ activeTab, onTabChange, unreadCount }: { activeTab: Tab; onTabChange: (tab: Tab) => void; unreadCount: number }) {
+const BottomNav = memo(function BottomNav({ activeTab, onTabChange, unreadCount, navHidden }: { activeTab: Tab; onTabChange: (tab: Tab) => void; unreadCount: number; navHidden?: boolean }) {
 
   return (
     <nav
-      className="fixed bottom-0 left-0 right-0 z-40 border-t border-white/20 bottom-nav"
+      className={`fixed bottom-0 left-0 right-0 z-40 border-t border-white/20 bottom-nav transition-transform duration-300 ${navHidden ? "translate-y-full" : "translate-y-0"}`}
       style={{
         background: "linear-gradient(135deg, #1e3d2a 0%, #2a5438 50%, #1e3d2a 100%)",
         boxShadow: "0 -4px 24px rgba(0,0,0,0.18)",
@@ -229,6 +264,7 @@ function AppShell() {
   const [adminNavToken, setAdminNavToken] = useState(0);
   const [recipesInitialSortOrder, setRecipesInitialSortOrder] = useState<string | null>(null);
   const [recipesRefreshToken, setRecipesRefreshToken] = useState(0);
+  const navHidden = useNavHiding();
 
   const [sessionOnboardingDone, setSessionOnboardingDone] = useState<boolean | null>(null);
 
@@ -409,7 +445,7 @@ function AppShell() {
         {activeTab === "meine-kueche" && <MeineKueche onOpenRecipe={(recipeId) => { setActiveTab("rezepte"); setOpenRecipeId(recipeId); }} />}
       </main>
 
-        <BottomNav activeTab={activeTab} onTabChange={handleBottomTabChange} unreadCount={unreadCount} />
+        <BottomNav activeTab={activeTab} onTabChange={handleBottomTabChange} unreadCount={unreadCount} navHidden={navHidden} />
         <BulkImportProgressBar onNavigateToImport={() => {
           setActiveTab("admin");
           setAdminInitialTab("bulk-import");

@@ -288,7 +288,7 @@ function RecipeCard({
           )}
         </div>
 
-        {(recipe.cookedCount === 0 || recipe.cookedCount == null) ? (
+        {(!recipe.tried && (recipe.cookedCount === 0 || recipe.cookedCount == null)) ? (
           <span className="inline-flex items-center gap-1 text-xs font-semibold px-2 py-0.5 rounded-full bg-orange-100 text-orange-700 border border-orange-200">
             🍽️ Noch nicht ausprobiert
           </span>
@@ -367,11 +367,13 @@ function RecipeTableRow({
   onClick,
   onCook,
   onSuggest,
+  onTriedChange,
 }: {
   recipe: Recipe;
   onClick: () => void;
   onCook: () => void;
   onSuggest?: () => void;
+  onTriedChange?: (tried: boolean) => void;
 }) {
   const emoji = CATEGORY_EMOJIS[recipe.category] ?? "🍽️";
   const createdLabel = recipe.createdAt
@@ -434,6 +436,23 @@ function RecipeTableRow({
       </td>
       <td className="px-4 py-3 hidden xl:table-cell text-xs text-muted-foreground">
         {createdLabel}
+      </td>
+      <td className="px-4 py-3 hidden xl:table-cell text-center" onClick={(e) => e.stopPropagation()}>
+        {recipe.isOwner !== false && onTriedChange ? (
+          <button
+            onClick={() => onTriedChange(!recipe.tried)}
+            title={recipe.tried ? "Als nicht ausprobiert markieren" : "Als ausprobiert markieren"}
+            className={`w-6 h-6 rounded border-2 flex items-center justify-center mx-auto transition-colors ${
+              recipe.tried
+                ? "bg-[#4A7C59] border-[#4A7C59] text-white"
+                : "border-gray-300 hover:border-[#4A7C59] bg-white"
+            }`}
+          >
+            {recipe.tried && <span className="text-xs leading-none">✓</span>}
+          </button>
+        ) : (
+          <span className="text-xs text-muted-foreground">{recipe.tried ? "✓" : "–"}</span>
+        )}
       </td>
     </tr>
   );
@@ -1218,6 +1237,9 @@ export default function MeineRezepte({ onNavigate: _onNavigate, initialOpenRecip
                               <SortIcon col={col} sortKey={tableSortKey} sortDir={tableSortDir} />
                             </th>
                           ))}
+                          <th className="px-4 py-3 hidden xl:table-cell text-center font-semibold text-foreground select-none">
+                            Ausprobiert
+                          </th>
                         </tr>
                       </thead>
                       <tbody>
@@ -1228,6 +1250,7 @@ export default function MeineRezepte({ onNavigate: _onNavigate, initialOpenRecip
                             onClick={() => openRecipe(recipe.id)}
                             onCook={() => openCookingMode(recipe)}
                             onSuggest={() => setSuggestRecipe(recipe)}
+                            onTriedChange={(tried) => { patchRecipeLocal(recipe.id, { tried }); patchRecipeSilent(recipe.id, { tried }).catch(() => patchRecipeLocal(recipe.id, { tried: !tried })); }}
                           />
                         ))}
                       </tbody>

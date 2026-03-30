@@ -946,6 +946,11 @@ function AppSettings() {
   const [sortOrder, setSortOrder] = useLocalStorage<string>("lk_sortOrder", "alphabetisch");
   const [showNotes, setShowNotes] = useLocalStorage<boolean>("lk_showNotes", true);
   const [showCookCount, setShowCookCount] = useLocalStorage<boolean>("lk_showCookCount", true);
+  const [hideNavOnScroll, setHideNavOnScrollRaw] = useLocalStorage<boolean>("lk_hideNavOnScroll", false);
+  const setHideNavOnScroll = (v: boolean) => {
+    setHideNavOnScrollRaw(v);
+    window.dispatchEvent(new CustomEvent("lk_settings_changed", { detail: { key: "hideNavOnScroll", value: v } }));
+  };
 
   const [appUrlData, setAppUrlData] = useState<{ appUrl: string | null; defaultAppUrl: string | null } | null>(null);
   const [appUrlInput, setAppUrlInput] = useState("");
@@ -1079,6 +1084,17 @@ function AppSettings() {
           <Toggle value={showNotes} onChange={setShowNotes} label="Notizvorschau auf Karten anzeigen" />
           <Toggle value={showCookCount} onChange={setShowCookCount} label="Kochzähler auf Karten anzeigen" />
         </div>
+      </AdminActionCard>
+
+      <AdminActionCard
+        title="📱 Navigation auf kleinen Bildschirmen"
+        description="Auf Mobilgeräten kann die untere Navigation beim Scrollen automatisch ausgeblendet werden, um mehr Inhalt sichtbar zu machen. Sie erscheint wieder, sobald du nach oben scrollst."
+      >
+        <Toggle
+          value={hideNavOnScroll}
+          onChange={setHideNavOnScroll}
+          label="Navigation beim Scrollen ausblenden (nur auf kleinen Bildschirmen)"
+        />
       </AdminActionCard>
 
       <div className="sticky-note rounded-xl p-4 text-sm text-amber-900">

@@ -101,6 +101,7 @@ export interface Recipe {
   sourceDocumentUrl?: string | null;
   isAiGenerated?: boolean;
   imageSource?: "ai" | "web" | null;
+  tried?: boolean | null;
 }
 
 export const ALL_CATEGORIES = [

@@ -534,10 +534,10 @@ function RecipeModalInner({ recipe, onClose, onAddToWeek, onToggleFavorite, onRe
   return (
     <>
     <div
-      className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm"
+      className="fixed inset-0 z-50 flex items-end sm:items-center justify-center sm:p-4 bg-black/50 backdrop-blur-sm"
       onClick={(e) => e.target === e.currentTarget && onClose()}
     >
-      <div className="bg-[#FDF6EC] rounded-2xl shadow-2xl w-full max-w-2xl max-h-[90vh] overflow-y-auto">
+      <div className="bg-[#FDF6EC] rounded-t-2xl sm:rounded-2xl shadow-2xl w-full sm:max-w-2xl h-[95dvh] sm:h-auto sm:max-h-[90vh] overflow-y-auto">
         {/* Header */}
         <div className="sticky top-0 z-10 bg-[#4A7C59] text-white px-6 py-4 rounded-t-2xl flex items-start justify-between gap-4">
           <div>

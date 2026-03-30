@@ -1032,19 +1032,6 @@ function RecipeModalInner({ recipe, onClose, onAddToWeek, onToggleFavorite, onRe
                 </div>
               )}
 
-              {isOwner && recipe.sourceDocumentUrl && localImageUrl && (
-                <div className="flex flex-col items-center gap-0.5">
-                  <button
-                    onClick={handleExtractScanImage}
-                    disabled={extractingScanImage || generatingImage || extractingSourceImage || extractingAllPhotos}
-                    className="flex items-center gap-2 px-4 py-2.5 bg-orange-50 border border-orange-200 text-orange-700 rounded-xl text-sm font-semibold hover:bg-orange-100 transition-colors disabled:opacity-60"
-                  >
-                    {extractingScanImage ? <Loader2 className="w-4 h-4 animate-spin" /> : <FileText className="w-4 h-4" />}
-                    {extractingScanImage ? "Scan wird extrahiert…" : "Scan Foto ersetzen"}
-                  </button>
-                  <span className="text-xs text-orange-600/80 text-center leading-tight">Aktuelles Bild durch Scan-Foto ersetzen</span>
-                </div>
-              )}
 
               {isOwner && recipe.sourceDocumentUrl && (
                 <div className="flex flex-col items-center gap-0.5">
@@ -1082,25 +1069,29 @@ function RecipeModalInner({ recipe, onClose, onAddToWeek, onToggleFavorite, onRe
                 </div>
               )}
 
-              {isOwner && !localImageUrl && !recipe.mainPhotoUrl && recipe.sourceDocumentUrl && (
-                <div className="flex flex-col items-center gap-0.5">
-                  <button
-                    onClick={handleExtractPdfPhoto}
-                    disabled={extractingPdfPhoto || generatingImage || extractingSourceImage || extractingScanImage}
-                    className="flex items-center gap-2 px-4 py-2.5 bg-orange-50 border border-orange-200 text-orange-700 rounded-xl text-sm font-semibold hover:bg-orange-100 transition-colors disabled:opacity-60"
-                  >
-                    {extractingPdfPhoto ? <Loader2 className="w-4 h-4 animate-spin" /> : <FileText className="w-4 h-4" />}
-                    {extractingPdfPhoto ? "Foto wird extrahiert…" : "Scan Foto extrahieren"}
-                  </button>
-                  <span className="text-xs text-orange-600/80 text-center leading-tight">Rezeptfoto direkt aus dem PDF ausschneiden</span>
-                  {extractPdfPhotoError && (
-                    <span className="text-xs text-red-600 text-center mt-0.5">{extractPdfPhotoError}</span>
-                  )}
-                </div>
-              )}
+              {isOwner && recipe.sourceDocumentUrl && (() => {
+                const hasImage = !!(localImageUrl || recipe.mainPhotoUrl);
+                return (
+                  <div className="flex flex-col items-center gap-0.5">
+                    <button
+                      onClick={hasImage ? handleExtractScanImage : handleExtractPdfPhoto}
+                      disabled={extractingPdfPhoto || extractingScanImage || generatingImage || extractingSourceImage || extractingAllPhotos}
+                      className="flex items-center gap-2 px-4 py-2.5 bg-orange-50 border border-orange-200 text-orange-700 rounded-xl text-sm font-semibold hover:bg-orange-100 transition-colors disabled:opacity-60"
+                    >
+                      {(extractingPdfPhoto || extractingScanImage) ? <Loader2 className="w-4 h-4 animate-spin" /> : <FileText className="w-4 h-4" />}
+                      {(extractingPdfPhoto || extractingScanImage) ? (hasImage ? "Scan wird extrahiert…" : "Foto wird extrahiert…") : hasImage ? "Scan Foto ersetzen" : "Scan Foto extrahieren"}
+                    </button>
+                    <span className="text-xs text-orange-600/80 text-center leading-tight">{hasImage ? "Aktuelles Bild durch Scan-Foto ersetzen" : "Rezeptfoto direkt aus dem PDF ausschneiden"}</span>
+                    {extractPdfPhotoError && (
+                      <span className="text-xs text-red-600 text-center mt-0.5">{extractPdfPhotoError}</span>
+                    )}
+                  </div>
+                );
+              })()}
 
-              {isOwner && !localImageUrl && !recipe.mainPhotoUrl && (() => {
+              {isOwner && (() => {
                 const isSourceUrl = recipe.source ? (() => { try { const u = new URL(recipe.source); return u.protocol === "http:" || u.protocol === "https:"; } catch { return false; } })() : false;
+                const hasImage = !!(localImageUrl || recipe.mainPhotoUrl);
                 return (
                   <>
                     {isSourceUrl && (
@@ -1111,9 +1102,9 @@ function RecipeModalInner({ recipe, onClose, onAddToWeek, onToggleFavorite, onRe
                           className="flex items-center gap-2 px-4 py-2.5 bg-blue-50 border border-blue-200 text-blue-700 rounded-xl text-sm font-semibold hover:bg-blue-100 transition-colors disabled:opacity-60"
                         >
                           {extractingSourceImage ? <Loader2 className="w-4 h-4 animate-spin" /> : <Globe className="w-4 h-4" />}
-                          {extractingSourceImage ? "Bild wird geholt…" : "Bild aus Originalseite"}
+                          {extractingSourceImage ? "Bild wird geholt…" : hasImage ? "Bild aus Originalseite ersetzen" : "Bild aus Originalseite"}
                         </button>
-                        <span className="text-xs text-blue-600/80 text-center leading-tight">Foto von der Rezeptwebseite laden</span>
+                        <span className="text-xs text-blue-600/80 text-center leading-tight">{hasImage ? "Bild von der Rezeptwebseite ersetzen" : "Foto von der Rezeptwebseite laden"}</span>
                       </div>
                     )}
                     <div className="flex flex-col items-center gap-0.5">
@@ -1123,9 +1114,9 @@ function RecipeModalInner({ recipe, onClose, onAddToWeek, onToggleFavorite, onRe
                         className="flex items-center gap-2 px-4 py-2.5 bg-amber-50 border border-amber-200 text-amber-700 rounded-xl text-sm font-semibold hover:bg-amber-100 transition-colors disabled:opacity-60"
                       >
                         {generatingImage ? <Loader2 className="w-4 h-4 animate-spin" /> : <Sparkles className="w-4 h-4" />}
-                        {generatingImage ? "Bild wird generiert…" : "KI-Bild generieren"}
+                        {generatingImage ? "Bild wird generiert…" : hasImage ? "KI-Bild ersetzen" : "KI-Bild generieren"}
                       </button>
-                      <span className="text-xs text-amber-600/80 text-center leading-tight">Automatisch ein passendes Foto erstellen</span>
+                      <span className="text-xs text-amber-600/80 text-center leading-tight">{hasImage ? "Aktuelles Bild durch KI-Foto ersetzen" : "Automatisch ein passendes Foto erstellen"}</span>
                     </div>
                     {extractSourceImageError && (
                       <div className="w-full flex items-center gap-2 text-xs text-red-600 bg-red-50 border border-red-200 rounded-lg px-3 py-2">

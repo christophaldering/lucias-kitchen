@@ -12,6 +12,7 @@ import { createHash, randomUUID } from "crypto";
 import { generateTagsForRecipe } from "../lib/generateRecipeTags";
 import { openai } from "@workspace/integrations-openai-ai-server";
 import { escalatingTrim, generateThumbnail } from "../lib/imageUtils";
+import { registerPhotoForRecipe } from "../utils/registerPhotoForRecipe";
 
 const ADMIN_EMAIL = "lucia.aldering@googlemail.com";
 function isAdmin(email: string) {
@@ -1037,8 +1038,13 @@ router.post("/recipes", authMiddleware, async (req, res) => {
       }
 
       if (effectiveImageUrl) {
-        const photoSource = recipeData.imageSource === "ai" ? "ai" : recipeData.imageSource === "web" ? "web" : effectiveImageUrl.startsWith("/api/uploads/") ? "upload" : "original";
-        await syncMainPhotoLink(recipe.id, effectiveImageUrl, req.authUser!.id, photoSource);
+        const photoSource = recipeData.imageSource === "ai" ? "ai_generated" as const : recipeData.imageSource === "web" ? "url_import" as const : effectiveImageUrl.startsWith("/api/uploads/") ? "upload" as const : "imported" as const;
+        await registerPhotoForRecipe(effectiveImageUrl, recipe.id, {
+          source: photoSource,
+          uploadedBy: req.authUser!.id,
+          setAsMain: true,
+          syncRecipeImageUrl: false,
+        });
       }
 
       const recipeIngredients = await db
@@ -1177,8 +1183,17 @@ router.put("/recipes/:id", authMiddleware, async (req, res) => {
       return;
     }
 
-    const updatePhotoSource = recipeData.imageSource === "ai" ? "ai" : recipeData.imageSource === "web" ? "web" : recipeData.imageUrl?.startsWith("/api/uploads/") ? "upload" : "original";
-    await syncMainPhotoLink(id, recipeData.imageUrl, req.authUser!.id, updatePhotoSource);
+    if (recipeData.imageUrl) {
+      const updatePhotoSource = recipeData.imageSource === "ai" ? "ai_generated" as const : recipeData.imageSource === "web" ? "url_import" as const : recipeData.imageUrl.startsWith("/api/uploads/") ? "upload" as const : "imported" as const;
+      await registerPhotoForRecipe(recipeData.imageUrl, id, {
+        source: updatePhotoSource,
+        uploadedBy: req.authUser!.id,
+        setAsMain: true,
+        syncRecipeImageUrl: false,
+      });
+    } else {
+      await syncMainPhotoLink(id, recipeData.imageUrl, req.authUser!.id, undefined);
+    }
 
     await db.delete(recipeIngredientsTable).where(eq(recipeIngredientsTable.recipeId, id));
     if (ingredients.length > 0) {
@@ -1727,10 +1742,9 @@ router.get("/recipes/:id/photos", async (req, res) => {
       .where(and(eq(recipesTable.id, id), isNull(recipesTable.deletedAt)))
       .limit(1);
 
-    // Lazy backfill: if the recipe has an AI image but no corresponding photo link entry
-    // (e.g. generated before the syncMainPhotoLink call was added), create the entry now.
-    // Also covers older recipes where image_source is null but is_ai_generated is true.
-    if (recipe?.imageUrl && (recipe.imageSource === "ai" || recipe.isAiGenerated === true)) {
+    // Lazy backfill: if the recipe has an imageUrl but no corresponding photo link entry,
+    // create the entry now. This covers all sources (AI, web, original, etc.).
+    if (recipe?.imageUrl) {
       const [existingLink] = await db
         .select({ id: recipePhotoLinksTable.id })
         .from(recipePhotoLinksTable)
@@ -1740,7 +1754,12 @@ router.get("/recipes/:id/photos", async (req, res) => {
 
       if (!existingLink) {
         try {
-          await syncMainPhotoLink(id, recipe.imageUrl, null, "ai");
+          const backfillSource = (recipe.imageSource === "ai" || recipe.isAiGenerated === true)
+            ? "ai"
+            : recipe.imageSource === "web"
+            ? "web"
+            : "original";
+          await syncMainPhotoLink(id, recipe.imageUrl, null, backfillSource);
         } catch {
         }
       }
@@ -2184,7 +2203,11 @@ export async function generateAndSaveRecipeImage(recipeId: number, title: string
     await db.update(recipesTable).set({ imageUrl, isAiGenerated: true, imageSource: "ai" }).where(eq(recipesTable.id, recipeId));
     invalidateRecipeListCache();
 
-    await syncMainPhotoLink(recipeId, imageUrl, null, "ai");
+    await registerPhotoForRecipe(imageUrl, recipeId, {
+      source: "ai_generated",
+      setAsMain: true,
+      syncRecipeImageUrl: false,
+    });
 
     return imageUrl;
   } catch (err) {
@@ -2640,7 +2663,12 @@ router.post("/recipes/:id/extract-image-from-source", authMiddleware, async (req
 
       await db.update(recipesTable).set({ imageUrl: extractedImageUrl, isAiGenerated: false, imageSource: "original" }).where(eq(recipesTable.id, id));
       invalidateRecipeListCache();
-      await syncMainPhotoLink(id, extractedImageUrl, req.authUser!.id, "original");
+      await registerPhotoForRecipe(extractedImageUrl, id, {
+        source: "pdf_extract",
+        uploadedBy: req.authUser!.id,
+        setAsMain: true,
+        syncRecipeImageUrl: false,
+      });
 
       res.json({ imageUrl: extractedImageUrl, imageSource: "original" });
       return;
@@ -2659,8 +2687,12 @@ router.post("/recipes/:id/extract-image-from-source", authMiddleware, async (req
 
     await db.update(recipesTable).set({ imageUrl, isAiGenerated: false, imageSource: "web" }).where(eq(recipesTable.id, id));
     invalidateRecipeListCache();
-
-    await syncMainPhotoLink(id, imageUrl, req.authUser!.id, "web");
+    await registerPhotoForRecipe(imageUrl, id, {
+      source: "url_import",
+      uploadedBy: req.authUser!.id,
+      setAsMain: true,
+      syncRecipeImageUrl: false,
+    });
 
     res.json({ imageUrl, imageSource: "web" });
   } catch (err) {
@@ -3235,7 +3267,11 @@ router.post("/admin/extract-scan-photos", authMiddleware, async (req, res) => {
           .update(recipesTable)
           .set({ imageUrl: extractedImageUrl, isAiGenerated: false, imageSource: "original" })
           .where(eq(recipesTable.id, recipe.id));
-        await syncMainPhotoLink(recipe.id, extractedImageUrl, null, "original");
+        await registerPhotoForRecipe(extractedImageUrl, recipe.id, {
+          source: "pdf_extract",
+          setAsMain: true,
+          syncRecipeImageUrl: false,
+        });
         invalidateRecipeListCache();
       } catch (err) {
         req.log.error({ err, recipeId: recipe.id }, "Failed to extract scan photo");
@@ -3251,6 +3287,66 @@ router.post("/admin/extract-scan-photos", authMiddleware, async (req, res) => {
     sendEvent({ error: "Fehler bei der Scan-Foto-Extraktion" });
   } finally {
     res.end();
+  }
+});
+
+router.post("/admin/backfill-photo-links", authMiddleware, async (req, res) => {
+  if (!isAdmin(req.authUser!.email)) {
+    res.status(403).json({ error: "forbidden", message: "Nur Admins erlaubt" });
+    return;
+  }
+
+  try {
+    const recipesWithImage = await db
+      .select({
+        id: recipesTable.id,
+        imageUrl: recipesTable.imageUrl,
+        imageSource: recipesTable.imageSource,
+        isAiGenerated: recipesTable.isAiGenerated,
+      })
+      .from(recipesTable)
+      .where(and(isNull(recipesTable.deletedAt), sql`${recipesTable.imageUrl} IS NOT NULL`));
+
+    let processed = 0;
+    let skipped = 0;
+    let errors = 0;
+
+    for (const recipe of recipesWithImage) {
+      if (!recipe.imageUrl) continue;
+      try {
+        const [existingLink] = await db
+          .select({ id: recipePhotoLinksTable.id })
+          .from(recipePhotoLinksTable)
+          .innerJoin(photosTable, eq(photosTable.id, recipePhotoLinksTable.photoId))
+          .where(and(eq(recipePhotoLinksTable.recipeId, recipe.id), eq(photosTable.imageUrl, recipe.imageUrl)))
+          .limit(1);
+
+        if (existingLink) {
+          skipped++;
+          continue;
+        }
+
+        const source = (recipe.imageSource === "ai" || recipe.isAiGenerated === true)
+          ? "ai_generated" as const
+          : recipe.imageSource === "web"
+          ? "url_import" as const
+          : "imported" as const;
+
+        await registerPhotoForRecipe(recipe.imageUrl, recipe.id, {
+          source,
+          setAsMain: true,
+          syncRecipeImageUrl: false,
+        });
+        processed++;
+      } catch {
+        errors++;
+      }
+    }
+
+    res.json({ success: true, processed, skipped, errors, total: recipesWithImage.length });
+  } catch (err) {
+    req.log.error({ err }, "Failed to backfill photo links");
+    res.status(500).json({ error: "internal_error", message: "Backfill fehlgeschlagen" });
   }
 });
 
@@ -3465,7 +3561,7 @@ router.post("/admin/generate-recipe-images/selected", authMiddleware, async (req
       try {
         const photoUrl = firstPhotoMap.get(recipe.id)!;
         await db.update(recipesTable).set({ imageUrl: photoUrl, isAiGenerated: false }).where(eq(recipesTable.id, recipe.id));
-        await syncMainPhotoLink(recipe.id, photoUrl);
+        await registerPhotoForRecipe(photoUrl, recipe.id, { source: "imported", setAsMain: true, syncRecipeImageUrl: false });
         invalidateRecipeListCache();
       } catch {
         errors++;
@@ -3561,7 +3657,7 @@ router.post("/admin/generate-recipe-images", authMiddleware, async (req, res) =>
       try {
         const photoUrl = firstPhotoMap.get(recipe.id)!;
         await db.update(recipesTable).set({ imageUrl: photoUrl, isAiGenerated: false }).where(eq(recipesTable.id, recipe.id));
-        await syncMainPhotoLink(recipe.id, photoUrl);
+        await registerPhotoForRecipe(photoUrl, recipe.id, { source: "imported", setAsMain: true, syncRecipeImageUrl: false });
         invalidateRecipeListCache();
       } catch {
         errors++;

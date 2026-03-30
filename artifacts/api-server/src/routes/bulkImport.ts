@@ -7,10 +7,10 @@ import {
   bulkImportItemsTable,
   recipesTable,
   recipeIngredientsTable,
-  recipePhotosTable,
   usersTable,
   notificationsTable,
 } from "@workspace/db/schema";
+import { registerPhotoForRecipe } from "../utils/registerPhotoForRecipe";
 import { eq, and, desc, sql, or, inArray } from "drizzle-orm";
 import { anthropic } from "@workspace/integrations-anthropic-ai";
 import { escalatingTrim } from "../lib/imageUtils";
@@ -2285,17 +2285,17 @@ router.post("/bulk-import/:sessionId/save", authMiddleware, async (req, res) => 
               console.error(`Failed to copy photo to permanent storage (${tempUrl}):`, err);
             }
           }
-          if (permanentPhotoUrls.length > 0) {
-            await db.insert(recipePhotosTable).values(
-              permanentPhotoUrls.map((url) => ({
-                recipeId: recipe.id,
-                imageUrl: url,
-              }))
-            );
-            await db
-              .update(recipesTable)
-              .set({ imageUrl: permanentPhotoUrls[0] })
-              .where(eq(recipesTable.id, recipe.id));
+          for (let i = 0; i < permanentPhotoUrls.length; i++) {
+            try {
+              await registerPhotoForRecipe(permanentPhotoUrls[i], recipe.id, {
+                source: "pdf_extract",
+                uploadedBy: userId,
+                setAsMain: i === 0,
+                syncRecipeImageUrl: i === 0,
+              });
+            } catch (err) {
+              console.error(`Failed to register photo for recipe ${recipe.id}:`, err);
+            }
           }
         }
 

@@ -2359,11 +2359,11 @@ function RecipeImagesTab() {
 }
 
 function ImageOptimizationTab() {
-  const [stats, setStats] = useState<{ total: number; totalSizeBytes: number | null } | null>(null);
+  const [stats, setStats] = useState<{ total: number; alreadyWebP?: number; needsConversion?: number; totalSizeBytes: number | null } | null>(null);
   const [loadingStats, setLoadingStats] = useState(false);
   const [statsError, setStatsError] = useState(false);
   const [status, setStatus] = useState<"idle" | "running" | "done" | "error">("idle");
-  const [progress, setProgress] = useState<{ done: number; total: number; errors: number } | null>(null);
+  const [progress, setProgress] = useState<{ done: number; total: number; skipped: number; errors: number } | null>(null);
 
   const loadStats = useCallback(() => {
     setLoadingStats(true);
@@ -2378,7 +2378,7 @@ function ImageOptimizationTab() {
 
   const startOptimization = async () => {
     setStatus("running");
-    setProgress({ done: 0, total: stats?.total ?? 0, errors: 0 });
+    setProgress({ done: 0, total: stats?.needsConversion ?? stats?.total ?? 0, skipped: 0, errors: 0 });
 
     try {
       const res = await fetch("/api/admin/optimize-existing-images", {
@@ -2404,7 +2404,7 @@ function ImageOptimizationTab() {
             try {
               const data = JSON.parse(line.slice(6));
               if (data.error) { setStatus("error"); return; }
-              setProgress({ done: data.done ?? 0, total: data.total ?? 0, errors: data.errors ?? 0 });
+              setProgress({ done: data.done ?? 0, total: data.total ?? 0, skipped: data.skipped ?? 0, errors: data.errors ?? 0 });
               if (data.finished) { setStatus("done"); loadStats(); return; }
             } catch {}
           }
@@ -2456,6 +2456,18 @@ function ImageOptimizationTab() {
                 {stats.totalSizeBytes != null ? formatBytes(stats.totalSizeBytes) : "–"}
               </div>
             </div>
+            {stats.alreadyWebP != null && (
+              <div className="bg-white rounded-lg border border-border p-3">
+                <div className="text-xs text-muted-foreground mb-1">Bereits WebP</div>
+                <div className="text-2xl font-semibold text-[#4A7C59]">{stats.alreadyWebP}</div>
+              </div>
+            )}
+            {stats.needsConversion != null && (
+              <div className="bg-white rounded-lg border border-border p-3">
+                <div className="text-xs text-muted-foreground mb-1">Noch zu konvertieren</div>
+                <div className="text-2xl font-semibold text-foreground">{stats.needsConversion}</div>
+              </div>
+            )}
           </div>
         ) : null}
       </div>
@@ -2464,9 +2476,14 @@ function ImageOptimizationTab() {
         <div className="space-y-2">
           <div className="flex items-center justify-between text-sm text-foreground">
             <span>{progress.done} von {progress.total} verarbeitet</span>
-            {progress.errors > 0 && (
-              <span className="text-red-600 font-medium">{progress.errors} Fehler</span>
-            )}
+            <div className="flex items-center gap-3">
+              {progress.skipped > 0 && (
+                <span className="text-[#4A7C59] font-medium">{progress.skipped} bereits WebP</span>
+              )}
+              {progress.errors > 0 && (
+                <span className="text-red-600 font-medium">{progress.errors} Fehler</span>
+              )}
+            </div>
           </div>
           {progress.total > 0 && (
             <div className="w-full bg-[#f5ede0] rounded-full h-2">
@@ -2478,7 +2495,8 @@ function ImageOptimizationTab() {
           )}
           {status === "done" && (
             <div className="flex items-center gap-2 text-sm text-[#4A7C59] font-medium">
-              <Check className="w-4 h-4" /> Fertig! Alle Bilder wurden optimiert.
+              <Check className="w-4 h-4" />
+              Fertig! {progress.done - progress.errors} optimiert{progress.skipped > 0 ? `, ${progress.skipped} bereits WebP` : ""}{progress.errors > 0 ? `, ${progress.errors} Fehler` : ""}.
             </div>
           )}
           {status === "error" && (
@@ -2491,7 +2509,7 @@ function ImageOptimizationTab() {
 
       <button
         onClick={startOptimization}
-        disabled={status === "running" || (stats?.total ?? 0) === 0}
+        disabled={status === "running" || (stats?.needsConversion != null ? stats.needsConversion === 0 : (stats?.total ?? 0) === 0)}
         className="flex items-center gap-2 px-5 py-2.5 bg-[#4A7C59] text-white rounded-xl text-sm font-semibold hover:bg-[#3d6849] transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
       >
         {status === "running" ? (
@@ -2502,7 +2520,12 @@ function ImageOptimizationTab() {
         ) : (
           <>
             <RefreshCw className="w-4 h-4" />
-            {stats?.total ? `${stats.total} Bilder optimieren` : "Optimierung starten"}
+            {stats?.needsConversion != null && stats.needsConversion > 0
+              ? `${stats.needsConversion} Bilder optimieren`
+              : stats?.total
+                ? `${stats.total} Bilder optimieren`
+                : "Optimierung starten"
+            }
           </>
         )}
       </button>

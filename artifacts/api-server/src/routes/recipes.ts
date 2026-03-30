@@ -3399,8 +3399,12 @@ router.get("/admin/image-stats", authMiddleware, async (req, res) => {
       }
     }
 
+    const alreadyWebP = storageRecipes.filter((r) => r.imageUrl!.endsWith(".webp")).length;
+
     res.json({
       total: storageRecipes.length,
+      alreadyWebP,
+      needsConversion: storageRecipes.length - alreadyWebP,
       totalSizeBytes: sizeKnown ? totalSizeBytes : null,
     });
   } catch (err) {
@@ -3423,6 +3427,7 @@ router.post("/admin/optimize-existing-images", authMiddleware, async (req, res) 
   const sendEvent = (data: object) => {
     if (!res.writableEnded && !res.destroyed) {
       res.write(`data: ${JSON.stringify(data)}\n\n`);
+      (res as any).flush?.();
     }
   };
 
@@ -3436,63 +3441,70 @@ router.post("/admin/optimize-existing-images", authMiddleware, async (req, res) 
       .from(recipesTable)
       .where(isNull(recipesTable.deletedAt));
 
-    const recipesToProcess = allRecipes.filter(
+    const storageRecipes = allRecipes.filter(
       (r) => r.imageUrl && r.imageUrl.startsWith("/api/storage/")
     );
 
+    const alreadyWebP = storageRecipes.filter((r) => r.imageUrl!.endsWith(".webp"));
+    const recipesToProcess = storageRecipes.filter((r) => !r.imageUrl!.endsWith(".webp"));
+
     const total = recipesToProcess.length;
+    const skipped = alreadyWebP.length;
     let done = 0;
     let errors = 0;
 
-    sendEvent({ done, total, errors });
+    sendEvent({ done, total, skipped, errors });
 
-    for (const recipe of recipesToProcess) {
-      try {
-        const objectPath = recipe.imageUrl!.replace("/api/storage", "");
+    const BATCH_SIZE = 6;
+    for (let i = 0; i < recipesToProcess.length; i += BATCH_SIZE) {
+      const batch = recipesToProcess.slice(i, i + BATCH_SIZE);
+      await Promise.all(batch.map(async (recipe) => {
+        try {
+          const objectPath = recipe.imageUrl!.replace("/api/storage", "");
 
-        const file = await storageService.getObjectEntityFile(objectPath).catch(async () => {
-          const publicPath = objectPath.replace(/^\/objects\//, "");
-          return storageService.searchPublicObject(publicPath);
-        });
+          const file = await storageService.getObjectEntityFile(objectPath).catch(async () => {
+            const publicPath = objectPath.replace(/^\/objects\//, "");
+            return storageService.searchPublicObject(publicPath);
+          });
 
-        if (!file) {
+          if (!file) {
+            errors++;
+            done++;
+            sendEvent({ done, total, skipped, errors });
+            return;
+          }
+
+          const [originalBuffer] = await file.download();
+
+          const webpBuffer = await sharp(originalBuffer)
+            .resize({ width: 800, height: 800, fit: "inside", withoutEnlargement: true })
+            .webp({ quality: 80 })
+            .toBuffer();
+
+          const newStoragePath = await storageService.uploadBuffer(webpBuffer, "image/webp", "recipe-images");
+          const newImageUrl = `/api/storage${newStoragePath}`;
+
+          await db.update(recipesTable).set({ imageUrl: newImageUrl }).where(eq(recipesTable.id, recipe.id));
+          invalidateRecipeListCache();
+
+          try {
+            await file.delete();
+          } catch (deleteErr) {
+            req.log.warn({ deleteErr, recipeId: recipe.id }, "Failed to delete old image after optimization");
+          }
+
+          done++;
+          sendEvent({ done, total, skipped, errors });
+        } catch (err) {
+          req.log.error({ err, recipeId: recipe.id }, "Failed to optimize image");
           errors++;
           done++;
-          sendEvent({ done, total, errors });
-          continue;
+          sendEvent({ done, total, skipped, errors });
         }
-
-        const [originalBuffer] = await file.download();
-
-        const webpBuffer = await sharp(originalBuffer)
-          .resize({ width: 800, height: 800, fit: "inside", withoutEnlargement: true })
-          .webp({ quality: 80 })
-          .toBuffer();
-
-        const newStoragePath = await storageService.uploadBuffer(webpBuffer, "image/webp", "recipe-images");
-        const newImageUrl = `/api/storage${newStoragePath}`;
-
-        await db.update(recipesTable).set({ imageUrl: newImageUrl }).where(eq(recipesTable.id, recipe.id));
-        invalidateRecipeListCache();
-
-        try {
-          await file.delete();
-        } catch (deleteErr) {
-          req.log.warn({ deleteErr, recipeId: recipe.id }, "Failed to delete old image after optimization");
-          errors++;
-        }
-
-        done++;
-        sendEvent({ done, total, errors });
-      } catch (err) {
-        req.log.error({ err, recipeId: recipe.id }, "Failed to optimize image");
-        errors++;
-        done++;
-        sendEvent({ done, total, errors });
-      }
+      }));
     }
 
-    sendEvent({ done: total, total, errors, finished: true });
+    sendEvent({ done: total, total, skipped, errors, finished: true });
   } catch (err) {
     req.log.error({ err }, "Failed to run image optimization");
     sendEvent({ error: "Fehler bei der Bildoptimierung" });

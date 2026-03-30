@@ -5,7 +5,7 @@ import { seedUser } from "./db/seedUser";
 import { recoverProcessingSessions } from "./routes/bulkImport";
 import { warmupRecipeCache } from "./routes/recipes";
 import { startTrashCleanupJob } from "./lib/trashCleanup";
-import { db } from "@workspace/db";
+import { db, HARMLESS_PG_CODES } from "@workspace/db";
 import { recipesTable } from "@workspace/db/schema";
 import { eq, isNull, and, or, sql } from "drizzle-orm";
 import type { Socket } from "node:net";
@@ -156,6 +156,11 @@ process.on("unhandledRejection", (reason) => {
 });
 
 process.on("uncaughtException", (err) => {
+  const code = (err as NodeJS.ErrnoException & { code?: string }).code;
+  if (code && HARMLESS_PG_CODES.has(code)) {
+    logger.warn({ err }, "Transient DB connection error — continuing");
+    return;
+  }
   logger.error({ err }, "Uncaught exception — shutting down");
   process.exit(1);
 });

@@ -178,7 +178,7 @@ function formatDate(dateStr: string): string {
 function RecipeModalInner({ recipe, onClose, onAddToWeek, onToggleFavorite, onRecipeUpdated, onDeleteRecipe, allRecipes, onOpenRecipe, onCreateVariant }: Props) {
   const emoji = CATEGORY_EMOJIS[recipe.category] ?? "🍽️";
   const today = toIsoDate(new Date());
-  const { token } = useAuth();
+  const { token, user } = useAuth();
 
   const [showDatePicker, setShowDatePicker] = useState(false);
   const [selectedDate, setSelectedDate] = useState(today);
@@ -463,7 +463,8 @@ function RecipeModalInner({ recipe, onClose, onAddToWeek, onToggleFavorite, onRe
       ? currentServings / originalServings
       : 1;
 
-  const isOwner = recipe.isOwner !== false;
+  const isOwner = recipe.isOwner !== false ||
+    (user != null && (recipe.createdBy == null || recipe.createdBy === user.id));
   const isFavorite = recipe.isFavorite ?? false;
 
   const diffColor =
@@ -1133,6 +1134,15 @@ function RecipeModalInner({ recipe, onClose, onAddToWeek, onToggleFavorite, onRe
                   </>
                 );
               })()}
+
+              {isOwner && !recipe.sourceDocumentUrl && (
+                <div className="flex flex-col items-center gap-0.5">
+                  <span className="flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs text-muted-foreground bg-secondary border border-border">
+                    <FileText className="w-3.5 h-3.5 flex-shrink-0" />
+                    Foto-Extraktion nur bei gescannten oder importierten Rezepten verfügbar
+                  </span>
+                </div>
+              )}
 
               {isOwner && onDeleteRecipe && !showDeleteConfirm && (
                 <div className="flex flex-col items-center gap-0.5">

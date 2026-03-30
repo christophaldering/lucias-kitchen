@@ -440,6 +440,29 @@ router.post("/recipes/ai-search", async (req, res) => {
           ingNames.some((n) => n.includes(termLower))
         );
       });
+    }).map((recipe) => {
+      const ingNames = (recipe.ingredients as Array<{ name: string }>).map((i) => i.name.toLowerCase());
+      const titleLower = recipe.title.toLowerCase();
+      const notesLower = (recipe.notes ?? "").toLowerCase();
+      const categoryLower = recipe.category.toLowerCase();
+      const searchTerms = [
+        ...(criteria.ingredients ?? []),
+        ...(criteria.keywords ?? []),
+      ];
+      if (criteria.cuisine) searchTerms.push(criteria.cuisine);
+      if (criteria.mood) searchTerms.push(criteria.mood);
+      const tagsLower2 = ((recipe as unknown as { tags?: string[] }).tags ?? []).map((t: string) => t.toLowerCase());
+      const matchedInNotes = searchTerms.length > 0 && searchTerms.some((term) => {
+        const termLower = term.toLowerCase();
+        const inNotes = notesLower.includes(termLower);
+        if (!inNotes) return false;
+        const inTitle = titleLower.includes(termLower);
+        const inCategory = categoryLower.includes(termLower);
+        const inIngredients = ingNames.some((n) => n.includes(termLower));
+        const inTags = tagsLower2.some((t: string) => t.includes(termLower));
+        return !inTitle && !inCategory && !inIngredients && !inTags;
+      });
+      return { ...recipe, matchedInNotes };
     });
 
     const ingredientCount = (criteria.ingredients ?? []).length;
@@ -596,22 +619,36 @@ router.get("/recipes/search", async (req, res) => {
 
     const rawSearchRows = (searchRows as unknown as { rows: SearchRow[] }).rows ?? (searchRows as unknown as SearchRow[]);
 
-    const result = rawSearchRows.map((r) => ({
-      id: r.id, title: r.title, servings: r.servings, prepTime: r.prepTime,
-      totalTime: r.totalTime, difficulty: r.difficulty, category: r.category,
-      rating: r.rating, kcalPerPortion: r.kcalPerPortion, source: r.source,
-      lastCooked: r.lastCooked, cookedCount: r.cookedCount, notes: r.notes,
-      steps: [] as unknown[], hasSteps: r.hasSteps ?? false,
-      imageUrl: sanitizeImageUrl(r.imageUrl), mainPhotoUrl: r.mainPhotoUrl ?? null,
-      createdAt: r.createdAt, seasons: r.seasons ?? [], tags: r.tags ?? [],
-      createdBy: r.createdBy, parentRecipeId: r.parentRecipeId, variantName: r.variantName,
-      sourceDocumentUrl: r.sourceDocumentUrl, isAiGenerated: r.isAiGenerated ?? false,
-      imageSource: r.imageSource ?? null, tried: r.tried ?? false, ingredients: r.ingredients,
-      isFavorite: r.isFavorite, isOwner: r.isOwner,
-      owner: (r.ownerDisplayName != null || r.ownerAvatarUrl != null)
-        ? { displayName: r.ownerDisplayName!, avatarUrl: r.ownerAvatarUrl }
-        : null,
-    }));
+    const pattern2 = q.toLowerCase();
+    const result = rawSearchRows.map((r) => {
+      const titleLower = r.title.toLowerCase();
+      const notesLower = (r.notes ?? "").toLowerCase();
+      const categoryLower = r.category.toLowerCase();
+      const ingNames = (r.ingredients as Array<{ name: string }>).map((i) => i.name.toLowerCase());
+      const tagsLower = (r.tags ?? []).map((t: string) => t.toLowerCase());
+      const matchedInTitle = titleLower.includes(pattern2);
+      const matchedInCategory = categoryLower.includes(pattern2);
+      const matchedInIngredients = ingNames.some((n) => n.includes(pattern2));
+      const matchedInTags = tagsLower.some((t: string) => t.includes(pattern2));
+      const matchedInNotes = !matchedInTitle && !matchedInCategory && !matchedInIngredients && !matchedInTags && notesLower.includes(pattern2);
+      return {
+        id: r.id, title: r.title, servings: r.servings, prepTime: r.prepTime,
+        totalTime: r.totalTime, difficulty: r.difficulty, category: r.category,
+        rating: r.rating, kcalPerPortion: r.kcalPerPortion, source: r.source,
+        lastCooked: r.lastCooked, cookedCount: r.cookedCount, notes: r.notes,
+        steps: [] as unknown[], hasSteps: r.hasSteps ?? false,
+        imageUrl: sanitizeImageUrl(r.imageUrl), mainPhotoUrl: r.mainPhotoUrl ?? null,
+        createdAt: r.createdAt, seasons: r.seasons ?? [], tags: r.tags ?? [],
+        createdBy: r.createdBy, parentRecipeId: r.parentRecipeId, variantName: r.variantName,
+        sourceDocumentUrl: r.sourceDocumentUrl, isAiGenerated: r.isAiGenerated ?? false,
+        imageSource: r.imageSource ?? null, tried: r.tried ?? false, ingredients: r.ingredients,
+        isFavorite: r.isFavorite, isOwner: r.isOwner,
+        owner: (r.ownerDisplayName != null || r.ownerAvatarUrl != null)
+          ? { displayName: r.ownerDisplayName!, avatarUrl: r.ownerAvatarUrl }
+          : null,
+        matchedInNotes,
+      };
+    });
 
     return res.json(result);
   } catch (err) {

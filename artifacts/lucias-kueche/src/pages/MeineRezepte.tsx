@@ -188,6 +188,7 @@ function RecipeCard({
   onToggleFavorite,
   commentCount,
   avgRating,
+  matchedInNotes,
 }: {
   recipe: Recipe;
   onClick: () => void;
@@ -198,6 +199,7 @@ function RecipeCard({
   onToggleFavorite?: (id: number, isFavorite: boolean) => void;
   commentCount?: number;
   avgRating?: number | null;
+  matchedInNotes?: boolean;
 }) {
   const [hovered, setHovered] = useState(false);
   const emoji = CATEGORY_EMOJIS[recipe.category] ?? "🍽️";
@@ -311,6 +313,12 @@ function RecipeCard({
           </div>
         )}
 
+        {matchedInNotes && (
+          <span className="inline-flex items-center gap-1 text-xs font-medium px-2 py-0.5 rounded-full bg-amber-50 text-amber-700 border border-amber-200 mt-1">
+            📝 Erwähnt in Notizen
+          </span>
+        )}
+
         {showNotes && recipe.notes && (
           <p className="mt-2 text-xs text-muted-foreground font-script text-base line-clamp-2 italic">
             "{recipe.notes}"
@@ -368,12 +376,14 @@ function RecipeTableRow({
   onCook,
   onSuggest,
   onTriedChange,
+  matchedInNotes,
 }: {
   recipe: Recipe;
   onClick: () => void;
   onCook: () => void;
   onSuggest?: () => void;
   onTriedChange?: (tried: boolean) => void;
+  matchedInNotes?: boolean;
 }) {
   const emoji = CATEGORY_EMOJIS[recipe.category] ?? "🍽️";
   const createdLabel = recipe.createdAt
@@ -382,11 +392,16 @@ function RecipeTableRow({
   return (
     <tr className="border-b border-border/50 hover:bg-[#4A7C59]/5 transition-colors cursor-pointer" onClick={onClick}>
       <td className="px-4 py-3">
-        <div className="font-medium text-foreground flex items-center gap-2">
+        <div className="font-medium text-foreground flex items-center gap-2 flex-wrap">
           {recipe.title}
           {recipe.isOwner === false && (
             <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-blue-50 text-blue-600 border border-blue-200 font-medium">
               {recipe.owner?.displayName ?? "Geteilt"}
+            </span>
+          )}
+          {matchedInNotes && (
+            <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-amber-50 text-amber-700 border border-amber-200 font-medium">
+              📝 Erwähnt in Notizen
             </span>
           )}
         </div>
@@ -1145,6 +1160,7 @@ export default function MeineRezepte({ onNavigate: _onNavigate, initialOpenRecip
                         onToggleFavorite={toggleFavorite}
                         commentCount={commentStats[recipe.id]?.count}
                         avgRating={commentStats[recipe.id]?.avgRating}
+                        matchedInNotes={recipe.matchedInNotes}
                       />
                     ))}
                   </div>
@@ -1251,6 +1267,7 @@ export default function MeineRezepte({ onNavigate: _onNavigate, initialOpenRecip
                             onCook={() => openCookingMode(recipe)}
                             onSuggest={() => setSuggestRecipe(recipe)}
                             onTriedChange={(tried) => { patchRecipeLocal(recipe.id, { tried }); patchRecipeSilent(recipe.id, { tried }).catch(() => patchRecipeLocal(recipe.id, { tried: !tried })); }}
+                            matchedInNotes={recipe.matchedInNotes}
                           />
                         ))}
                       </tbody>

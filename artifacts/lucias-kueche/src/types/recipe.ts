@@ -102,6 +102,7 @@ export interface Recipe {
   isAiGenerated?: boolean;
   imageSource?: "ai" | "web" | null;
   tried?: boolean | null;
+  matchedInNotes?: boolean;
 }
 
 export const ALL_CATEGORIES = [

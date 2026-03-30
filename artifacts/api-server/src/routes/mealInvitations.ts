@@ -550,7 +550,7 @@ router.post("/meal-invitations/:id/remind", authMiddleware, async (req, res) => 
         id
       );
 
-      if (isEmailConfigured()) {
+      if (await isEmailConfigured()) {
         const guestUser = pendingUsers.find((u) => u.id === member.userId);
         if (guestUser?.email) {
           try {

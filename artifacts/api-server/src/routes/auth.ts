@@ -98,7 +98,7 @@ router.post("/auth/register", async (req, res) => {
           },
         });
 
-        if (isEmailConfigured()) {
+        if (await isEmailConfigured()) {
           try {
             const inviterUser = await db.select({ displayName: usersTable.displayName, email: usersTable.email }).from(usersTable).where(eq(usersTable.id, inv.invitedByUserId)).then((r) => r[0]);
             if (inviterUser) {

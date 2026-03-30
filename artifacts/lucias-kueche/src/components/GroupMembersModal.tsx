@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from "react";
-import { X, Loader2, UserPlus, Trash2, Users, Pencil, Check, Bell, Copy, Link2 } from "lucide-react";
+import { X, Loader2, UserPlus, Trash2, Users, Pencil, Check, Bell, Copy, Link2, RotateCcw, CheckCircle2, Clock } from "lucide-react";
 import { useGroups, type Group, type GroupMember } from "@/hooks/useGroups";
 
 function toast(msg: string, type: "ok" | "err" = "ok") {
@@ -183,6 +183,12 @@ export default function GroupMembersModal({ group, onClose, isOwner }: Props) {
       .slice(0, 2)
       .toUpperCase();
 
+  const formatDate = (dateStr: string) => {
+    try {
+      return new Date(dateStr).toLocaleDateString("de-DE", { day: "2-digit", month: "2-digit", year: "numeric" });
+    } catch { return ""; }
+  };
+
   return (
     <div className="fixed inset-0 z-[200] flex items-center justify-center bg-black/50 p-4">
       {inviteLinkDialog && (
@@ -323,54 +329,69 @@ export default function GroupMembersModal({ group, onClose, isOwner }: Props) {
             ) : (
               <div className="space-y-2">
                 {members.map((m) => (
-                  <div key={m.id} className="flex items-center gap-3 p-3 rounded-xl bg-gray-50 border border-border/50">
-                    <div className="w-9 h-9 rounded-full overflow-hidden flex-shrink-0">
-                      {m.avatarUrl ? (
-                        <img src={m.avatarUrl} alt="" className="w-full h-full object-cover" />
-                      ) : (
-                        <div className="w-full h-full bg-[#4A7C59] flex items-center justify-center">
-                          <span className="text-white text-xs font-bold">{initials(m.displayName)}</span>
-                        </div>
-                      )}
+                  <div key={m.id} className={`p-3 rounded-xl border ${m.memberStatus === "invited" ? "bg-amber-50/50 border-amber-200/60" : "bg-gray-50 border-border/50"}`}>
+                    <div className="flex items-center gap-3">
+                      <div className="w-9 h-9 rounded-full overflow-hidden flex-shrink-0">
+                        {m.avatarUrl ? (
+                          <img src={m.avatarUrl} alt="" className="w-full h-full object-cover" />
+                        ) : (
+                          <div className={`w-full h-full flex items-center justify-center ${m.memberStatus === "joined" ? "bg-[#4A7C59]" : "bg-amber-400"}`}>
+                            <span className="text-white text-xs font-bold">{initials(m.displayName ?? m.invitedEmail)}</span>
+                          </div>
+                        )}
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <p className="text-sm font-medium truncate">{m.displayName ?? m.invitedEmail ?? "Unbekannt"}</p>
+                        <p className="text-xs text-muted-foreground truncate">{m.email ?? m.invitedEmail ?? ""}</p>
+                      </div>
+                      <div className="flex items-center gap-1.5 flex-shrink-0">
+                        {m.role === "owner" ? (
+                          <span className="text-xs px-2 py-0.5 rounded-full bg-[#4A7C59]/10 text-[#4A7C59] font-medium">Eigentümer</span>
+                        ) : m.memberStatus === "joined" ? (
+                          <span className="flex items-center gap-1 text-xs px-2 py-0.5 rounded-full bg-[#4A7C59]/10 text-[#4A7C59] font-medium">
+                            <CheckCircle2 className="w-3 h-3" /> Angenommen
+                          </span>
+                        ) : (
+                          <span className="flex items-center gap-1 text-xs px-2 py-0.5 rounded-full bg-amber-100 text-amber-700 font-medium">
+                            <Clock className="w-3 h-3" /> Ausstehend
+                          </span>
+                        )}
+                        {isOwner && m.role !== "owner" && (
+                          <button
+                            onClick={() => handleRemove(m)}
+                            className="p-1.5 rounded-lg hover:bg-red-50 text-muted-foreground hover:text-red-500 transition-colors"
+                            title="Mitglied entfernen"
+                          >
+                            <Trash2 className="w-3.5 h-3.5" />
+                          </button>
+                        )}
+                      </div>
                     </div>
-                    <div className="flex-1 min-w-0">
-                      <p className="text-sm font-medium truncate">{m.displayName ?? m.invitedEmail ?? "Unbekannt"}</p>
-                      <p className="text-xs text-muted-foreground truncate">{m.email ?? m.invitedEmail ?? ""}</p>
-                    </div>
-                    <div className="flex items-center gap-2">
-                      {m.role === "owner" ? (
-                        <span className="text-xs px-2 py-0.5 rounded-full bg-[#4A7C59]/10 text-[#4A7C59] font-medium">Eigentümer</span>
-                      ) : m.memberStatus === "invited" ? (
-                        <span className="text-xs px-2 py-0.5 rounded-full bg-amber-100 text-amber-700 font-medium">Einladung ausstehend</span>
-                      ) : (
-                        <span className="text-xs px-2 py-0.5 rounded-full bg-blue-100 text-blue-700 font-medium">Mitglied</span>
-                      )}
-                      {isOwner && m.role !== "owner" && m.memberStatus === "invited" && (
-                        <button
-                          onClick={() => handleRemind(m)}
-                          disabled={remindingIds.has(m.id) || remindedIds.has(m.id)}
-                          className="p-1.5 rounded-lg hover:bg-amber-50 text-muted-foreground hover:text-amber-600 transition-colors disabled:opacity-50"
-                          title="Erinnerung senden"
-                        >
-                          {remindingIds.has(m.id) ? (
-                            <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                          ) : remindedIds.has(m.id) ? (
-                            <Check className="w-3.5 h-3.5 text-[#4A7C59]" />
-                          ) : (
-                            <Bell className="w-3.5 h-3.5" />
-                          )}
-                        </button>
-                      )}
-                      {isOwner && m.role !== "owner" && (
-                        <button
-                          onClick={() => handleRemove(m)}
-                          className="p-1.5 rounded-lg hover:bg-red-50 text-muted-foreground hover:text-red-500 transition-colors"
-                          title="Mitglied entfernen"
-                        >
-                          <Trash2 className="w-3.5 h-3.5" />
-                        </button>
-                      )}
-                    </div>
+                    {m.memberStatus === "invited" && (
+                      <div className="mt-2 pt-2 border-t border-amber-200/60 flex items-center justify-between gap-2">
+                        <p className="text-xs text-amber-700 flex items-center gap-1">
+                          <Clock className="w-3 h-3" />
+                          Eingeladen am {formatDate(m.createdAt)} · noch nicht reagiert
+                        </p>
+                        {isOwner && (
+                          <button
+                            onClick={() => handleRemind(m)}
+                            disabled={remindingIds.has(m.id) || remindedIds.has(m.id)}
+                            className="flex items-center gap-1 px-2.5 py-1 rounded-lg bg-amber-100 hover:bg-amber-200 text-amber-800 text-xs font-medium transition-colors disabled:opacity-50"
+                            title="Einladung erneut senden"
+                          >
+                            {remindingIds.has(m.id) ? (
+                              <Loader2 className="w-3 h-3 animate-spin" />
+                            ) : remindedIds.has(m.id) ? (
+                              <Check className="w-3 h-3 text-[#4A7C59]" />
+                            ) : (
+                              <RotateCcw className="w-3 h-3" />
+                            )}
+                            {remindedIds.has(m.id) ? "Versandt" : "Erneut senden"}
+                          </button>
+                        )}
+                      </div>
+                    )}
                   </div>
                 ))}
               </div>

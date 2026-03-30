@@ -363,7 +363,7 @@ router.post("/groups/:id/invite", authMiddleware, async (req, res) => {
         return;
       }
 
-      if (!isEmailConfigured()) {
+      if (!await isEmailConfigured()) {
         res.status(503).json({ error: "email_not_configured", message: "E-Mail-Versand ist nicht konfiguriert. Einladungen können derzeit nicht versendet werden." });
         return;
       }
@@ -427,7 +427,7 @@ router.post("/groups/:id/invite", authMiddleware, async (req, res) => {
       return;
     }
 
-    if (!isEmailConfigured()) {
+    if (!await isEmailConfigured()) {
       res.status(503).json({ error: "email_not_configured", message: "E-Mail-Versand ist nicht konfiguriert. Einladungen können derzeit nicht versendet werden." });
       return;
     }
@@ -608,7 +608,7 @@ router.post("/groups/family-invite", authMiddleware, async (req, res) => {
 
       res.status(201).json({ ...member, displayName: invitedUser.displayName, email: invitedUser.email, inviteType: "user", groupId });
     } else {
-      if (!isEmailConfigured()) {
+      if (!await isEmailConfigured()) {
         res.status(503).json({ error: "email_not_configured", message: "E-Mail-Versand ist nicht konfiguriert. Einladungen können derzeit nicht versendet werden." });
         return;
       }
@@ -756,7 +756,7 @@ async function handleInviteRemindOrResend(req: any, res: any) {
     const inviteLink = `${getAppBaseUrl()}/invite/${newToken}`;
     let emailSent = false;
     if (sender && targetMember.invitedEmail) {
-      if (!isEmailConfigured()) {
+      if (!await isEmailConfigured()) {
         if (!targetMember.userId) {
           res.json({ notified: false, reason: "email_not_configured", inviteLink });
           return;

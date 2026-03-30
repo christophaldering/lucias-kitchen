@@ -1,35 +1,66 @@
 import nodemailer from "nodemailer";
 import type { Transporter } from "nodemailer";
 import { logger } from "./logger";
+import { db } from "@workspace/db";
+import { appSettingsTable } from "@workspace/db/schema";
+import { eq } from "drizzle-orm";
 
-const GMAIL_USER = "lucia.aldering@googlemail.com";
-const GMAIL_APP_PASSWORD = process.env["GMAIL_APP_PASSWORD"];
-
-let transporter: Transporter | null = null;
-
-function getTransporter(): Transporter {
-  if (!GMAIL_APP_PASSWORD) {
-    throw new Error("GMAIL_APP_PASSWORD is not configured. Email sending is disabled.");
+async function getDbSetting(key: string): Promise<string | null> {
+  try {
+    const row = await db
+      .select()
+      .from(appSettingsTable)
+      .where(eq(appSettingsTable.key, key))
+      .then((r) => r[0]);
+    return row?.value ?? null;
+  } catch {
+    return null;
   }
-  if (!transporter) {
-    transporter = nodemailer.createTransport({
-      host: "smtp.gmail.com",
-      port: 587,
-      secure: false,
-      auth: {
-        user: GMAIL_USER,
-        pass: GMAIL_APP_PASSWORD,
-      },
-    });
+}
+
+let cachedTransporter: Transporter | null = null;
+let lastConfigHash = "";
+
+async function getTransporter(): Promise<Transporter> {
+  const dbPassword = await getDbSetting("smtp_password");
+  const dbEmail = await getDbSetting("smtp_sender_email");
+
+  const password = dbPassword ?? process.env["GMAIL_APP_PASSWORD"];
+  const email = dbEmail ?? "lucia.aldering@googlemail.com";
+
+  if (!password) {
+    throw new Error("E-Mail-Passwort ist nicht konfiguriert. Bitte in den Admin-Einstellungen hinterlegen.");
   }
-  return transporter;
+
+  const configHash = `${email}:${password}`;
+  if (cachedTransporter && configHash === lastConfigHash) {
+    return cachedTransporter;
+  }
+
+  cachedTransporter = nodemailer.createTransport({
+    host: "smtp.gmail.com",
+    port: 587,
+    secure: false,
+    auth: {
+      user: email,
+      pass: password,
+    },
+  });
+  lastConfigHash = configHash;
+  return cachedTransporter;
+}
+
+export async function getSenderEmail(): Promise<string> {
+  const dbEmail = await getDbSetting("smtp_sender_email");
+  return dbEmail ?? "lucia.aldering@googlemail.com";
 }
 
 export async function sendEmail(to: string, subject: string, html: string): Promise<void> {
-  const t = getTransporter();
+  const t = await getTransporter();
+  const fromEmail = await getSenderEmail();
   try {
     await t.sendMail({
-      from: `"Lucia's Küche" <${GMAIL_USER}>`,
+      from: `"Lucia's Küche" <${fromEmail}>`,
       to,
       subject,
       html,
@@ -41,6 +72,7 @@ export async function sendEmail(to: string, subject: string, html: string): Prom
   }
 }
 
-export function isEmailConfigured(): boolean {
-  return !!GMAIL_APP_PASSWORD;
+export async function isEmailConfigured(): Promise<boolean> {
+  const dbPassword = await getDbSetting("smtp_password");
+  return !!(dbPassword ?? process.env["GMAIL_APP_PASSWORD"]);
 }

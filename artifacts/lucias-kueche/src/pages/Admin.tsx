@@ -3,7 +3,8 @@ import * as XLSX from "xlsx";
 import {
   Loader2, Trash2, Edit2, Download, Tag, RefreshCw,
   Upload, Check, AlertTriangle, Settings, Database, Sliders,
-  X, Plus, ChevronsUpDown, Users, CheckCircle, XCircle, Clock, FolderOpen, Copy, RotateCcw, RotateCw, Images
+  X, Plus, ChevronsUpDown, Users, CheckCircle, XCircle, Clock, FolderOpen, Copy, RotateCcw, RotateCw, Images,
+  Mail, Eye, EyeOff, Send, ShieldCheck, ShieldAlert
 } from "lucide-react";
 import { AdminNeedBox, AdminActionCard } from "@/components/AdminUI";
 import { useRecipes } from "@/hooks/useRecipes";
@@ -29,6 +30,7 @@ const SECTION_TABS = [
   { id: "image-optimization", label: "Bildoptimierung", icon: RefreshCw },
   { id: "batch-extraction", label: "Foto-Extraktion", icon: Images },
   { id: "trash", label: "Papierkorb", icon: Trash2 },
+  { id: "email", label: "E-Mail-Versand", icon: Mail },
   { id: "settings", label: "App-Einstellungen", icon: Sliders },
 ] as const;
 type SectionTab = typeof SECTION_TABS[number]["id"];
@@ -1005,6 +1007,212 @@ function AppSettings() {
       <div className="sticky-note rounded-xl p-4 text-sm text-amber-900">
         <strong>📝 Hinweis:</strong> Die Einstellungen werden lokal in diesem Browser gespeichert und sind sofort aktiv.
       </div>
+    </div>
+  );
+}
+
+function EmailSettings() {
+  const [config, setConfig] = useState<{ senderEmail: string; passwordConfigured: boolean; passwordSource: string } | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [emailInput, setEmailInput] = useState("");
+  const [passwordInput, setPasswordInput] = useState("");
+  const [showPassword, setShowPassword] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [testEmail, setTestEmail] = useState("");
+  const [testing, setTesting] = useState(false);
+  const [testResult, setTestResult] = useState<{ success: boolean; message: string } | null>(null);
+
+  const loadConfig = useCallback(async () => {
+    setLoading(true);
+    try {
+      const res = await fetch("/api/admin/email-config", { headers: authHeaders() });
+      if (res.ok) {
+        const data = await res.json();
+        setConfig(data);
+        setEmailInput(data.senderEmail ?? "");
+      }
+    } catch {
+      toast("Konfiguration konnte nicht geladen werden", "err");
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  useEffect(() => { loadConfig(); }, [loadConfig]);
+
+  const handleSave = async () => {
+    if (!emailInput.trim() && !passwordInput.trim()) return;
+    setSaving(true);
+    try {
+      const body: Record<string, string> = {};
+      if (emailInput.trim()) body.senderEmail = emailInput.trim();
+      if (passwordInput.trim()) body.password = passwordInput.trim();
+      const res = await fetch("/api/admin/email-config", {
+        method: "POST",
+        headers: { ...authHeaders(), "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      });
+      if (!res.ok) throw new Error("Speichern fehlgeschlagen");
+      toast("E-Mail-Konfiguration gespeichert ✓");
+      setPasswordInput("");
+      await loadConfig();
+    } catch (err) {
+      toast(err instanceof Error ? err.message : "Fehler beim Speichern", "err");
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const handleTest = async () => {
+    setTesting(true);
+    setTestResult(null);
+    try {
+      const res = await fetch("/api/admin/email-test", {
+        method: "POST",
+        headers: { ...authHeaders(), "Content-Type": "application/json" },
+        body: JSON.stringify({ to: testEmail.trim() || undefined }),
+      });
+      const data = await res.json();
+      if (res.ok) {
+        setTestResult({ success: true, message: `Test-E-Mail erfolgreich an „${data.recipient}" versandt.` });
+      } else {
+        setTestResult({ success: false, message: data.message ?? "Versand fehlgeschlagen" });
+      }
+    } catch {
+      setTestResult({ success: false, message: "Netzwerkfehler beim Senden" });
+    } finally {
+      setTesting(false);
+    }
+  };
+
+  return (
+    <div className="space-y-6">
+      <AdminNeedBox>
+        Ich möchte festlegen, von welcher E-Mail-Adresse Einladungen und Benachrichtigungen versandt werden, und prüfen ob der Versand funktioniert.
+      </AdminNeedBox>
+
+      {loading ? (
+        <div className="flex justify-center py-8"><Loader2 className="w-6 h-6 animate-spin text-[#4A7C59]" /></div>
+      ) : (
+        <>
+          <AdminActionCard
+            title="📊 Aktueller Status"
+            description="Zeigt an, welche E-Mail-Adresse für den Versand verwendet wird und ob das Passwort konfiguriert ist."
+          >
+            <div className="space-y-3">
+              <div className="flex items-center justify-between py-3 border-b border-border/50">
+                <div>
+                  <p className="text-sm font-medium">Absender-Adresse</p>
+                  <p className="text-xs text-muted-foreground mt-0.5">{config?.senderEmail ?? "–"}</p>
+                </div>
+                <Mail className="w-5 h-5 text-[#4A7C59]" />
+              </div>
+              <div className="flex items-center justify-between py-3">
+                <div>
+                  <p className="text-sm font-medium">App-Passwort</p>
+                  <p className="text-xs text-muted-foreground mt-0.5">
+                    {config?.passwordSource === "database"
+                      ? "In der Datenbank gespeichert"
+                      : config?.passwordSource === "environment"
+                      ? "Als Systemvariable hinterlegt"
+                      : "Nicht konfiguriert"}
+                  </p>
+                </div>
+                {config?.passwordConfigured ? (
+                  <ShieldCheck className="w-5 h-5 text-[#4A7C59]" />
+                ) : (
+                  <ShieldAlert className="w-5 h-5 text-red-500" />
+                )}
+              </div>
+            </div>
+          </AdminActionCard>
+
+          <AdminActionCard
+            title="✏️ Konfiguration ändern"
+            description="Trage die Gmail-Adresse ein, von der Einladungen versendet werden sollen. Das App-Passwort ist ein 16-stelliger Google-Schlüssel (nicht dein normales Passwort)."
+          >
+            <div className="space-y-4">
+              <div>
+                <label className="block text-xs font-semibold text-muted-foreground mb-1 uppercase tracking-wide">Absender-E-Mail-Adresse</label>
+                <input
+                  type="email"
+                  value={emailInput}
+                  onChange={(e) => setEmailInput(e.target.value)}
+                  placeholder="z.B. lucia@googlemail.com"
+                  className="w-full px-3 py-2.5 rounded-xl border border-border bg-white text-sm focus:outline-none focus:ring-2 focus:ring-[#4A7C59]/30"
+                />
+              </div>
+              <div>
+                <label className="block text-xs font-semibold text-muted-foreground mb-1 uppercase tracking-wide">
+                  Gmail App-Passwort{config?.passwordConfigured ? " (leer lassen = unverändert)" : ""}
+                </label>
+                <div className="relative">
+                  <input
+                    type={showPassword ? "text" : "password"}
+                    value={passwordInput}
+                    onChange={(e) => setPasswordInput(e.target.value)}
+                    placeholder={config?.passwordConfigured ? "••••••••••••••••" : "xxxx xxxx xxxx xxxx"}
+                    className="w-full px-3 py-2.5 pr-10 rounded-xl border border-border bg-white text-sm focus:outline-none focus:ring-2 focus:ring-[#4A7C59]/30"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setShowPassword((v) => !v)}
+                    className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+                  >
+                    {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                  </button>
+                </div>
+                <p className="text-xs text-muted-foreground mt-1">
+                  Google-Konto → Sicherheit → App-Passwörter → „Mail" für das Gerät erstellen.
+                </p>
+              </div>
+              <button
+                onClick={handleSave}
+                disabled={saving || (!emailInput.trim() && !passwordInput.trim())}
+                className="w-full py-2.5 bg-[#4A7C59] text-white rounded-xl text-sm font-semibold hover:bg-[#3d6849] transition-colors disabled:opacity-50 flex items-center justify-center gap-2"
+              >
+                {saving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Check className="w-4 h-4" />}
+                Konfiguration speichern
+              </button>
+            </div>
+          </AdminActionCard>
+
+          <AdminActionCard
+            title="📨 Verbindung testen"
+            description="Schickt eine Test-E-Mail, um zu prüfen ob der Versand korrekt eingerichtet ist."
+          >
+            <div className="space-y-4">
+              <div>
+                <label className="block text-xs font-semibold text-muted-foreground mb-1 uppercase tracking-wide">Empfänger (optional)</label>
+                <input
+                  type="email"
+                  value={testEmail}
+                  onChange={(e) => setTestEmail(e.target.value)}
+                  placeholder={`Leer lassen = an ${config?.senderEmail ?? "Absender"} senden`}
+                  className="w-full px-3 py-2.5 rounded-xl border border-border bg-white text-sm focus:outline-none focus:ring-2 focus:ring-[#4A7C59]/30"
+                />
+              </div>
+              {testResult && (
+                <div className={`flex items-start gap-2 p-3 rounded-xl text-sm ${testResult.success ? "bg-[#4A7C59]/10 text-[#4A7C59]" : "bg-red-50 text-red-700"}`}>
+                  {testResult.success ? <CheckCircle className="w-4 h-4 mt-0.5 flex-shrink-0" /> : <AlertTriangle className="w-4 h-4 mt-0.5 flex-shrink-0" />}
+                  <span>{testResult.message}</span>
+                </div>
+              )}
+              <button
+                onClick={handleTest}
+                disabled={testing || !config?.passwordConfigured}
+                className="w-full py-2.5 border border-[#4A7C59] text-[#4A7C59] rounded-xl text-sm font-semibold hover:bg-[#4A7C59]/5 transition-colors disabled:opacity-50 flex items-center justify-center gap-2"
+              >
+                {testing ? <Loader2 className="w-4 h-4 animate-spin" /> : <Send className="w-4 h-4" />}
+                Test-E-Mail senden
+              </button>
+              {!config?.passwordConfigured && (
+                <p className="text-xs text-red-600 text-center">Bitte zuerst das App-Passwort konfigurieren.</p>
+              )}
+            </div>
+          </AdminActionCard>
+        </>
+      )}
     </div>
   );
 }
@@ -2542,6 +2750,8 @@ export default function Admin({ initialTab, navToken, onTabInitialized }: { init
       {section === "batch-extraction" && <BatchExtractionTab />}
 
       {section === "trash" && <TrashTab />}
+
+      {section === "email" && <EmailSettings />}
 
       {section === "settings" && <AppSettings />}
     </div>

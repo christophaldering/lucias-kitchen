@@ -175,7 +175,7 @@ router.post("/invite/:token/accept", async (req, res) => {
         },
       });
 
-      if (isEmailConfigured()) {
+      if (await isEmailConfigured()) {
         try {
           const inviter = await db
             .select({ displayName: usersTable.displayName, email: usersTable.email })

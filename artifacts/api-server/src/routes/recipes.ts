@@ -1087,6 +1087,31 @@ router.post("/recipes", authMiddleware, async (req, res) => {
           }
         }).catch(() => {});
       });
+
+      // Non-blocking: auto-extract recipe photo from PDF if recipe has no image
+      if (recipeData.sourceDocumentUrl && !effectiveImageUrl) {
+        const recipeId = recipe.id;
+        const srcDocUrl = recipeData.sourceDocumentUrl;
+        setImmediate(async () => {
+          try {
+            const { extractRecipePhoto } = await import("../utils/extractRecipePhoto");
+            const { ObjectStorageService } = await import("../lib/objectStorage");
+            const photoBuffer = await extractRecipePhoto(srcDocUrl);
+            if (photoBuffer) {
+              const storageSvc = new ObjectStorageService();
+              const imgPath = await storageSvc.uploadBuffer(photoBuffer, "image/webp", "recipe-images");
+              const imageUrl = `/api/storage${imgPath}`;
+              await db.update(recipesTable)
+                .set({ imageUrl, isAiGenerated: false, imageSource: "original" })
+                .where(eq(recipesTable.id, recipeId));
+              await syncMainPhotoLink(recipeId, imageUrl, null, "original");
+              invalidateRecipeListCache();
+            }
+          } catch (photoErr) {
+            console.error(`Auto photo extraction failed for recipe ${recipeId}:`, photoErr);
+          }
+        });
+      }
     }
 
     res.status(201).json(created.length === 1 ? created[0] : created);
@@ -2641,6 +2666,72 @@ router.post("/recipes/:id/extract-image-from-source", authMiddleware, async (req
   } catch (err) {
     req.log.error({ err }, "Failed to extract image from source URL");
     res.status(500).json({ error: "internal_error", message: "Bild-Extraktion fehlgeschlagen" });
+  }
+});
+
+router.post("/recipes/:id/extract-photo", authMiddleware, async (req, res) => {
+  try {
+    const id = Number(req.params.id);
+    if (isNaN(id)) {
+      res.status(400).json({ error: "bad_request", message: "Ungültige Rezept-ID" });
+      return;
+    }
+
+    const [recipe] = await db
+      .select({
+        id: recipesTable.id,
+        createdBy: recipesTable.createdBy,
+        imageUrl: recipesTable.imageUrl,
+        sourceDocumentUrl: recipesTable.sourceDocumentUrl,
+      })
+      .from(recipesTable)
+      .where(and(eq(recipesTable.id, id), isNull(recipesTable.deletedAt)))
+      .limit(1);
+
+    if (!recipe) {
+      res.status(404).json({ error: "not_found", message: "Rezept nicht gefunden" });
+      return;
+    }
+
+    const isOwner = recipe.createdBy == null || recipe.createdBy === req.authUser!.id;
+    if (!isOwner && !isAdmin(req.authUser!.email)) {
+      res.status(403).json({ error: "forbidden", message: "Keine Berechtigung" });
+      return;
+    }
+
+    if (recipe.imageUrl) {
+      res.status(409).json({ error: "image_exists", message: "Dieses Rezept hat bereits ein Hauptbild. Bitte lösche es zuerst, um ein neues zu extrahieren." });
+      return;
+    }
+
+    if (!recipe.sourceDocumentUrl) {
+      res.status(400).json({ error: "no_source_document", message: "Dieses Rezept hat kein PDF-Quelldokument" });
+      return;
+    }
+
+    const { extractRecipePhoto } = await import("../utils/extractRecipePhoto");
+    const photoBuffer = await extractRecipePhoto(recipe.sourceDocumentUrl);
+
+    if (!photoBuffer) {
+      res.status(422).json({ error: "no_photo_found", message: "Im PDF konnte kein Lebensmittelfoto gefunden werden" });
+      return;
+    }
+
+    const { ObjectStorageService } = await import("../lib/objectStorage");
+    const storageService = new ObjectStorageService();
+    const storagePath = await storageService.uploadBuffer(photoBuffer, "image/webp", "recipe-images");
+    const imageUrl = `/api/storage${storagePath}`;
+
+    await db.update(recipesTable)
+      .set({ imageUrl, isAiGenerated: false, imageSource: "original" })
+      .where(eq(recipesTable.id, id));
+    await syncMainPhotoLink(id, imageUrl, req.authUser!.id, "original");
+    invalidateRecipeListCache();
+
+    res.json({ success: true, image_url: imageUrl });
+  } catch (err) {
+    req.log.error({ err }, "Failed to extract photo from PDF");
+    res.status(500).json({ error: "internal_error", message: "Foto-Extraktion fehlgeschlagen" });
   }
 });
 

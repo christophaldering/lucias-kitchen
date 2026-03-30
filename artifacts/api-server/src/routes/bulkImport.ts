@@ -2271,8 +2271,8 @@ router.post("/bulk-import/:sessionId/save", authMiddleware, async (req, res) => 
 
         // Use only detected food photo pages; if none were detected, save no photos
         const photoPageUrls = (item.photoPageUrls as string[] | null) ?? [];
+        const permanentPhotoUrls: string[] = [];
         if (photoPageUrls.length > 0) {
-          const permanentPhotoUrls: string[] = [];
           for (const tempUrl of photoPageUrls) {
             try {
               const storagePath = tempUrl.startsWith("/api/storage")
@@ -2303,6 +2303,26 @@ router.post("/bulk-import/:sessionId/save", authMiddleware, async (req, res) => 
           .update(bulkImportItemsTable)
           .set({ savedRecipeId: recipe.id })
           .where(eq(bulkImportItemsTable.id, item.id));
+
+        // Non-blocking: auto-extract recipe photo from PDF if none was found during processing
+        if (sourceDocumentUrl && permanentPhotoUrls.length === 0) {
+          setImmediate(async () => {
+            try {
+              const { extractRecipePhoto } = await import("../utils/extractRecipePhoto");
+              const photoBuffer = await extractRecipePhoto(sourceDocumentUrl);
+              if (photoBuffer) {
+                const imgPath = await storageService.uploadBuffer(photoBuffer, "image/webp", "recipe-images");
+                const imageUrl = `/api/storage${imgPath}`;
+                await db.update(recipesTable)
+                  .set({ imageUrl, isAiGenerated: false, imageSource: "original" })
+                  .where(eq(recipesTable.id, recipe.id));
+                invalidateRecipeListCache();
+              }
+            } catch (photoErr) {
+              console.error(`Auto photo extraction failed for recipe ${recipe.id}:`, photoErr);
+            }
+          });
+        }
 
         generateTagsForRecipe({
           title: rd.title ?? "Importiertes Rezept",

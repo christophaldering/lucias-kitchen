@@ -197,6 +197,8 @@ function RecipeModalInner({ recipe, onClose, onAddToWeek, onToggleFavorite, onRe
   const [extractingSourceImage, setExtractingSourceImage] = useState(false);
   const [extractSourceImageError, setExtractSourceImageError] = useState<string | null>(null);
   const [extractingScanImage, setExtractingScanImage] = useState(false);
+  const [extractingPdfPhoto, setExtractingPdfPhoto] = useState(false);
+  const [extractPdfPhotoError, setExtractPdfPhotoError] = useState<string | null>(null);
   const [extractingAllPhotos, setExtractingAllPhotos] = useState(false);
   const [extractAllPhotosResult, setExtractAllPhotosResult] = useState<{ photosAdded: number; alreadyExisted: number } | null>(null);
   const [galleryRefreshTrigger, setGalleryRefreshTrigger] = useState(0);
@@ -349,6 +351,33 @@ function RecipeModalInner({ recipe, onClose, onAddToWeek, onToggleFavorite, onRe
       setExtractSourceImageError("Scan-Bild konnte nicht extrahiert werden");
     } finally {
       setExtractingScanImage(false);
+    }
+  };
+
+  const handleExtractPdfPhoto = async () => {
+    setExtractingPdfPhoto(true);
+    setExtractPdfPhotoError(null);
+    try {
+      const res = await authFetch(`${API_BASE}/recipes/${recipe.id}/extract-photo`, {
+        method: "POST",
+        headers: { ...authHeaders() },
+      });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        setExtractPdfPhotoError((err as { message?: string }).message ?? "Foto konnte nicht extrahiert werden");
+        return;
+      }
+      const data = await res.json();
+      const newImageUrl = data.image_url as string;
+      setLocalImageUrl(newImageUrl);
+      setLocalIsAiGenerated(false);
+      setLocalImageSource(null);
+      setExtractPdfPhotoError(null);
+      if (onRecipeUpdated) onRecipeUpdated({ ...recipe, imageUrl: newImageUrl, isAiGenerated: false, imageSource: null });
+    } catch {
+      setExtractPdfPhotoError("Foto konnte nicht extrahiert werden");
+    } finally {
+      setExtractingPdfPhoto(false);
     }
   };
 
@@ -1003,7 +1032,7 @@ function RecipeModalInner({ recipe, onClose, onAddToWeek, onToggleFavorite, onRe
                 </div>
               )}
 
-              {isOwner && recipe.sourceDocumentUrl && (
+              {isOwner && recipe.sourceDocumentUrl && localImageUrl && (
                 <div className="flex flex-col items-center gap-0.5">
                   <button
                     onClick={handleExtractScanImage}
@@ -1011,9 +1040,9 @@ function RecipeModalInner({ recipe, onClose, onAddToWeek, onToggleFavorite, onRe
                     className="flex items-center gap-2 px-4 py-2.5 bg-orange-50 border border-orange-200 text-orange-700 rounded-xl text-sm font-semibold hover:bg-orange-100 transition-colors disabled:opacity-60"
                   >
                     {extractingScanImage ? <Loader2 className="w-4 h-4 animate-spin" /> : <FileText className="w-4 h-4" />}
-                    {extractingScanImage ? "Scan wird extrahiert…" : "Scan Foto extrahieren"}
+                    {extractingScanImage ? "Scan wird extrahiert…" : "Scan Foto ersetzen"}
                   </button>
-                  <span className="text-xs text-orange-600/80 text-center leading-tight">Bestes Foto direkt aus dem Scan ausschneiden</span>
+                  <span className="text-xs text-orange-600/80 text-center leading-tight">Aktuelles Bild durch Scan-Foto ersetzen</span>
                 </div>
               )}
 
@@ -1050,6 +1079,23 @@ function RecipeModalInner({ recipe, onClose, onAddToWeek, onToggleFavorite, onRe
                     Aus Fotos wählen
                   </button>
                   <span className="text-xs text-muted-foreground text-center leading-tight">Aus vorhandenen Galeriefotos auswählen</span>
+                </div>
+              )}
+
+              {isOwner && !localImageUrl && !recipe.mainPhotoUrl && recipe.sourceDocumentUrl && (
+                <div className="flex flex-col items-center gap-0.5">
+                  <button
+                    onClick={handleExtractPdfPhoto}
+                    disabled={extractingPdfPhoto || generatingImage || extractingSourceImage || extractingScanImage}
+                    className="flex items-center gap-2 px-4 py-2.5 bg-orange-50 border border-orange-200 text-orange-700 rounded-xl text-sm font-semibold hover:bg-orange-100 transition-colors disabled:opacity-60"
+                  >
+                    {extractingPdfPhoto ? <Loader2 className="w-4 h-4 animate-spin" /> : <FileText className="w-4 h-4" />}
+                    {extractingPdfPhoto ? "Foto wird extrahiert…" : "Scan Foto extrahieren"}
+                  </button>
+                  <span className="text-xs text-orange-600/80 text-center leading-tight">Rezeptfoto direkt aus dem PDF ausschneiden</span>
+                  {extractPdfPhotoError && (
+                    <span className="text-xs text-red-600 text-center mt-0.5">{extractPdfPhotoError}</span>
+                  )}
                 </div>
               )}
 

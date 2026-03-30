@@ -1,0 +1,313 @@
+# REPLIT PROMPT — PDF Rezeptfoto-Extraktion (Upload + Scan-Funktion)
+
+---
+
+## KONTEXT & AUSGANGSLAGE
+
+Meine App ist ein Node/Express-Backend. Es gibt zwei Bildpfade:
+
+1. **Manueller Upload** → Datei landet im Filesystem unter `public/uploads/`, wird als WebP gespeichert, URL (`/api/uploads/<dateiname>`) landet in der DB.
+2. **KI/Bulk-Bilder** → kein Filesystem. Base64-Bild → direkt in Replit Object Storage (`recipe-images/` Bucket) → interne URL (`/api/storage/objects/...`) in DB.
+
+PDF-Dateien werden aktuell beim Upload in der DB erfasst (Pfad zur Datei), aber das darin enthaltene Rezeptfoto wird **nicht** extrahiert. Das muss jetzt gebaut werden — und zwar für zwei Szenarien.
+
+---
+
+## WAS GEBAUT WERDEN MUSS
+
+### Ziel
+Wenn eine Chefkoch-PDF hochgeladen wird, soll automatisch das Rezeptfoto aus der Seite ausgeschnitten, als WebP in den Object Storage (`recipe-images/`) gespeichert und die URL in der DB beim zugehörigen Rezept eingetragen werden.
+
+Das Foto **folgt dem KI/Bulk-Bildpfad**: kein Filesystem, direkt in Object Storage, URL in DB.
+
+---
+
+### TEIL 1 — Automatische Extraktion beim PDF-Upload
+
+**Trigger:** Immer wenn eine PDF hochgeladen und in der DB gespeichert wird, direkt im Anschluss die Fotoextraktion starten.
+
+**Ablauf:**
+1. PDF-Datei liegt auf dem Filesystem (Pfad bekannt aus dem Upload-Handler)
+2. Python-Script aufrufen (siehe unten) → gibt Pfad zu einem temporären JPG zurück
+3. JPG einlesen, als WebP konvertieren (max. 800×800px, Qualität 85)
+4. WebP als Buffer in Object Storage hochladen → Bucket `recipe-images/`, Filename z.B. `pdf_extract_<rezept_id>_<timestamp>.webp`
+5. Zurückgegebene Storage-URL in der DB beim Rezept als `image_url` eintragen (gleiche Spalte wie bei KI-generierten Bildern)
+6. Temporäre Extraktionsdatei löschen
+
+Falls die Extraktion fehlschlägt (kein Foto gefunden, Python-Fehler): **still fail** — kein Abbruch des Upload-Flows, nur Logging. Das Rezept wird trotzdem gespeichert, nur ohne Bild.
+
+---
+
+### TEIL 2 — Retroaktive Funktion "Scan Foto extrahieren"
+
+**API-Endpunkt:** `POST /api/recipes/:id/extract-photo`
+
+**Ablauf:**
+1. Rezept anhand `:id` aus DB laden → PDF-Pfad lesen
+2. Prüfen: Hat das Rezept bereits ein Bild (`image_url` ist nicht null)? → Falls ja: **Fehler zurückgeben** `{ error: "Rezept hat bereits ein Bild. Bitte zuerst manuell entfernen." }` — kein automatisches Überschreiben.
+3. Falls kein Bild vorhanden: Python-Script ausführen → gleicher Flow wie oben (Schritte 2–5 aus Teil 1)
+4. Rückgabe: `{ success: true, image_url: "..." }` oder `{ success: false, error: "Kein Foto in der PDF gefunden" }`
+
+---
+
+## DAS PYTHON-EXTRAKTIONS-SCRIPT
+
+Erstelle die Datei `scripts/extract_recipe_photo.py` mit folgendem Inhalt — **exakt so, nichts weglassen**:
+
+```python
+import fitz  # PyMuPDF
+import cv2
+import numpy as np
+import sys
+import os
+import tempfile
+
+def find_recipe_photo(page_img_bgr):
+    """
+    Findet das Rezeptfoto auf einer Chefkoch-Druckseite.
+    Das Foto ist immer oben rechts — größtes farbiges Rechteck in diesem Bereich.
+    """
+    h, w = page_img_bgr.shape[:2]
+
+    roi_x = w // 2
+    roi_y = int(h * 0.05)
+    roi_h = int(h * 0.40)
+    roi = page_img_bgr[roi_y:roi_y + roi_h, roi_x:]
+
+    gray = cv2.cvtColor(roi, cv2.COLOR_BGR2GRAY)
+    blur = cv2.GaussianBlur(gray, (5, 5), 0)
+    edges = cv2.Canny(blur, 30, 80)
+    kernel = cv2.getStructuringElement(cv2.MORPH_RECT, (3, 3))
+    edges = cv2.dilate(edges, kernel, iterations=2)
+
+    contours, _ = cv2.findContours(edges, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+
+    best = None
+    best_area = 0
+
+    for cnt in contours:
+        x, y, cw, ch = cv2.boundingRect(cnt)
+        area = cw * ch
+        aspect = cw / ch if ch > 0 else 0
+        min_area = (roi.shape[1] * roi.shape[0]) * 0.08
+        if area < min_area:
+            continue
+        if aspect < 0.4 or aspect > 3.0:
+            continue
+        if area > best_area:
+            best_area = area
+            best = (x, y, cw, ch)
+
+    if best is None:
+        return None
+
+    x, y, cw, ch = best
+    pad = 4
+    abs_x = roi_x + x
+    abs_y = roi_y + y
+    return (abs_x + pad, abs_y + pad, cw - pad * 2, ch - pad * 2)
+
+
+def extract_photo(pdf_path):
+    """
+    Extrahiert das Rezeptfoto aus der ersten Seite der PDF.
+    Gibt den Pfad zur temporären JPG-Datei zurück, oder leeren String bei Fehler.
+    """
+    doc = fitz.open(pdf_path)
+    page = doc[0]
+
+    mat = fitz.Matrix(200 / 72, 200 / 72)
+    pix = page.get_pixmap(matrix=mat, colorspace=fitz.csRGB)
+    img_bytes = pix.tobytes("png")
+    doc.close()
+
+    arr = np.frombuffer(img_bytes, np.uint8)
+    img = cv2.imdecode(arr, cv2.IMREAD_COLOR)
+
+    coords = find_recipe_photo(img)
+    if coords is None:
+        print("NO_PHOTO_FOUND", flush=True)
+        return ""
+
+    x, y, cw, ch = coords
+    crop = img[y:y + ch, x:x + cw]
+
+    tmp = tempfile.NamedTemporaryFile(suffix=".jpg", delete=False)
+    cv2.imwrite(tmp.name, crop, [cv2.IMWRITE_JPEG_QUALITY, 92])
+    print(tmp.name, flush=True)
+    return tmp.name
+
+
+if __name__ == "__main__":
+    if len(sys.argv) < 2:
+        print("", flush=True)
+        sys.exit(1)
+    result = extract_photo(sys.argv[1])
+    if not result:
+        sys.exit(1)
+```
+
+**Python-Dependencies** die installiert sein müssen: `pymupdf`, `opencv-python-headless`, `numpy`
+→ In `pyproject.toml` oder per `pip install` sicherstellen.
+
+---
+
+## NODE-SEITIGE HILFSFUNKTION
+
+Erstelle `utils/extractRecipePhoto.js`:
+
+```javascript
+const { execFile } = require('child_process');
+const fs = require('fs');
+const sharp = require('sharp');
+const path = require('path');
+
+/**
+ * Extrahiert das Rezeptfoto aus einer Chefkoch-PDF.
+ * Gibt einen WebP-Buffer zurück, oder null bei Fehler.
+ *
+ * @param {string} pdfPath - Absoluter Pfad zur PDF-Datei
+ * @returns {Promise<Buffer|null>}
+ */
+async function extractRecipePhoto(pdfPath) {
+  return new Promise((resolve) => {
+    execFile(
+      'python3',
+      [path.join(__dirname, '../scripts/extract_recipe_photo.py'), pdfPath],
+      { timeout: 30000 },
+      async (error, stdout, stderr) => {
+        const tmpPath = stdout.trim();
+
+        if (error || !tmpPath || tmpPath === 'NO_PHOTO_FOUND') {
+          console.warn('[extractRecipePhoto] Kein Foto gefunden oder Fehler:', stderr || error?.message);
+          resolve(null);
+          return;
+        }
+
+        try {
+          const webpBuffer = await sharp(tmpPath)
+            .resize(800, 800, { fit: 'inside', withoutEnlargement: true })
+            .webp({ quality: 85 })
+            .toBuffer();
+
+          fs.unlink(tmpPath, () => {}); // Temp-Datei aufräumen
+          resolve(webpBuffer);
+        } catch (sharpErr) {
+          console.error('[extractRecipePhoto] Sharp-Fehler:', sharpErr.message);
+          fs.unlink(tmpPath, () => {});
+          resolve(null);
+        }
+      }
+    );
+  });
+}
+
+module.exports = { extractRecipePhoto };
+```
+
+---
+
+## INTEGRATION IN DEN UPLOAD-HANDLER
+
+Im bestehenden PDF-Upload-Handler, **nach** dem Speichern des Rezepts in der DB, folgenden Block einfügen:
+
+```javascript
+const { extractRecipePhoto } = require('../utils/extractRecipePhoto');
+// (storage-Upload-Funktion aus dem bestehenden KI/Bulk-Bildpfad importieren)
+
+// --- PDF-Fotoextraktion (non-blocking) ---
+(async () => {
+  try {
+    const photoBuffer = await extractRecipePhoto(pdfFilePath); // pdfFilePath = Pfad zur gerade hochgeladenen PDF
+    if (photoBuffer) {
+      const filename = `pdf_extract_${rezeptId}_${Date.now()}.webp`;
+      const storageUrl = await uploadBufferToObjectStorage(photoBuffer, 'recipe-images', filename);
+      // storageUrl ist z.B. "/api/storage/objects/recipe-images/pdf_extract_123_..."
+      await db.query(
+        'UPDATE recipes SET image_url = $1 WHERE id = $2',
+        [storageUrl, rezeptId]
+      );
+      console.log(`[PDF Upload] Foto extrahiert und gespeichert: ${storageUrl}`);
+    }
+  } catch (err) {
+    console.error('[PDF Upload] Fotoextraktion fehlgeschlagen (nicht kritisch):', err.message);
+    // Kein throw — Upload-Flow läuft weiter
+  }
+})();
+```
+
+**Wichtig:** Den genauen Namen der `uploadBufferToObjectStorage`-Funktion und des DB-Query-Patterns aus dem bestehenden KI-Bildpfad übernehmen — nicht neu erfinden.
+
+---
+
+## DER NEUE API-ENDPUNKT
+
+In der Routen-Datei für Rezepte hinzufügen:
+
+```javascript
+const { extractRecipePhoto } = require('../utils/extractRecipePhoto');
+
+router.post('/:id/extract-photo', async (req, res) => {
+  try {
+    const { id } = req.params;
+    const recipe = await db.query('SELECT * FROM recipes WHERE id = $1', [id]);
+
+    if (!recipe.rows.length) {
+      return res.status(404).json({ error: 'Rezept nicht gefunden' });
+    }
+
+    const row = recipe.rows[0];
+
+    // Schutz: nicht überschreiben wenn bereits Bild vorhanden
+    if (row.image_url) {
+      return res.status(409).json({
+        error: 'Rezept hat bereits ein Bild. Bitte zuerst manuell entfernen.'
+      });
+    }
+
+    if (!row.pdf_path) {
+      return res.status(400).json({ error: 'Kein PDF-Pfad für dieses Rezept hinterlegt' });
+    }
+
+    const photoBuffer = await extractRecipePhoto(row.pdf_path);
+
+    if (!photoBuffer) {
+      return res.status(422).json({ error: 'Kein Foto in der PDF gefunden' });
+    }
+
+    const filename = `pdf_extract_${id}_${Date.now()}.webp`;
+    const storageUrl = await uploadBufferToObjectStorage(photoBuffer, 'recipe-images', filename);
+
+    await db.query('UPDATE recipes SET image_url = $1 WHERE id = $2', [storageUrl, id]);
+
+    return res.json({ success: true, image_url: storageUrl });
+  } catch (err) {
+    console.error('[extract-photo]', err);
+    return res.status(500).json({ error: 'Interner Fehler bei der Fotoextraktion' });
+  }
+});
+```
+
+---
+
+## FRONTEND-BUTTON "Scan Foto extrahieren"
+
+Der Button soll nur erscheinen wenn:
+- Das Rezept einen `pdf_path` hat (also aus einer PDF stammt)
+- `image_url` null/leer ist (noch kein Bild vorhanden)
+
+Beim Klick: `POST /api/recipes/:id/extract-photo` → bei Erfolg die neue `image_url` im State aktualisieren und anzeigen. Bei `409` (bereits vorhanden) eine klare Meldung zeigen.
+
+---
+
+## ZUSAMMENFASSUNG DER DATEIEN DIE ERSTELLT/GEÄNDERT WERDEN
+
+| Aktion | Datei |
+|--------|-------|
+| NEU erstellen | `scripts/extract_recipe_photo.py` |
+| NEU erstellen | `utils/extractRecipePhoto.js` |
+| ÄNDERN | PDF-Upload-Handler (Block nach DB-Insert einfügen) |
+| ÄNDERN | Rezept-Router (neuer POST-Endpunkt) |
+| ÄNDERN | Frontend-Rezeptdetail-Komponente (Button + Logic) |
+
+**Nicht ändern:** Den bestehenden manuellen Upload-Flow, den KI-Bildpfad, die Object-Storage-Anbindung — die werden nur genutzt, nicht modifiziert.

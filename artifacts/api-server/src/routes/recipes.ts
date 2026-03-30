@@ -969,7 +969,8 @@ async function syncMainPhotoLink(
     });
 
   await db
-    .delete(recipePhotoLinksTable)
+    .update(recipePhotoLinksTable)
+    .set({ isMain: false })
     .where(
       and(
         eq(recipePhotoLinksTable.recipeId, recipeId),

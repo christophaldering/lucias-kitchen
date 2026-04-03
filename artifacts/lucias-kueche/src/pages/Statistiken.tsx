@@ -128,11 +128,11 @@ function RecipesHeroCard({ count }: { count: number }) {
 }
 
 export default function Statistiken() {
-  const { recipes, loading, error } = useRecipes("all", { loadAll: true });
+  const { recipes, loading, error, isBackgroundRefreshing } = useRecipes("all", { loadAll: true });
   const { history: kcalHistory, loading: kcalLoading } = useKcalHistory(4);
   const { entries: logEntries, loading: logLoading } = useCookingLog();
 
-  if (loading) {
+  if (loading && recipes.length === 0) {
     return (
       <div className="flex flex-col items-center py-20 gap-3 text-muted-foreground">
         <Loader2 className="w-8 h-8 animate-spin text-[#4A7C59]" />
@@ -166,6 +166,13 @@ export default function Statistiken() {
       <h2 className="font-serif text-2xl font-semibold text-foreground">
         📊 Statistiken & Muster
       </h2>
+
+      {isBackgroundRefreshing && (
+        <div className="flex items-center gap-2 px-3 py-2 rounded-xl bg-[#4A7C59]/8 border border-[#4A7C59]/20 text-sm text-[#4A7C59]">
+          <Loader2 className="w-3.5 h-3.5 animate-spin flex-shrink-0" />
+          <span>Statistiken werden aktualisiert…</span>
+        </div>
+      )}
 
       {/* Quick stats row */}
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">

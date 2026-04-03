@@ -950,8 +950,8 @@ export default function MeineRezepte({ onNavigate: _onNavigate, initialOpenRecip
         style={{ background: "linear-gradient(160deg, #f9efe0 0%, #f5e8d0 50%, #f2e4c8 100%)" }}
       >
         <div className="max-w-6xl mx-auto">
-          <div className="mb-2 sm:mb-3 flex items-center gap-2 flex-wrap">
-            <div className="flex gap-1 bg-white border border-border rounded-xl p-0.5 sm:p-1">
+          <div className="mb-2 sm:mb-3 flex items-center gap-2">
+            <div className="flex gap-1 bg-white border border-border rounded-xl p-0.5 sm:p-1 flex-shrink-0">
               <button
                 onClick={() => setViewMode("galerie")}
                 className={`flex items-center gap-1 sm:gap-1.5 px-2.5 sm:px-3 py-1.5 sm:py-2 rounded-lg text-sm font-medium transition-colors min-h-[34px] sm:min-h-[40px] ${viewMode === "galerie" ? "bg-[#3d6849] text-white" : "text-muted-foreground hover:text-foreground"}`}
@@ -969,7 +969,7 @@ export default function MeineRezepte({ onNavigate: _onNavigate, initialOpenRecip
             </div>
 
             {/* Ownership segmented control */}
-            <div className="flex gap-0.5 bg-muted border border-border rounded-xl p-0.5 sm:p-1 ml-auto">
+            <div className="flex gap-0.5 bg-muted border border-border rounded-xl p-0.5 sm:p-1 ml-auto flex-shrink-0">
               {(["all", "mine", "favorites"] as RecipeFilter[]).map((f) => (
                 <button
                   key={f}

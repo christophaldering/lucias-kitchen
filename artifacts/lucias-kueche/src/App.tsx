@@ -187,8 +187,8 @@ const BottomNav = memo(function BottomNav({ activeTab, onTabChange, unreadCount,
             <button
               key={tab.id}
               onClick={() => onTabChange(tab.id)}
-              className="flex-1 flex flex-col items-center justify-center py-2.5 gap-1 relative transition-colors min-h-[56px]"
-              style={{ minHeight: "56px" }}
+              className="flex-1 flex flex-col items-center justify-center py-1.5 gap-1 relative transition-colors min-h-[48px]"
+              style={{ minHeight: "48px" }}
             >
               {isActive && (
                 <span
@@ -197,7 +197,7 @@ const BottomNav = memo(function BottomNav({ activeTab, onTabChange, unreadCount,
                 />
               )}
               <span className={`relative transition-transform ${isActive ? "text-[#e8a87a] scale-110" : "text-green-300/70"}`}>
-                <tab.Icon className="w-5 h-5" />
+                <tab.Icon className="w-[18px] h-[18px]" />
                 {isBadgeTab && unreadCount > 0 && (
                   <span className="absolute -top-1.5 -right-1.5 w-4 h-4 bg-orange-500 text-white text-[9px] font-bold rounded-full flex items-center justify-center">
                     {unreadCount > 9 ? "9+" : unreadCount}
@@ -445,7 +445,7 @@ function AppShell() {
         </div>
       </header>
 
-      <main className="min-h-screen pb-24" style={{ minHeight: "calc(100vh - 56px)" }}>
+      <main className="min-h-screen pb-16" style={{ minHeight: "calc(100vh - 48px)" }}>
         {activeTab === "rezepte" && <MeineRezepte onNavigate={(tab) => setActiveTab(tab as Tab)} initialOpenRecipeId={openRecipeId} onRecipeOpened={() => setOpenRecipeId(null)} initialSortOrder={recipesInitialSortOrder} onSortOrderApplied={() => setRecipesInitialSortOrder(null)} refreshToken={recipesRefreshToken} />}
         {activeTab === "was-koche-ich" && <WasKocheIch />}
         {activeTab === "wochenplan" && <Wochenplan onNavigate={(tab) => setActiveTab(tab as Tab)} />}

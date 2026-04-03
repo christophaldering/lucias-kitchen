@@ -25,7 +25,17 @@ function openDb(): Promise<IDBDatabase> {
         }
       }
     };
-    req.onsuccess = () => resolve(req.result);
+    req.onsuccess = () => {
+      const db = req.result;
+      db.onversionchange = () => {
+        db.close();
+        dbPromise = null;
+      };
+      db.onclose = () => {
+        dbPromise = null;
+      };
+      resolve(db);
+    };
     req.onerror = () => {
       dbPromise = null;
       reject(req.error);
@@ -43,9 +53,9 @@ function makeKey(filter: string, id: number): string {
 export async function getCachedRecipes(filter: string): Promise<Recipe[]> {
   try {
     const db = await openDb();
-    return new Promise((resolve) => {
-      const tx = db.transaction(FILTER_STORE, "readonly");
-      const store = tx.objectStore(FILTER_STORE);
+    const tx = db.transaction(FILTER_STORE, "readonly");
+    const store = tx.objectStore(FILTER_STORE);
+    return await new Promise<Recipe[]>((resolve) => {
       const req = store.getAll();
       req.onsuccess = () => {
         const all = (req.result as StoredRecipe[]) ?? [];
@@ -64,11 +74,11 @@ export async function getCachedRecipes(filter: string): Promise<Recipe[]> {
 export async function setCachedRecipes(filter: string, recipes: Recipe[]): Promise<void> {
   try {
     const db = await openDb();
-    return new Promise((resolve) => {
-      const tx = db.transaction([FILTER_STORE, META_STORE], "readwrite");
-      const recipeStore = tx.objectStore(FILTER_STORE);
-      const metaStore = tx.objectStore(META_STORE);
+    const tx = db.transaction([FILTER_STORE, META_STORE], "readwrite");
+    const recipeStore = tx.objectStore(FILTER_STORE);
+    const metaStore = tx.objectStore(META_STORE);
 
+    await new Promise<void>((resolve) => {
       const getAllReq = recipeStore.getAll();
       getAllReq.onsuccess = () => {
         const existing = (getAllReq.result as StoredRecipe[]) ?? [];
@@ -96,9 +106,10 @@ export async function setCachedRecipes(filter: string, recipes: Recipe[]): Promi
 export async function deleteCachedRecipe(id: number): Promise<void> {
   try {
     const db = await openDb();
-    return new Promise((resolve) => {
-      const tx = db.transaction(FILTER_STORE, "readwrite");
-      const store = tx.objectStore(FILTER_STORE);
+    const tx = db.transaction(FILTER_STORE, "readwrite");
+    const store = tx.objectStore(FILTER_STORE);
+
+    await new Promise<void>((resolve) => {
       const getAllReq = store.getAll();
       getAllReq.onsuccess = () => {
         const all = (getAllReq.result as StoredRecipe[]) ?? [];
@@ -118,8 +129,9 @@ export async function deleteCachedRecipe(id: number): Promise<void> {
 export async function clearRecipeCache(): Promise<void> {
   try {
     const db = await openDb();
-    return new Promise((resolve) => {
-      const tx = db.transaction([FILTER_STORE, META_STORE], "readwrite");
+    const tx = db.transaction([FILTER_STORE, META_STORE], "readwrite");
+
+    await new Promise<void>((resolve) => {
       tx.objectStore(FILTER_STORE).clear();
       tx.objectStore(META_STORE).clear();
       tx.oncomplete = () => resolve();

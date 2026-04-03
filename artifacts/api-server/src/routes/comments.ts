@@ -1,11 +1,61 @@
 import { Router, type IRouter } from "express";
 import { db } from "@workspace/db";
 import { recipeCommentsTable, recipesTable, notificationsTable } from "@workspace/db/schema";
-import { eq, desc, and } from "drizzle-orm";
+import { eq, desc, and, inArray, count, avg } from "drizzle-orm";
 import { z } from "zod/v4";
 import { authMiddleware } from "./auth";
 
 const router: IRouter = Router();
+
+router.get("/recipes/comments/stats", async (req, res) => {
+  try {
+    const idsParam = req.query.ids as string | undefined;
+    if (!idsParam) {
+      res.json({});
+      return;
+    }
+
+    const recipeIds = [
+      ...new Set(
+        idsParam
+          .split(",")
+          .map((s) => Number(s.trim()))
+          .filter((n) => !isNaN(n) && n > 0)
+      ),
+    ].slice(0, 500);
+
+    if (recipeIds.length === 0) {
+      res.json({});
+      return;
+    }
+
+    const rows = await db
+      .select({
+        recipeId: recipeCommentsTable.recipeId,
+        count: count().as("count"),
+        avgRating: avg(recipeCommentsTable.rating).as("avg_rating"),
+      })
+      .from(recipeCommentsTable)
+      .where(inArray(recipeCommentsTable.recipeId, recipeIds))
+      .groupBy(recipeCommentsTable.recipeId);
+
+    const result: Record<number, { count: number; avgRating: number | null }> = {};
+    for (const id of recipeIds) {
+      result[id] = { count: 0, avgRating: null };
+    }
+    for (const row of rows) {
+      result[row.recipeId] = {
+        count: Number(row.count),
+        avgRating: row.avgRating !== null ? Number(row.avgRating) : null,
+      };
+    }
+
+    res.json(result);
+  } catch (err) {
+    req.log.error({ err }, "Failed to fetch comment stats");
+    res.status(500).json({ error: "internal_error", message: "Failed to fetch comment stats" });
+  }
+});
 
 router.get("/recipes/:id/comments", async (req, res) => {
   try {

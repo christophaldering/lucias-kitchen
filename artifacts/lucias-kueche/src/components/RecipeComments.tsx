@@ -323,23 +323,10 @@ export function useCommentStats(recipeIds: number[]) {
     queryKey: ["recipe-comment-stats", recipeIds],
     queryFn: async () => {
       if (recipeIds.length === 0) return {};
-      const results: Record<number, { count: number; avgRating: number | null }> = {};
-      await Promise.all(
-        recipeIds.map(async (id) => {
-          const res = await authFetch(`${API_BASE}/recipes/${id}/comments`, { headers: authHeaders() });
-          if (!res.ok) return;
-          const comments: RecipeComment[] = await res.json();
-          const rated = comments.filter((c) => c.rating !== null);
-          results[id] = {
-            count: comments.length,
-            avgRating:
-              rated.length > 0
-                ? rated.reduce((sum, c) => sum + (c.rating ?? 0), 0) / rated.length
-                : null,
-          };
-        })
-      );
-      return results;
+      const ids = recipeIds.join(",");
+      const res = await authFetch(`${API_BASE}/recipes/comments/stats?ids=${ids}`, { headers: authHeaders() });
+      if (!res.ok) return {};
+      return res.json();
     },
     staleTime: 60_000,
   });

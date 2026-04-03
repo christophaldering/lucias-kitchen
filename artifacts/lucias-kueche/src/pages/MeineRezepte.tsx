@@ -1029,6 +1029,16 @@ export default function MeineRezepte({ onNavigate: _onNavigate, initialOpenRecip
                   }}
                 />
                 <div className="flex gap-1 sm:gap-1.5 overflow-x-auto pb-0.5 no-scrollbar flex-1">
+                  <button
+                    onClick={() => setChefPickFilter((v) => !v)}
+                    className={`flex-shrink-0 flex items-center gap-1 sm:gap-1.5 px-2.5 sm:px-3 py-1 sm:py-1.5 rounded-full text-xs sm:text-sm font-medium transition-colors min-h-[30px] sm:min-h-[36px] ${
+                      chefPickFilter
+                        ? "bg-amber-500 text-white border border-amber-500"
+                        : "bg-white text-foreground border border-border hover:border-amber-400"
+                    }`}
+                  >
+                    👩‍🍳 Lucias Tipps
+                  </button>
                   {allCategories.map((cat) => (
                     <button
                       key={cat}
@@ -1042,16 +1052,6 @@ export default function MeineRezepte({ onNavigate: _onNavigate, initialOpenRecip
                       {cat}
                     </button>
                   ))}
-                  <button
-                    onClick={() => setChefPickFilter((v) => !v)}
-                    className={`flex-shrink-0 flex items-center gap-1 sm:gap-1.5 px-2.5 sm:px-3 py-1 sm:py-1.5 rounded-full text-xs sm:text-sm font-medium transition-colors min-h-[30px] sm:min-h-[36px] ${
-                      chefPickFilter
-                        ? "bg-amber-500 text-white border border-amber-500"
-                        : "bg-white text-foreground border border-border hover:border-amber-400"
-                    }`}
-                  >
-                    👩‍🍳 Lucias Tipps
-                  </button>
                 </div>
               </div>
             </div>

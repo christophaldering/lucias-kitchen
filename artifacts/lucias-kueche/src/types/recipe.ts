@@ -102,6 +102,7 @@ export interface Recipe {
   isAiGenerated?: boolean;
   imageSource?: "ai" | "web" | null;
   tried?: boolean | null;
+  chefPick?: boolean | null;
   matchedInNotes?: boolean;
 }
 

@@ -127,6 +127,13 @@
       "when": 1774876787215,
       "tag": "0017_add_last_login_at",
       "breakpoints": true
+    },
+    {
+      "idx": 18,
+      "version": "7",
+      "when": 1775230593505,
+      "tag": "0022_add_chef_pick",
+      "breakpoints": true
     }
   ]
 }

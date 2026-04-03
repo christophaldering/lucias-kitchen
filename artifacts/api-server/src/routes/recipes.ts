@@ -166,6 +166,7 @@ async function getRecipesWithIngredients(currentUserId?: number, filter?: string
       r.is_ai_generated     AS "isAiGenerated",
       r.image_source        AS "imageSource",
       r.tried,
+      r.chef_pick           AS "chefPick",
       (
         SELECT p.image_url
         FROM recipe_photo_links rpl
@@ -237,6 +238,7 @@ async function getRecipesWithIngredients(currentUserId?: number, filter?: string
     isAiGenerated: boolean;
     imageSource: string | null;
     tried: boolean;
+    chefPick: boolean;
     ingredients: Array<{ id: number; recipeId: number; amount: string; unit: string; name: string; note: string | null }>;
     isFavorite: boolean;
     isOwner: boolean;
@@ -275,6 +277,7 @@ async function getRecipesWithIngredients(currentUserId?: number, filter?: string
     isAiGenerated: r.isAiGenerated ?? false,
     imageSource: r.imageSource ?? null,
     tried: r.tried ?? false,
+    chefPick: r.chefPick ?? false,
     ingredients: r.ingredients,
     isFavorite: r.isFavorite,
     isOwner: r.isOwner,
@@ -571,6 +574,7 @@ router.get("/recipes/search", async (req, res) => {
         r.is_ai_generated  AS "isAiGenerated",
         r.image_source     AS "imageSource",
         r.tried,
+        r.chef_pick        AS "chefPick",
         (
           SELECT p.image_url
           FROM recipe_photo_links rpl
@@ -612,7 +616,7 @@ router.get("/recipes/search", async (req, res) => {
       imageUrl: string | null; mainPhotoUrl: string | null; createdAt: Date | string | null;
       seasons: string[] | null; tags: string[] | null; createdBy: number | null;
       parentRecipeId: number | null; variantName: string | null; sourceDocumentUrl: string | null;
-      isAiGenerated: boolean; imageSource: string | null; tried: boolean;
+      isAiGenerated: boolean; imageSource: string | null; tried: boolean; chefPick: boolean;
       ingredients: Array<{ id: number; recipeId: number; amount: string; unit: string; name: string; note: string | null }>;
       isFavorite: boolean; isOwner: boolean; ownerDisplayName: string | null; ownerAvatarUrl: string | null;
     };
@@ -641,7 +645,8 @@ router.get("/recipes/search", async (req, res) => {
         createdAt: r.createdAt, seasons: r.seasons ?? [], tags: r.tags ?? [],
         createdBy: r.createdBy, parentRecipeId: r.parentRecipeId, variantName: r.variantName,
         sourceDocumentUrl: r.sourceDocumentUrl, isAiGenerated: r.isAiGenerated ?? false,
-        imageSource: r.imageSource ?? null, tried: r.tried ?? false, ingredients: r.ingredients,
+        imageSource: r.imageSource ?? null, tried: r.tried ?? false, chefPick: r.chefPick ?? false,
+        ingredients: r.ingredients,
         isFavorite: r.isFavorite, isOwner: r.isOwner,
         owner: (r.ownerDisplayName != null || r.ownerAvatarUrl != null)
           ? { displayName: r.ownerDisplayName!, avatarUrl: r.ownerAvatarUrl }
@@ -976,6 +981,7 @@ router.get("/recipes/:id", authMiddleware, async (req, res) => {
         r.is_ai_generated  AS "isAiGenerated",
         r.image_source     AS "imageSource",
         r.tried,
+        r.chef_pick        AS "chefPick",
         (
           SELECT p.image_url
           FROM recipe_photo_links rpl
@@ -1016,7 +1022,7 @@ router.get("/recipes/:id", authMiddleware, async (req, res) => {
       steps: unknown; imageUrl: string | null; mainPhotoUrl: string | null;
       createdAt: Date | string | null; seasons: string[] | null; tags: string[] | null;
       createdBy: number | null; parentRecipeId: number | null; variantName: string | null;
-      sourceDocumentUrl: string | null; isAiGenerated: boolean; imageSource: string | null; tried: boolean;
+      sourceDocumentUrl: string | null; isAiGenerated: boolean; imageSource: string | null; tried: boolean; chefPick: boolean;
       ingredients: Array<{ id: number; recipeId: number; amount: string; unit: string; name: string; note: string | null }>;
       isFavorite: boolean; isOwner: boolean; ownerDisplayName: string | null; ownerAvatarUrl: string | null;
     };
@@ -1037,7 +1043,8 @@ router.get("/recipes/:id", authMiddleware, async (req, res) => {
       createdAt: r.createdAt, seasons: r.seasons ?? [], tags: r.tags ?? [],
       createdBy: r.createdBy, parentRecipeId: r.parentRecipeId, variantName: r.variantName,
       sourceDocumentUrl: r.sourceDocumentUrl, isAiGenerated: r.isAiGenerated ?? false,
-      imageSource: r.imageSource ?? null, tried: r.tried ?? false, ingredients: r.ingredients,
+      imageSource: r.imageSource ?? null, tried: r.tried ?? false, chefPick: r.chefPick ?? false,
+      ingredients: r.ingredients,
       isFavorite: r.isFavorite, isOwner: r.isOwner,
       hasSteps: Array.isArray(r.steps) ? (r.steps as unknown[]).length > 0 : false,
       owner: (r.ownerDisplayName != null || r.ownerAvatarUrl != null)
@@ -1343,7 +1350,11 @@ router.patch("/recipes/:id", authMiddleware, async (req, res) => {
       return;
     }
 
-    if (existing.createdBy != null && existing.createdBy !== req.authUser!.id) {
+    const userIsAdmin = isAdmin(req.authUser!.email);
+    const isOnlyChefPickUpdate = req.body.chefPick !== undefined &&
+      Object.keys(req.body).filter((k) => k !== "chefPick").length === 0;
+
+    if (existing.createdBy != null && existing.createdBy !== req.authUser!.id && !(userIsAdmin && isOnlyChefPickUpdate)) {
       res.status(403).json({ error: "forbidden", message: "Du kannst nur deine eigenen Rezepte bearbeiten" });
       return;
     }
@@ -1357,7 +1368,13 @@ router.patch("/recipes/:id", authMiddleware, async (req, res) => {
       notes: z.string().nullable().optional(),
       personalNotes: z.string().nullable().optional(),
       tried: z.boolean().optional(),
+      chefPick: z.boolean().optional(),
     });
+
+    if (req.body.chefPick !== undefined && !userIsAdmin) {
+      res.status(403).json({ error: "forbidden", message: "Nur Admins können Lucias Tipp setzen" });
+      return;
+    }
 
     const data = patchSchema.parse(req.body);
 

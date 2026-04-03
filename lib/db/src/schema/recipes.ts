@@ -31,6 +31,7 @@ export const recipesTable = pgTable("recipes", {
   isAiGenerated: boolean("is_ai_generated").notNull().default(false),
   imageSource: text("image_source"),
   tried: boolean("tried").notNull().default(false),
+  chefPick: boolean("chef_pick").notNull().default(false),
 }, (t) => [
   index("recipes_deleted_at_idx").on(t.deletedAt),
   index("recipes_created_by_idx").on(t.createdBy),

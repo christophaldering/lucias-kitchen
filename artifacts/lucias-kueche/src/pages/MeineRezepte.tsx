@@ -246,13 +246,21 @@ function RecipeCard({
         <RecipeCardImage recipe={recipe} hovered={hovered} />
 
         {/* Category badge overlay */}
-        <div className="absolute top-2.5 left-2.5">
+        <div className="absolute top-2.5 left-2.5 flex flex-col gap-1">
           <span
             className="text-xs font-semibold px-2.5 py-1 rounded-full text-white shadow"
             style={{ background: "rgba(45,82,64,0.85)", backdropFilter: "blur(4px)" }}
           >
             {emoji} {recipe.category}
           </span>
+          {recipe.chefPick && (
+            <span
+              className="text-xs font-bold px-2.5 py-1 rounded-full text-white shadow"
+              style={{ background: "rgba(193,105,58,0.92)", backdropFilter: "blur(4px)" }}
+            >
+              👩‍🍳 Lucias Tipp
+            </span>
+          )}
         </div>
 
         {/* Favorite/Star button overlay for non-owned recipes */}
@@ -604,6 +612,7 @@ export default function MeineRezepte({ onNavigate: _onNavigate, initialOpenRecip
   const [cookedFilter, setCookedFilter] = useState<"Alle" | "gekocht" | "nicht_ausprobiert">("Alle");
   const [showVariants, setShowVariants] = useState(false);
   const [photoType, setPhotoType] = useState<PhotoTypeFilter>("all");
+  const [chefPickFilter, setChefPickFilter] = useState(false);
   const [selectedId, setSelectedId] = useState<number | null>(null);
   const [selectedFullRecipe, setSelectedFullRecipe] = useState<Recipe | null>(null);
   const selected = selectedFullRecipe ?? (selectedId != null ? (recipes.find((r) => r.id === selectedId) ?? null) : null);
@@ -703,7 +712,7 @@ export default function MeineRezepte({ onNavigate: _onNavigate, initialOpenRecip
     refetch();
   }, [refreshToken, refetch]);
 
-  const hasLocalFilters = activeCategory !== "Alle" || timeFilter !== "Alle" || seasonFilter !== "Alle" || cookedFilter !== "Alle" || photoType !== "all" || showVariants;
+  const hasLocalFilters = activeCategory !== "Alle" || timeFilter !== "Alle" || seasonFilter !== "Alle" || cookedFilter !== "Alle" || photoType !== "all" || showVariants || chefPickFilter;
   useEffect(() => {
     if (hasLocalFilters && hasNextPage && !isFetchingNextPage) {
       fetchNextPage();
@@ -894,8 +903,9 @@ export default function MeineRezepte({ onNavigate: _onNavigate, initialOpenRecip
       photoType === "ai" ? r.isAiGenerated === true :
       photoType === "scan" ? (r.imageSource === "web" && !r.isAiGenerated && !!r.imageUrl) :
       (!!r.imageUrl && !r.isAiGenerated && r.imageSource !== "web");
-    return matchesCat && matchesTime && matchesSeason && matchesVariantFilter && matchesCooked && matchesPhotoType;
-  }), [baseList, activeCategory, timeFilter, seasonFilter, showVariants, cookedFilter, photoType]);
+    const matchesChefPick = !chefPickFilter || r.chefPick === true;
+    return matchesCat && matchesTime && matchesSeason && matchesVariantFilter && matchesCooked && matchesPhotoType && matchesChefPick;
+  }), [baseList, activeCategory, timeFilter, seasonFilter, showVariants, cookedFilter, photoType, chefPickFilter]);
 
   const knownCategories = useMemo(() => Array.from(new Set(recipes.map((r) => r.category))).sort(), [recipes]);
 
@@ -930,7 +940,7 @@ export default function MeineRezepte({ onNavigate: _onNavigate, initialOpenRecip
     return base;
   }, [filtered, tableSortKey, tableSortDir]);
 
-  const isFiltered = search.trim() !== "" || activeCategory !== "Alle" || timeFilter !== "Alle" || seasonFilter !== "Alle" || cookedFilter !== "Alle" || photoType !== "all";
+  const isFiltered = search.trim() !== "" || activeCategory !== "Alle" || timeFilter !== "Alle" || seasonFilter !== "Alle" || cookedFilter !== "Alle" || photoType !== "all" || chefPickFilter;
 
   return (
     <div>
@@ -1033,6 +1043,16 @@ export default function MeineRezepte({ onNavigate: _onNavigate, initialOpenRecip
                       {cat}
                     </button>
                   ))}
+                  <button
+                    onClick={() => setChefPickFilter((v) => !v)}
+                    className={`flex-shrink-0 flex items-center gap-1.5 px-3 py-1.5 rounded-full text-sm font-medium transition-colors min-h-[36px] ${
+                      chefPickFilter
+                        ? "bg-amber-500 text-white border border-amber-500"
+                        : "bg-white text-foreground border border-border hover:border-amber-400"
+                    }`}
+                  >
+                    👩‍🍳 Lucias Tipps
+                  </button>
                 </div>
               </div>
             </div>
@@ -1367,8 +1387,8 @@ export default function MeineRezepte({ onNavigate: _onNavigate, initialOpenRecip
               allRecipes={allRecipesForModal}
               onOpenRecipe={(r) => openRecipe(r.id)}
               onRecipeUpdated={(updated) => {
-                const u = updated as { id: number; imageUrl?: string | null; isAiGenerated?: boolean; imageSource?: string | null };
-                patchRecipeLocal(u.id, { imageUrl: u.imageUrl ?? null, isAiGenerated: u.isAiGenerated ?? false, imageSource: u.imageSource ?? null });
+                const u = updated as { id: number; imageUrl?: string | null; isAiGenerated?: boolean; imageSource?: string | null; chefPick?: boolean | null };
+                patchRecipeLocal(u.id, { imageUrl: u.imageUrl ?? null, isAiGenerated: u.isAiGenerated ?? false, imageSource: u.imageSource ?? null, chefPick: u.chefPick ?? false });
               }}
               onCreateVariant={(baseRecipe) => {
                 setVariantBaseRecipe(baseRecipe);

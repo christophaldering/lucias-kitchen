@@ -193,6 +193,8 @@ function RecipeModalInner({ recipe, onClose, onAddToWeek, onToggleFavorite, onRe
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [deleting, setDeleting] = useState(false);
   const [showOriginalModal, setShowOriginalModal] = useState(false);
+  const [localChefPick, setLocalChefPick] = useState(recipe.chefPick ?? false);
+  const [chefPickLoading, setChefPickLoading] = useState(false);
   const [generatingImage, setGeneratingImage] = useState(false);
   const [extractingSourceImage, setExtractingSourceImage] = useState(false);
   const [extractSourceImageError, setExtractSourceImageError] = useState<string | null>(null);
@@ -214,8 +216,9 @@ function RecipeModalInner({ recipe, onClose, onAddToWeek, onToggleFavorite, onRe
     setLocalImageUrl(recipe.imageUrl ?? null);
     setLocalIsAiGenerated(recipe.isAiGenerated ?? false);
     setLocalImageSource(recipe.imageSource ?? null);
+    setLocalChefPick(recipe.chefPick ?? false);
     setExtractSourceImageError(null);
-  }, [recipe.id, recipe.imageUrl, recipe.isAiGenerated, recipe.imageSource]);
+  }, [recipe.id, recipe.imageUrl, recipe.isAiGenerated, recipe.imageSource, recipe.chefPick]);
 
   const [hasPhotosForRecipe, setHasPhotosForRecipe] = useState<boolean | null>(null);
 
@@ -466,6 +469,7 @@ function RecipeModalInner({ recipe, onClose, onAddToWeek, onToggleFavorite, onRe
   const isOwner = recipe.isOwner !== false ||
     (user != null && (recipe.createdBy == null || recipe.createdBy === user.id));
   const isFavorite = recipe.isFavorite ?? false;
+  const isUserAdmin = user?.email === "lucia.aldering@googlemail.com";
 
   const diffColor =
     recipe.difficulty === "simpel"
@@ -506,6 +510,30 @@ function RecipeModalInner({ recipe, onClose, onAddToWeek, onToggleFavorite, onRe
       showToast("Fehler beim Merken", "error");
     } finally {
       setFavLoading(false);
+    }
+  };
+
+  const handleToggleChefPick = async () => {
+    setChefPickLoading(true);
+    const newValue = !localChefPick;
+    try {
+      const res = await authFetch(`${API_BASE}/recipes/${recipe.id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json", ...authHeaders() },
+        body: JSON.stringify({ chefPick: newValue }),
+      });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        showToast((err as { message?: string }).message ?? "Fehler beim Setzen von Lucias Tipp", "error");
+        return;
+      }
+      setLocalChefPick(newValue);
+      if (onRecipeUpdated) onRecipeUpdated({ ...recipe, chefPick: newValue });
+      showToast(newValue ? "Lucias Tipp gesetzt!" : "Lucias Tipp entfernt");
+    } catch {
+      showToast("Fehler beim Setzen von Lucias Tipp", "error");
+    } finally {
+      setChefPickLoading(false);
     }
   };
 
@@ -553,6 +581,11 @@ function RecipeModalInner({ recipe, onClose, onAddToWeek, onToggleFavorite, onRe
             <h2 className="font-serif text-xl font-semibold leading-snug">
               {recipe.title}
             </h2>
+            {localChefPick && (
+              <span className="inline-flex items-center gap-1 mt-1 text-xs font-bold px-2.5 py-1 rounded-full bg-amber-500 text-white shadow">
+                👩‍🍳 Lucias Tipp
+              </span>
+            )}
             {!isOwner && recipe.owner && (
               <div className="flex items-center gap-1.5 mt-1">
                 {recipe.owner.avatarUrl ? (
@@ -707,6 +740,30 @@ function RecipeModalInner({ recipe, onClose, onAddToWeek, onToggleFavorite, onRe
                   {tag}
                 </span>
               ))}
+            </div>
+          )}
+
+          {/* Admin: Lucias Tipp Toggle */}
+          {isUserAdmin && (
+            <div className="flex items-center justify-between px-4 py-3 rounded-xl border border-amber-200 bg-amber-50/50">
+              <div>
+                <p className="text-sm font-semibold text-amber-800">👩‍🍳 Lucias Tipp</p>
+                <p className="text-xs text-amber-600">{localChefPick ? "Als Empfehlung markiert" : "Nicht als Empfehlung markiert"}</p>
+              </div>
+              <button
+                onClick={handleToggleChefPick}
+                disabled={chefPickLoading}
+                className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors focus:outline-none disabled:opacity-60 ${
+                  localChefPick ? "bg-amber-500" : "bg-gray-200"
+                }`}
+                title={localChefPick ? "Lucias Tipp entfernen" : "Als Lucias Tipp markieren"}
+              >
+                <span
+                  className={`inline-block h-4 w-4 transform rounded-full bg-white shadow transition-transform ${
+                    localChefPick ? "translate-x-6" : "translate-x-1"
+                  }`}
+                />
+              </button>
             </div>
           )}
 

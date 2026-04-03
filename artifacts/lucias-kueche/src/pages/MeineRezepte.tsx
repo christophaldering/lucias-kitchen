@@ -980,10 +980,10 @@ export default function MeineRezepte({ onNavigate: _onNavigate, initialOpenRecip
                       : "text-muted-foreground hover:text-foreground"
                   }`}
                 >
-                  {f === "all" && <BookOpen className="w-3 h-3 sm:w-3.5 sm:h-3.5" />}
-                  {f === "mine" && <ChefHat className="w-3 h-3 sm:w-3.5 sm:h-3.5" />}
-                  {f === "favorites" && <Star className="w-3 h-3 sm:w-3.5 sm:h-3.5" />}
-                  {FILTER_LABELS[f]}
+                  {f === "all" && <BookOpen className="w-3.5 h-3.5" />}
+                  {f === "mine" && <ChefHat className="w-3.5 h-3.5" />}
+                  {f === "favorites" && <Star className="w-3.5 h-3.5" />}
+                  <span className="hidden sm:inline">{FILTER_LABELS[f]}</span>
                 </button>
               ))}
             </div>

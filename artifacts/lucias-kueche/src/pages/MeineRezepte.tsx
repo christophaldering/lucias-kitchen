@@ -537,6 +537,23 @@ export default function MeineRezepte({ onNavigate: _onNavigate, initialOpenRecip
   const [chefPickFilter, setChefPickFilter] = useState(false);
   const [tableSortKey, setTableSortKey] = useState<TableSortKey>("title");
   const [tableSortDir, setTableSortDir] = useState<"asc" | "desc">("asc");
+  const defaultViewRaw = useLocalStorage<string>("lk_viewMode", "");
+  const defaultView = ((): ViewMode => {
+    if (defaultViewRaw === "galerie") return "galerie";
+    if (defaultViewRaw === "tabelle") return "tabelle";
+    if (defaultViewRaw === "verwalten") return "tabelle";
+    try {
+      const legacy = localStorage.getItem("lk_defaultView");
+      const legacyParsed = legacy !== null ? JSON.parse(legacy) : null;
+      if (legacyParsed === "kacheln") return "galerie";
+      if (legacyParsed === "tabelle") return "tabelle";
+    } catch {}
+    return "galerie";
+  })();
+  const savedSortOrder = useLocalStorage<string>("lk_sortOrder", "alphabetisch");
+  const [sortOrderOverride, setSortOrderOverride] = useState<string | null>(null);
+  const activeSortOrder = sortOrderOverride ?? savedSortOrder;
+  const [viewMode, setViewModeState] = useState<ViewMode>(defaultView);
   const serverFilters: ActiveFilters = {
     category: activeCategory !== "Alle" ? activeCategory : undefined,
     time: timeFilter === "Unter 30 Min" ? "unter30" : timeFilter !== "Alle" ? "unter60" : undefined,
@@ -545,8 +562,8 @@ export default function MeineRezepte({ onNavigate: _onNavigate, initialOpenRecip
     photoType: photoType !== "all" ? photoType : undefined,
     variants: showVariants ? "true" : "false",
     chefPick: chefPickFilter ? "true" : undefined,
-    sort: TABLE_SORT_MAP[tableSortKey],
-    dir: tableSortDir,
+    sort: viewMode === "galerie" ? activeSortOrder : TABLE_SORT_MAP[tableSortKey],
+    dir: viewMode === "galerie" ? undefined : tableSortDir,
   };
   const { recipes, totalRecipes, loading, error, addRecipes, refetch, patchRecipeSilent, patchRecipeLocal, deleteRecipeSilent, deleteRecipe, updateRecipe, toggleFavorite, fetchNextPage, hasNextPage, isFetchingNextPage } = useRecipes(recipeFilter, undefined, serverFilters);
   const fetchNextPageRef = useRef(fetchNextPage);
@@ -575,26 +592,9 @@ export default function MeineRezepte({ onNavigate: _onNavigate, initialOpenRecip
     observerRef.current = observer;
   }, []);
 
-  const defaultViewRaw = useLocalStorage<string>("lk_viewMode", "");
-  const defaultView = ((): ViewMode => {
-    if (defaultViewRaw === "galerie") return "galerie";
-    if (defaultViewRaw === "tabelle") return "tabelle";
-    if (defaultViewRaw === "verwalten") return "tabelle";
-    try {
-      const legacy = localStorage.getItem("lk_defaultView");
-      const legacyParsed = legacy !== null ? JSON.parse(legacy) : null;
-      if (legacyParsed === "kacheln") return "galerie";
-      if (legacyParsed === "tabelle") return "tabelle";
-    } catch {}
-    return "galerie";
-  })();
-  const savedSortOrder = useLocalStorage<string>("lk_sortOrder", "alphabetisch");
-  const [sortOrderOverride, setSortOrderOverride] = useState<string | null>(null);
-  const activeSortOrder = sortOrderOverride ?? savedSortOrder;
   const showNotes = useLocalStorage<boolean>("lk_showNotes", true);
   const showCookCount = useLocalStorage<boolean>("lk_showCookCount", true);
 
-  const [viewMode, setViewModeState] = useState<ViewMode>(defaultView);
   const [isManaging, setIsManaging] = useState(false);
 
   const setViewMode = (mode: ViewMode) => {

@@ -1,0 +1,57 @@
+ZIEL
+Zwei Luecken in der serverseitigen Sortierung schliessen, bevor
+der Vorlader entfernt wird.
+
+TEIL 1 — SERVER
+Datei: artifacts/api-server/src/routes/recipes.ts, Funktion
+buildSortOrder
+
+a) Die Sortierung "zuletzt_gekocht" fehlt komplett.
+   In DEFAULTS ergaenzen: zuletzt_gekocht: "desc"
+   Im switch ergaenzen:
+     case "zuletzt_gekocht":
+       r.last_cooked ${D} NULLS LAST, r.id ASC
+   Rezepte ohne Datum muessen immer am Ende stehen,
+   unabhaengig von der Richtung.
+
+b) Deutsche Sortierung fuer Textspalten.
+   Bei "alphabetisch" und "kategorie" muss die Reihenfolge der
+   deutschen entsprechen, so wie localeCompare(x, "de") im
+   Client. Dafuer COLLATE "de-DE-x-icu" an r.title und
+   r.category anhaengen.
+   Falls diese Collation in der Datenbank nicht existiert,
+   stattdessen eine vorhandene deutsche oder unicode-faehige
+   Collation verwenden. Vorher pruefen mit
+     SELECT collname FROM pg_collation WHERE collname ILIKE '%de%'
+        OR collname ILIKE '%unicode%';
+   Ergebnis der Pruefung im Ergebnisbericht nennen.
+
+TEIL 2 — CLIENT
+Datei: artifacts/lucias-kueche/src/pages/MeineRezepte.tsx
+Der useMemo-Block "const sorted" ab ca. Zeile 792 sortiert die
+geladenen Rezepte nochmals im Browser. Da die Sortierung jetzt
+serverseitig erfolgt, ersatzlos entfernen; die Serverreihenfolge
+wird direkt uebernommen.
+
+Die Sortierung der Suchergebnisse im Block "baseList" ab ca.
+Zeile 826 BLEIBT unveraendert -- /recipes/search liefert keine
+sortierten Ergebnisse.
+
+VERBOTEN
+- Keine Aenderung an den Filtern
+- Keine Aenderung an /recipes/search
+- Den Vorlader NICHT entfernen
+- Keine Aenderung an Wochenplan, MeineKueche, Admin, Profil
+
+VERIFIKATION
+1. Sortierung "zuletzt gekocht": zuletzt gekochtes Rezept steht
+   oben, Rezepte ohne Datum ganz am Ende.
+2. Sortierung "alphabetisch": ein Rezept mit Umlaut am Anfang
+   suchen, etwa "Aepfel" oder "Oelkuchen". Es muss dort stehen,
+   wo es im Deutschen hingehoert, nicht am Ende der Liste.
+3. Tabellenansicht Spalte Titel auf- und absteigend: erster
+   und letzter Eintrag vertauschen sich.
+4. Gesamtzahl bei allen Sortierungen unveraendert.
+
+ROLLBACK
+Bei falscher Reihenfolge: Aenderungen zurueck.

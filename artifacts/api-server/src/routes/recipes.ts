@@ -130,6 +130,7 @@ function buildSortOrder(qf?: RecipeQueryFilters): SQL {
     haeufig_gekocht: "desc",
     schwierigkeit: "asc",
     zeit: "asc",
+    zuletzt_gekocht: "desc",
   };
   const dir = (qf?.dir === "asc" || qf?.dir === "desc")
     ? qf.dir
@@ -138,9 +139,9 @@ function buildSortOrder(qf?: RecipeQueryFilters): SQL {
 
   switch (sort) {
     case "alphabetisch":
-      return sql.raw(`r.title ${D}`);
+      return sql.raw(`r.title COLLATE "de-DE-x-icu" ${D}`);
     case "kategorie":
-      return sql.raw(`r.category ${D}, r.title ASC`);
+      return sql.raw(`r.category COLLATE "de-DE-x-icu" ${D}, r.title COLLATE "de-DE-x-icu" ASC`);
     case "bewertung":
       return sql.raw(`CASE r.rating WHEN 'sehr lecker' THEN 2 WHEN 'lecker' THEN 1 ELSE 0 END ${D}, r.id ASC`);
     case "neueste":
@@ -151,6 +152,8 @@ function buildSortOrder(qf?: RecipeQueryFilters): SQL {
       return sql.raw(`CASE r.difficulty WHEN 'simpel' THEN 0 WHEN 'normal' THEN 1 WHEN 'schwer' THEN 2 ELSE 1 END ${D}, r.title ASC`);
     case "zeit":
       return sql.raw(`(CASE WHEN r.total_time IS NULL OR r.total_time !~ '[0-9]' THEN NULL ELSE (SELECT CASE WHEN COUNT(*) = 1 THEN MAX(CASE WHEN rn = 1 THEN num ELSE NULL END) ELSE MAX(CASE WHEN rn = 1 THEN num ELSE NULL END) * 60 + COALESCE(MAX(CASE WHEN rn = 2 THEN num ELSE NULL END), 0) END FROM (SELECT m[1]::int AS num, ROW_NUMBER() OVER () AS rn FROM regexp_matches(r.total_time, '[0-9]+', 'g') AS t(m)) sub WHERE rn <= 2) END) ${D} NULLS LAST, r.id ASC`);
+    case "zuletzt_gekocht":
+      return sql.raw(`r.last_cooked ${D} NULLS LAST, r.id ASC`);
     default:
       return sql.raw("r.id ASC");
   }

@@ -789,38 +789,6 @@ export default function MeineRezepte({ onNavigate: _onNavigate, initialOpenRecip
     return ["Alle", ...cats];
   }, [recipeStats?.categories]);
 
-  const sorted = useMemo(() => {
-    const base = [...recipes];
-    switch (activeSortOrder) {
-      case "alphabetisch":
-        return base.sort((a, b) => a.title.localeCompare(b.title, "de"));
-      case "kategorie":
-        return base.sort((a, b) => a.category.localeCompare(b.category, "de") || a.title.localeCompare(b.title, "de"));
-      case "bewertung":
-        return base.sort((a, b) => {
-          const score = (r: Recipe) => r.rating === "sehr lecker" ? 2 : r.rating === "lecker" ? 1 : 0;
-          return score(b) - score(a);
-        });
-      case "zuletzt_gekocht":
-        return base.sort((a, b) => {
-          if (!a.lastCooked && !b.lastCooked) return 0;
-          if (!a.lastCooked) return 1;
-          if (!b.lastCooked) return -1;
-          return b.lastCooked.localeCompare(a.lastCooked);
-        });
-      case "haeufig_gekocht":
-        return base.sort((a, b) => (b.cookedCount ?? 0) - (a.cookedCount ?? 0));
-      case "neueste":
-        return base.sort((a, b) => {
-          const ca = a.createdAt ?? "";
-          const cb = b.createdAt ?? "";
-          return cb.localeCompare(ca);
-        });
-      default:
-        return base;
-    }
-  }, [recipes, activeSortOrder]);
-
   const baseList = useMemo(() => {
     if (searchResults !== null) {
       const sorted2 = [...searchResults];
@@ -858,8 +826,8 @@ export default function MeineRezepte({ onNavigate: _onNavigate, initialOpenRecip
       }
       return sorted2;
     }
-    return sorted;
-  }, [searchResults, sorted, activeSortOrder]);
+    return recipes;
+  }, [searchResults, recipes, activeSortOrder]);
 
 
   const knownCategories = useMemo(

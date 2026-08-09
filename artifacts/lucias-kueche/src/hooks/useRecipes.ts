@@ -1,5 +1,5 @@
 import { useInfiniteQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import type { Recipe, IngredientInput, Season, RecipePhoto } from "@/types/recipe";
 import { authFetch, authHeaders } from "@/lib/authFetch";
 import { useAuth } from "@/contexts/AuthContext";
@@ -122,7 +122,10 @@ export function useRecipes(filter: RecipeFilter = "all", options?: { loadAll?: b
     },
   });
 
-  const serverRecipes = infiniteQuery.data?.pages.flatMap((p) => p.recipes) ?? [];
+  const serverRecipes = useMemo(
+    () => infiniteQuery.data?.pages.flatMap((p) => p.recipes) ?? [],
+    [infiniteQuery.data]
+  );
   const hasServerData = infiniteQuery.data !== undefined && !infiniteQuery.isLoading;
 
   useEffect(() => {
@@ -259,7 +262,7 @@ export function useRecipes(filter: RecipeFilter = "all", options?: { loadAll?: b
     if (loadAll && infiniteQuery.hasNextPage && !infiniteQuery.isFetchingNextPage) {
       infiniteQuery.fetchNextPage();
     }
-  }, [loadAll, infiniteQuery.hasNextPage, infiniteQuery.isFetchingNextPage, infiniteQuery.fetchNextPage, recipes.length]);
+  }, [loadAll, infiniteQuery.hasNextPage, infiniteQuery.isFetchingNextPage, infiniteQuery.fetchNextPage]);
 
   async function fetchRecipes() {
     await queryClient.invalidateQueries({ queryKey: ["recipes"] });

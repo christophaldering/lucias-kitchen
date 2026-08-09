@@ -1,4 +1,5 @@
 import { Router, type IRouter } from "express";
+import { aiLimiter } from "../lib/rateLimits";
 import { openai } from "@workspace/integrations-openai-ai-server";
 import { z } from "zod/v4";
 import { authMiddleware } from "./auth";
@@ -128,7 +129,7 @@ function buildSystemPrompt(
   return prompt;
 }
 
-router.post("/kochidee-chat", authMiddleware, async (req, res) => {
+router.post("/kochidee-chat", authMiddleware, aiLimiter, async (req, res) => {
   try {
     const schema = z.object({
       messages: z.array(z.object({

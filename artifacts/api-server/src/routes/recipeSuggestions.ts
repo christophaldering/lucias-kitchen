@@ -1,4 +1,5 @@
 import { Router, type IRouter } from "express";
+import { aiLimiter } from "../lib/rateLimits";
 import { db } from "@workspace/db";
 import {
   recipeSuggestionsTable,
@@ -14,7 +15,7 @@ import { authMiddleware } from "./auth";
 
 const router: IRouter = Router();
 
-router.post("/recipe-suggestions", authMiddleware, async (req, res) => {
+router.post("/recipe-suggestions", authMiddleware, aiLimiter, async (req, res) => {
   try {
     const schema = z.object({
       recipientId: z.number().int().positive(),

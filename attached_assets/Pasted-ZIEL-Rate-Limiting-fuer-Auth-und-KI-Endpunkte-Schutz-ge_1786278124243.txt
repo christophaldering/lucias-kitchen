@@ -1,0 +1,62 @@
+ZIEL
+Rate-Limiting fuer Auth- und KI-Endpunkte. Schutz gegen
+Passwort-Durchprobieren und gegen Kostenexplosion durch
+oeffentlich erreichbare KI-Routen.
+
+TEIL 1 — PAKET
+Im api-server das Paket express-rate-limit installieren.
+Nur dieses eine Paket, keine weiteren.
+
+TEIL 2 — TRUST PROXY
+Datei: artifacts/api-server/src/app.ts (oder wo die Express-App
+erzeugt wird)
+Direkt nach der App-Erzeugung ergaenzen:
+  app.set("trust proxy", 1);
+Ohne das sieht der Limiter hinter dem Replit-Proxy fuer alle
+Besucher dieselbe IP.
+
+TEIL 3 — LIMITER
+Neue Datei: artifacts/api-server/src/lib/rateLimits.ts
+Drei Limiter definieren und exportieren:
+
+  authLimiter:  10 Anfragen pro 15 Minuten pro IP
+                Meldung: "Zu viele Versuche. Bitte in 15 Minuten
+                erneut versuchen."
+  aiLimiter:    20 Anfragen pro 10 Minuten pro IP
+                Meldung: "Zu viele KI-Anfragen. Bitte kurz warten."
+  globalLimiter: 300 Anfragen pro Minute pro IP
+
+Alle mit standardHeaders: true und legacyHeaders: false.
+
+TEIL 4 — ZUORDNUNG
+- authLimiter auf: /auth/login, /auth/register sowie
+  /recipes/request-delete
+- aiLimiter auf alle Routen, die OpenAI oder Anthropic aufrufen:
+  extract-pdf, extract-image, extract-url, extractFridge,
+  kochideeChat, suggestWeek, batchExtract, bulkImport,
+  recipeSuggestions — die Liste anhand der Route-Dateien
+  pruefen und vollstaendig abdecken; im Ergebnisbericht alle
+  belegten Routen auflisten
+- globalLimiter als App-weite Middleware vor allen Routen
+
+WICHTIG: GET /api/recipes und die uebrigen normalen Lese-Routen
+bekommen KEINEN eigenen strengen Limiter — die Galerie laedt
+beim Scrollen mehrere Seiten nacheinander, das muss durchgehen.
+
+VERBOTEN
+- Kein Limiter, der das Scroll-Nachladen der Galerie drosselt
+- Keine Aenderung an der Auth-Logik selbst
+- Keine weiteren Pakete
+
+VERIFIKATION
+1. Elfmal hintereinander mit falschem Passwort einloggen:
+   ab dem elften Versuch kommt HTTP 429 mit der Meldung.
+2. Normale Nutzung: Galerie laden, scrollen, drei Filter setzen,
+   zwei Rezepte oeffnen — kein einziger 429.
+3. Ein KI-Import (Foto oder URL) funktioniert normal.
+4. Im Ergebnisbericht: Liste aller Routen, die aiLimiter tragen.
+
+ROLLBACK
+Falls normale Nutzung 429 ausloest: globalLimiter auf 600/Minute
+anheben statt entfernen; erst wenn das nicht reicht, Limiter
+deaktivieren und melden.

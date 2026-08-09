@@ -7,6 +7,7 @@ import jwt from "jsonwebtoken";
 import { z } from "zod/v4";
 import { sendEmail, isEmailConfigured } from "../lib/email";
 import { joinedNotificationEmail } from "../lib/emailTemplates";
+import { authLimiter } from "../lib/rateLimits";
 
 const router: IRouter = Router();
 
@@ -51,7 +52,7 @@ function sanitizeUser(user: typeof usersTable.$inferSelect) {
   return safe;
 }
 
-router.post("/auth/register", async (req, res) => {
+router.post("/auth/register", authLimiter, async (req, res) => {
   try {
     const schema = z.object({
       email: z.string().email(),
@@ -131,7 +132,7 @@ router.post("/auth/register", async (req, res) => {
   }
 });
 
-router.post("/auth/login", async (req, res) => {
+router.post("/auth/login", authLimiter, async (req, res) => {
   try {
     const schema = z.object({
       email: z.string().email(),

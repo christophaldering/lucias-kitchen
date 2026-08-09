@@ -6,6 +6,7 @@ import path from "path";
 import { fileURLToPath } from "url";
 import router from "./routes";
 import { logger } from "./lib/logger";
+import { globalLimiter } from "./lib/rateLimits";
 import jwt from "jsonwebtoken";
 import type { AuthUser } from "./routes/auth";
 import { createProxyMiddleware } from "http-proxy-middleware";
@@ -19,6 +20,7 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 let devProxy: ReturnType<typeof createProxyMiddleware> | undefined;
 
 const app: Express = express();
+app.set("trust proxy", 1);
 
 app.use(compression());
 app.use(
@@ -57,6 +59,7 @@ app.use((req: Request, _res: Response, next: NextFunction) => {
 });
 
 app.use("/api/uploads", express.static(path.join(process.cwd(), "public", "uploads")));
+app.use(globalLimiter);
 app.use("/api", router);
 
 if (process.env["NODE_ENV"] === "production") {

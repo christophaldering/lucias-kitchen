@@ -1,4 +1,5 @@
 import { Router, type IRouter } from "express";
+import { aiLimiter } from "../lib/rateLimits";
 import { db } from "@workspace/db";
 import {
   recipesTable,
@@ -373,7 +374,7 @@ router.get("/admin/batch-extract/status", authMiddleware, (req, res) => {
   });
 });
 
-router.post("/admin/batch-extract/start", authMiddleware, (req, res) => {
+router.post("/admin/batch-extract/start", authMiddleware, aiLimiter, (req, res) => {
   if (!isAdmin(req.authUser!.email)) {
     res.status(403).json({ error: "forbidden" });
     return;

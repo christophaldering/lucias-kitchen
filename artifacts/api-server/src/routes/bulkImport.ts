@@ -1,4 +1,5 @@
 import { Router, type IRouter } from "express";
+import { aiLimiter } from "../lib/rateLimits";
 import multer from "multer";
 import { db } from "@workspace/db";
 import {
@@ -1609,6 +1610,7 @@ router.post(
 router.post(
   "/bulk-import/start",
   authMiddleware,
+  aiLimiter,
   upload.array("pdfs", 100),
   async (req, res) => {
     try {
@@ -1996,7 +1998,7 @@ router.post("/bulk-import/:sessionId/reject/:itemId", authMiddleware, async (req
   }
 });
 
-router.post("/bulk-import/:sessionId/retry/:fileId", authMiddleware, async (req, res) => {
+router.post("/bulk-import/:sessionId/retry/:fileId", authMiddleware, aiLimiter, async (req, res) => {
   try {
     const sessionId = Number(req.params.sessionId);
     const fileId = Number(req.params.fileId);

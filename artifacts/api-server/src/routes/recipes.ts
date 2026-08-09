@@ -6,6 +6,7 @@ import { z } from "zod/v4";
 import { seedRecipes } from "../db/seedRecipes";
 import { singleImageUploadMiddleware, UPLOADS_DIR } from "../lib/imageUpload";
 import { authMiddleware } from "./auth";
+import { aiLimiter, authLimiter } from "../lib/rateLimits";
 import path from "path";
 import fs from "fs";
 import { createHash, randomUUID } from "crypto";
@@ -460,7 +461,7 @@ Gib IMMER reines JSON zurück (kein Markdown), folgendes Format:
 
 Extrahiere alle relevanten Felder aus der Anfrage. keywords sind zusätzliche Begriffe die im Titel oder in Notizen vorkommen könnten. summary ist eine sehr kurze Beschreibung der Suche (max. 8 Wörter) für die Ergebnisanzeige.`;
 
-router.post("/recipes/ai-search", async (req, res) => {
+router.post("/recipes/ai-search", aiLimiter, async (req, res) => {
   try {
     const schema = z.object({
       query: z.string().min(1).max(500),
@@ -2037,7 +2038,7 @@ async function issueDeleteAllConfirmation(userId: number): Promise<{ email: stri
   return { email: userRow.email };
 }
 
-router.post("/recipes/request-delete", authMiddleware, async (req, res) => {
+router.post("/recipes/request-delete", authMiddleware, authLimiter, async (req, res) => {
   try {
     const user = req.authUser;
     if (!user) {
@@ -2124,7 +2125,7 @@ const suggestBodySchema = z.object({
   exclusions: z.array(z.string()).default([]),
 });
 
-router.post("/recipes/suggest", async (req, res) => {
+router.post("/recipes/suggest", aiLimiter, async (req, res) => {
   try {
     const { ingredients, moods, exclusions } = suggestBodySchema.parse(req.body);
     const allRecipes = await getRecipesWithIngredients(req.authUser?.id);

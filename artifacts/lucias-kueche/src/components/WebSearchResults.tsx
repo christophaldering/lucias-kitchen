@@ -1,12 +1,12 @@
 /**
  * WebSearchResults — Overlay-Komponente für die Rezept-Websuche.
  *
- * Startet den Fetch beim Mount (nur durch expliziten Button-Klick ausgelöst).
- * Zeigt Ladezustand, Ergebniskarten oder Leermeldung.
+ * Wenn query nicht leer: startet die Suche sofort beim Mount.
+ * Wenn query leer: zeigt zuerst ein Eingabefeld; Suche startet erst nach Enter.
  * onSelectUrl öffnet den URL-Import im Elternelement.
  */
-import { useEffect, useState } from "react";
-import { X, Globe, Loader2, ExternalLink, Download } from "lucide-react";
+import { useEffect, useRef, useState } from "react";
+import { X, Globe, Loader2, ExternalLink, Download, Search } from "lucide-react";
 import { authFetch, authHeaders } from "@/lib/authFetch";
 
 const API_BASE = "/api";
@@ -25,10 +25,16 @@ interface Props {
 }
 
 export default function WebSearchResults({ query, onClose, onSelectUrl }: Props) {
-  const [loading, setLoading] = useState(true);
+  // activeQuery: leer = Eingabe-Modus, non-leer = Suche läuft/fertig
+  const [activeQuery, setActiveQuery] = useState(query);
+  const [inputValue, setInputValue] = useState("");
+  const [loading, setLoading] = useState(false);
   const [results, setResults] = useState<SearchResult[]>([]);
+  const inputRef = useRef<HTMLInputElement>(null);
 
+  // Wenn activeQuery gesetzt (nicht leer): Suche ausführen
   useEffect(() => {
+    if (!activeQuery) return;
     let cancelled = false;
     setLoading(true);
     setResults([]);
@@ -36,21 +42,27 @@ export default function WebSearchResults({ query, onClose, onSelectUrl }: Props)
     authFetch(`${API_BASE}/recipes/web-search`, {
       method: "POST",
       headers: { "Content-Type": "application/json", ...authHeaders() },
-      body: JSON.stringify({ query }),
+      body: JSON.stringify({ query: activeQuery }),
     })
       .then((r) => (r.ok ? r.json() : { results: [] }))
-      .then((data) => {
-        if (!cancelled) setResults(data.results ?? []);
-      })
-      .catch(() => {
-        if (!cancelled) setResults([]);
-      })
-      .finally(() => {
-        if (!cancelled) setLoading(false);
-      });
+      .then((data) => { if (!cancelled) setResults(data.results ?? []); })
+      .catch(() => { if (!cancelled) setResults([]); })
+      .finally(() => { if (!cancelled) setLoading(false); });
 
     return () => { cancelled = true; };
-  }, [query]);
+  }, [activeQuery]);
+
+  // Fokus auf Eingabefeld im Leer-Start-Modus
+  useEffect(() => {
+    if (!activeQuery) {
+      setTimeout(() => inputRef.current?.focus(), 80);
+    }
+  }, [activeQuery]);
+
+  const handleInputSubmit = () => {
+    const q = inputValue.trim();
+    if (q) setActiveQuery(q);
+  };
 
   return (
     <div
@@ -70,7 +82,7 @@ export default function WebSearchResults({ query, onClose, onSelectUrl }: Props)
           <div className="flex-1 min-w-0">
             <h2 className="font-serif font-semibold text-base leading-tight">Websuche</h2>
             <p className="text-xs text-muted-foreground leading-tight truncate">
-              „{query}"
+              {activeQuery ? `„${activeQuery}"` : "Wonach soll ich im Web suchen?"}
             </p>
           </div>
           <button
@@ -83,7 +95,35 @@ export default function WebSearchResults({ query, onClose, onSelectUrl }: Props)
 
         {/* Body */}
         <div className="flex-1 overflow-y-auto p-5">
-          {loading ? (
+          {/* Leer-Start-Modus: Eingabefeld */}
+          {!activeQuery ? (
+            <div className="flex flex-col gap-4">
+              <p className="text-sm text-muted-foreground">
+                Gib ein, wonach du im Web suchen möchtest, und drück Enter.
+              </p>
+              <div className="flex gap-2">
+                <div className="relative flex-1">
+                  <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground pointer-events-none" />
+                  <input
+                    ref={inputRef}
+                    type="text"
+                    placeholder="z.B. Hirschragout mit Rotwein…"
+                    value={inputValue}
+                    onChange={(e) => setInputValue(e.target.value)}
+                    onKeyDown={(e) => { if (e.key === "Enter") handleInputSubmit(); }}
+                    className="w-full pl-9 pr-4 py-2.5 rounded-xl border border-border text-sm focus:outline-none focus:ring-2 focus:ring-[#4A7C59]/30 min-h-[44px]"
+                  />
+                </div>
+                <button
+                  onClick={handleInputSubmit}
+                  disabled={!inputValue.trim()}
+                  className="flex-shrink-0 px-4 rounded-xl bg-[#4A7C59] text-white text-sm font-semibold hover:bg-[#3a6347] disabled:opacity-40 disabled:cursor-not-allowed transition-colors min-h-[44px]"
+                >
+                  <Globe className="w-4 h-4" />
+                </button>
+              </div>
+            </div>
+          ) : loading ? (
             <div className="flex flex-col items-center justify-center py-12 gap-3 text-muted-foreground">
               <Loader2 className="w-7 h-7 animate-spin text-[#4A7C59]" />
               <p className="font-serif text-sm">Ich schaue im Web…</p>

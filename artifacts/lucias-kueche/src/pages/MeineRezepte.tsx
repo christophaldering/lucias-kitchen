@@ -951,12 +951,20 @@ export default function MeineRezepte({ onNavigate: _onNavigate, initialOpenRecip
                     )}
                   </div>
                 )}
-                {/* Trennstrich + Kochidee-Button */}
+                {/* Trennstrich + Websuche + Kochidee */}
                 <div className="self-stretch flex items-center border-l border-border">
+                  <button
+                    onClick={() => { setWebSearchQuery(field1.trim()); setShowWebSearch(true); }}
+                    title="Im Web nach Rezepten suchen"
+                    className="flex items-center justify-center w-11 h-full min-h-[44px] text-[#4A7C59] hover:bg-[#4A7C59]/10 transition-colors"
+                  >
+                    <Globe className="w-4 h-4" />
+                  </button>
+                  <div className="self-stretch w-px bg-border flex-shrink-0" />
                   <button
                     onClick={() => setKochideeOpen(true)}
                     title="Kochidee — im Dialog eingrenzen"
-                    className="flex items-center justify-center w-12 h-full min-h-[44px] text-[#C1693A] hover:bg-[#C1693A]/10 transition-colors"
+                    className="flex items-center justify-center w-11 h-full min-h-[44px] text-[#C1693A] hover:bg-[#C1693A]/10 transition-colors"
                   >
                     <Lightbulb className="w-5 h-5" />
                   </button>

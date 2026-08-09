@@ -232,6 +232,11 @@ router.post("/recipes", authMiddleware, async (req, res) => {
         owner: null,
       });
 
+      // Embedding asynchron erzeugen — recipe ist hier im Scope
+      setImmediate(() => {
+        upsertEmbeddingForRecipe(recipe.id).catch(() => {});
+      });
+
       setImmediate(() => {
         generateTagsForRecipe({
           title: recipe.title,
@@ -275,11 +280,6 @@ router.post("/recipes", authMiddleware, async (req, res) => {
         });
       }
     }
-
-    // Embedding asynchron erzeugen (fire-and-forget, Nutzer wartet nicht)
-    setImmediate(() => {
-      upsertEmbeddingForRecipe(recipe.id).catch(() => {});
-    });
 
     res.status(201).json(created.length === 1 ? created[0] : created);
   } catch (err) {

@@ -1,0 +1,71 @@
+ZIEL
+Etappe 4 von 4: Den Hintergrund-Vorlader entfernen. Die Galerie
+zeigt danach sofort die erste Seite; weitere Seiten kommen beim
+Scrollen ueber den bestehenden IntersectionObserver.
+
+VORAUSSETZUNG
+Etappen 1 bis 3 sind abgeschlossen und verifiziert.
+
+DATEI
+artifacts/lucias-kueche/src/pages/MeineRezepte.tsx
+
+AENDERUNG 1 — beide Auto-Loader entfernen
+Es gibt zwei useEffect-Bloecke, die automatisch nachladen:
+
+a) Der filterabhaengige Block mit der Bedingung
+   "hasLocalFilters && hasNextPage && !isFetchingNextPage"
+   (ca. Zeile 726). Wird nicht mehr gebraucht, da die Filter
+   seit Etappe 1 serverseitig arbeiten. Ersatzlos entfernen.
+   Die Variable hasLocalFilters entfernen, falls sie danach
+   nirgends mehr verwendet wird.
+
+b) Der Block mit dem Kommentar
+   "Auto-load all pages in background on mount" und dem
+   setTimeout von 800 ms (ca. Zeile 734). Ersatzlos entfernen.
+
+Den IntersectionObserver zum Nachladen beim Scrollen
+(ca. Zeile 563) NICHT anfassen.
+
+AENDERUNG 2 — Fortschrittsanzeige anpassen
+Der Block ab ca. Zeile 1078 zeigt "X von Y Rezepten im Speicher"
+mit Ladebalken und Restzeit. Das ergibt jetzt keinen Sinn mehr.
+
+Ersetzen durch eine schlichte Zeile:
+- ohne aktive Filter und ohne Suche:
+    "<total> Rezepte"
+- mit Filter oder Suche:
+    "<total> Treffer"
+total kommt aus totalRecipes, also der gefilterten Gesamtzahl
+vom Server.
+
+Ladebalken, Prozentanzeige und Restzeitberechnung entfallen
+komplett. Die zugehoerige Berechnung ab ca. Zeile 548 und der
+useEffect mit der Abhaengigkeit auf recipes.length ebenfalls,
+falls sie danach ungenutzt sind.
+
+VERBOTEN
+- Keine Aenderung am IntersectionObserver
+- Keine Aenderung an den Filtern, der Sortierung oder /recipes/stats
+- Keine Aenderung an Wochenplan, MeineKueche, Admin, Profil
+- PAGE_LIMIT bleibt bei 24
+
+VERIFIKATION
+1. Harter Reload: Galerie ist sofort da, kein Ladebalken,
+   keine Netzwerk-Kaskade. Im Netzwerk-Tab darf nach dem
+   ersten Laden nur EIN Request auf /api/recipes stehen.
+2. Nach unten scrollen: weitere Rezepte werden nachgeladen.
+3. Kategorie-Filter setzen: Trefferzahl stimmt, Ergebnisse
+   stimmen, kein Vorladen.
+4. Tabellenansicht: Sortierung ueber alle Rezepte, nicht nur
+   ueber die geladenen. Nach Titel absteigend sortieren --
+   der erste Eintrag muss der alphabetisch letzte sein.
+5. Aus "Meine Kueche" oder "Wochenplan" ein Rezept oeffnen,
+   dessen Titel weit hinten im Alphabet liegt. Muss sich
+   oeffnen lassen -- prueft den Fallback auf fetchRecipeById
+   aus Etappe 3.
+6. Saison-Block und Kategorie-Chips weiterhin vollstaendig.
+
+ROLLBACK
+Falls Rezepte sich nicht mehr oeffnen lassen, die Sortierung
+nur die geladenen Rezepte umfasst, oder Kategorien fehlen:
+beide Auto-Loader wiederherstellen.

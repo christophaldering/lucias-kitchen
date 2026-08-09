@@ -60,6 +60,8 @@ export interface ActiveFilters {
   photoType?: string; // "none" | "ai" | "scan" | "own"
   variants?: string;  // "true" = show all (including variants)
   chefPick?: string;  // "true" = chef picks only
+  sort?: string;      // alphabetisch|kategorie|bewertung|neueste|haeufig_gekocht|schwierigkeit|zeit
+  dir?: string;       // "asc" | "desc"
 }
 
 export function useRecipes(filter: RecipeFilter = "all", options?: { loadAll?: boolean }, activeFilters?: ActiveFilters) {
@@ -114,8 +116,10 @@ export function useRecipes(filter: RecipeFilter = "all", options?: { loadAll?: b
     if (activeFilters?.photoType) p.set("photoType", activeFilters.photoType);
     if (activeFilters?.variants) p.set("variants", activeFilters.variants);
     if (activeFilters?.chefPick) p.set("chefPick", activeFilters.chefPick);
+    if (activeFilters?.sort) p.set("sort", activeFilters.sort);
+    if (activeFilters?.dir) p.set("dir", activeFilters.dir);
     return p.toString();
-  }, [filter, activeFilters?.category, activeFilters?.time, activeFilters?.season, activeFilters?.cooked, activeFilters?.photoType, activeFilters?.variants, activeFilters?.chefPick]);
+  }, [filter, activeFilters?.category, activeFilters?.time, activeFilters?.season, activeFilters?.cooked, activeFilters?.photoType, activeFilters?.variants, activeFilters?.chefPick, activeFilters?.sort, activeFilters?.dir]);
 
   const baseUrl = filterParamStr ? `${API_BASE}/recipes?${filterParamStr}` : `${API_BASE}/recipes`;
 

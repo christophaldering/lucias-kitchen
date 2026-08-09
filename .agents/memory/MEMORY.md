@@ -1,0 +1,2 @@
+- [Server-seitige Sortierung GET /recipes](server-sort.md) — sort+dir Parameter; buildSortOrder() mit sql.raw() für alle 7 Werte; zeit-Bucket dupliziert den SQL-Ausdruck inline statt totalTimeParsedMinutesSql zu verschachteln
+- [Stats-Endpunkt /recipes/stats](stats-endpoint.md) — liefert hasVariants (bool) + seasonal (max 12, aktuelle Saison server-seitig berechnet); zwei separate db.execute()-Aufrufe nach dem Haupt-res.json() — FALSCH; alles muss in einen einzigen res.json()-Aufruf

@@ -15,12 +15,25 @@ import ImageImportModal from "@/components/ImageImportModal";
 import RecipeEditModal from "@/components/RecipeEditModal";
 import type { RecipeUpdatePayload } from "@/hooks/useRecipes";
 import { useCommentStats } from "@/components/RecipeComments";
+import { useRecipeStats } from "@/hooks/useRecipeStats";
 import { authFetch, authHeaders } from "@/lib/authFetch";
 import { FilterBottomSheet } from "@/components/FilterBottomSheet";
 import type { PhotoTypeFilter } from "@/components/FilterBottomSheet";
 import { ImportInProgressBanner } from "@/components/ImportInProgressBanner";
 
 const API_BASE = "/api";
+
+type TableSortKey = "title" | "category" | "difficulty" | "time" | "rating" | "cookedCount" | "createdAt";
+
+const TABLE_SORT_MAP: Record<TableSortKey, string> = {
+  title: "alphabetisch",
+  category: "kategorie",
+  difficulty: "schwierigkeit",
+  time: "zeit",
+  rating: "bewertung",
+  cookedCount: "haeufig_gekocht",
+  createdAt: "neueste",
+};
 
 async function searchRecipesApi(q: string, filter: RecipeFilter, signal?: AbortSignal): Promise<Recipe[]> {
   const filterParam = filter !== "all" ? `&filter=${filter}` : "";
@@ -386,8 +399,6 @@ function RecipeCard({
   );
 }
 
-type TableSortKey = "title" | "category" | "difficulty" | "time" | "rating" | "cookedCount" | "createdAt";
-
 function SortIcon({ col, sortKey, sortDir }: { col: TableSortKey; sortKey: TableSortKey; sortDir: "asc" | "desc" }) {
   if (col !== sortKey) return <ArrowUpDown className="w-3 h-3 ml-1 opacity-40 inline" />;
   return sortDir === "asc"
@@ -524,6 +535,8 @@ export default function MeineRezepte({ onNavigate: _onNavigate, initialOpenRecip
   const [showVariants, setShowVariants] = useState(false);
   const [photoType, setPhotoType] = useState<PhotoTypeFilter>("all");
   const [chefPickFilter, setChefPickFilter] = useState(false);
+  const [tableSortKey, setTableSortKey] = useState<TableSortKey>("title");
+  const [tableSortDir, setTableSortDir] = useState<"asc" | "desc">("asc");
   const serverFilters: ActiveFilters = {
     category: activeCategory !== "Alle" ? activeCategory : undefined,
     time: timeFilter === "Unter 30 Min" ? "unter30" : timeFilter !== "Alle" ? "unter60" : undefined,
@@ -532,6 +545,8 @@ export default function MeineRezepte({ onNavigate: _onNavigate, initialOpenRecip
     photoType: photoType !== "all" ? photoType : undefined,
     variants: showVariants ? "true" : "false",
     chefPick: chefPickFilter ? "true" : undefined,
+    sort: TABLE_SORT_MAP[tableSortKey],
+    dir: tableSortDir,
   };
   const { recipes, totalRecipes, loading, error, addRecipes, refetch, patchRecipeSilent, patchRecipeLocal, deleteRecipeSilent, deleteRecipe, updateRecipe, toggleFavorite, fetchNextPage, hasNextPage, isFetchingNextPage } = useRecipes(recipeFilter, undefined, serverFilters);
   const fetchNextPageRef = useRef(fetchNextPage);
@@ -540,32 +555,6 @@ export default function MeineRezepte({ onNavigate: _onNavigate, initialOpenRecip
   useEffect(() => { fetchNextPageRef.current = fetchNextPage; }, [fetchNextPage]);
   useEffect(() => { hasNextPageRef.current = hasNextPage; }, [hasNextPage]);
   useEffect(() => { isFetchingNextPageRef.current = isFetchingNextPage; }, [isFetchingNextPage]);
-
-  const loadTrackRef = useRef<{ time: number; count: number } | null>(null);
-  const [loadEstSecs, setLoadEstSecs] = useState<number | null>(null);
-  useEffect(() => {
-    if (hasNextPage && !loading) {
-      const total = totalRecipes ?? recipes.length;
-      const loaded = recipes.length;
-      if (!loadTrackRef.current && loaded > 0) {
-        loadTrackRef.current = { time: Date.now(), count: loaded };
-      }
-      if (loadTrackRef.current) {
-        const elapsed = (Date.now() - loadTrackRef.current.time) / 1000;
-        const loadedSince = loaded - loadTrackRef.current.count;
-        if (elapsed >= 3 && loadedSince > 0) {
-          const rate = loadedSince / elapsed;
-          const remaining = total - loaded;
-          setLoadEstSecs(Math.round(remaining / rate));
-        } else {
-          setLoadEstSecs(null);
-        }
-      }
-    } else {
-      loadTrackRef.current = null;
-      setLoadEstSecs(null);
-    }
-  }, [recipes.length, hasNextPage, loading, totalRecipes]);
 
   const observerRef = useRef<IntersectionObserver | null>(null);
   const sentinelRef = useCallback((node: HTMLDivElement | null) => {
@@ -672,11 +661,10 @@ export default function MeineRezepte({ onNavigate: _onNavigate, initialOpenRecip
 
   const [fabOpen, setFabOpen] = useState(false);
   const [managedSelected, setManagedSelected] = useState<Set<number>>(new Set());
-  const [tableSortKey, setTableSortKey] = useState<TableSortKey>("title");
-  const [tableSortDir, setTableSortDir] = useState<"asc" | "desc">("asc");
 
   const recipeIds = useMemo(() => recipes.map((r) => r.id), [recipes]);
   const { data: commentStats = {} } = useCommentStats(recipeIds);
+  const { data: recipeStats } = useRecipeStats();
 
   const openedForIdRef = useRef<number | null>(null);
   const hasRecipes = recipes.length > 0;
@@ -688,12 +676,9 @@ export default function MeineRezepte({ onNavigate: _onNavigate, initialOpenRecip
     }
     if (openedForIdRef.current === initialOpenRecipeId) return;
     if (!hasRecipes) return;
-    const recipe = recipes.find((r) => r.id === initialOpenRecipeId);
-    if (recipe) {
-      openedForIdRef.current = initialOpenRecipeId;
-      openRecipe(recipe.id);
-      onRecipeOpened?.();
-    }
+    openedForIdRef.current = initialOpenRecipeId;
+    openRecipe(initialOpenRecipeId);
+    onRecipeOpened?.();
   }, [initialOpenRecipeId, hasRecipes]);
 
   useEffect(() => {
@@ -720,22 +705,6 @@ export default function MeineRezepte({ onNavigate: _onNavigate, initialOpenRecip
     refreshTokenRef.current = refreshToken;
     refetch();
   }, [refreshToken, refetch]);
-
-  const hasLocalFilters = activeCategory !== "Alle" || timeFilter !== "Alle" || seasonFilter !== "Alle" || cookedFilter !== "Alle" || photoType !== "all" || showVariants || chefPickFilter;
-  useEffect(() => {
-    if (hasLocalFilters && hasNextPage && !isFetchingNextPage) {
-      fetchNextPage();
-    }
-  }, [hasLocalFilters, hasNextPage, isFetchingNextPage, fetchNextPage, recipes.length]);
-
-  // Auto-load all pages in background on mount
-  useEffect(() => {
-    if (!hasNextPage || isFetchingNextPage) return;
-    const t = setTimeout(() => {
-      fetchNextPage();
-    }, 800);
-    return () => clearTimeout(t);
-  }, [hasNextPage, isFetchingNextPage, fetchNextPage, recipes.length]);
 
   const toggleSelect = (id: number) => setManagedSelected((prev) => {
     const next = new Set(prev);
@@ -816,9 +785,9 @@ export default function MeineRezepte({ onNavigate: _onNavigate, initialOpenRecip
   }, [recipeFilter]);
 
   const allCategories = useMemo(() => {
-    const cats = Array.from(new Set(recipes.map((r) => r.category))).sort();
+    const cats = [...(recipeStats?.categories.map((c) => c.name) ?? [])].sort();
     return ["Alle", ...cats];
-  }, [recipes]);
+  }, [recipeStats?.categories]);
 
   const sorted = useMemo(() => {
     const base = [...recipes];
@@ -893,38 +862,13 @@ export default function MeineRezepte({ onNavigate: _onNavigate, initialOpenRecip
   }, [searchResults, sorted, activeSortOrder]);
 
 
-  const knownCategories = useMemo(() => Array.from(new Set(recipes.map((r) => r.category))).sort(), [recipes]);
-
-  const currentSeason = getCurrentSeason();
-  const seasonalRecipes = useMemo(
-    () => recipes.filter((r) => (r.seasons ?? []).includes(currentSeason)),
-    [recipes, currentSeason]
+  const knownCategories = useMemo(
+    () => [...(recipeStats?.categories.map((c) => c.name) ?? [])].sort(),
+    [recipeStats?.categories]
   );
 
-  const DIFF_ORDER: Record<string, number> = { simpel: 0, normal: 1, schwer: 2 };
-  const RATING_SCORE = (r: Recipe) => r.rating === "sehr lecker" ? 2 : r.rating === "lecker" ? 1 : 0;
-
-  const tableSorted = useMemo(() => {
-    const base = [...baseList];
-    const dir = tableSortDir === "asc" ? 1 : -1;
-    base.sort((a, b) => {
-      switch (tableSortKey) {
-        case "title": return dir * a.title.localeCompare(b.title, "de");
-        case "category": return dir * a.category.localeCompare(b.category, "de");
-        case "difficulty": return dir * ((DIFF_ORDER[a.difficulty] ?? 1) - (DIFF_ORDER[b.difficulty] ?? 1));
-        case "time": return dir * (parseTotalMinutes(a.totalTime) - parseTotalMinutes(b.totalTime));
-        case "rating": return dir * (RATING_SCORE(a) - RATING_SCORE(b));
-        case "cookedCount": return dir * ((a.cookedCount ?? 0) - (b.cookedCount ?? 0));
-        case "createdAt": {
-          const da = a.createdAt ? new Date(a.createdAt).getTime() : 0;
-          const db2 = b.createdAt ? new Date(b.createdAt).getTime() : 0;
-          return dir * (da - db2);
-        }
-        default: return 0;
-      }
-    });
-    return base;
-  }, [baseList, tableSortKey, tableSortDir]);
+  const currentSeason = getCurrentSeason();
+  const seasonalRecipes = recipeStats?.seasonal ?? [];
 
   const isFiltered = search.trim() !== "" || activeCategory !== "Alle" || timeFilter !== "Alle" || seasonFilter !== "Alle" || cookedFilter !== "Alle" || photoType !== "all" || chefPickFilter;
 
@@ -1004,7 +948,7 @@ export default function MeineRezepte({ onNavigate: _onNavigate, initialOpenRecip
                   seasonFilter={seasonFilter}
                   cookedFilter={cookedFilter}
                   showVariants={showVariants}
-                  hasVariants={recipes.some((r) => r.parentRecipeId)}
+                  hasVariants={recipeStats?.hasVariants ?? false}
                   photoType={photoType}
                   onApply={({ timeFilter: t, seasonFilter: s, cookedFilter: c, showVariants: sv, photoType: pt }) => {
                     setTimeFilter(t);
@@ -1073,64 +1017,14 @@ export default function MeineRezepte({ onNavigate: _onNavigate, initialOpenRecip
             <>
               <ImportInProgressBanner />
 
-              {/* Recipe count status bar — loaded vs total */}
-              {(() => {
-                const total = totalRecipes ?? recipes.length;
-                const loaded = recipes.length;
-                const allLoaded = !hasNextPage;
-                const pct = total > 0 ? Math.round((loaded / total) * 100) : 100;
-                return (
-                  <div className="mb-5 px-4 py-3 rounded-xl border bg-green-50 border-green-200">
-                    <div className="flex items-center gap-3 mb-2">
-                      <BookOpen className="w-4 h-4 flex-shrink-0 text-[#4A7C59]" />
-                      <span className="text-sm text-[#4A7C59]">
-                        {allLoaded ? (
-                          <>
-                            <span className="font-bold">{total}</span>
-                            <span className="opacity-70"> Rezepte geladen</span>
-                          </>
-                        ) : (
-                          <>
-                            <span className="font-bold">{loaded}</span>
-                            <span className="opacity-70"> von </span>
-                            <span className="font-bold">{total}</span>
-                            <span className="opacity-70"> Rezepten im Speicher</span>
-                            {isFetchingNextPage && (
-                              <span className="ml-2 inline-flex items-center gap-1 text-xs text-[#4A7C59]/60">
-                                <Loader2 className="w-3 h-3 animate-spin" />
-                                lädt…
-                              </span>
-                            )}
-                          </>
-                        )}
-                        {isFiltered && (
-                          <span className="ml-3 font-semibold text-[#C1693A]">
-                            · {baseList.length} Treffer
-                          </span>
-                        )}
-                      </span>
-                    </div>
-                    <div className="w-full bg-green-200 rounded-full h-1.5">
-                      <div
-                        className="bg-[#4A7C59] h-1.5 rounded-full transition-all duration-500"
-                        style={{ width: `${pct}%` }}
-                      />
-                    </div>
-                    {!allLoaded && (
-                      <div className="flex items-center justify-between mt-1">
-                        <span className="text-xs text-[#4A7C59]/60">
-                          {loadEstSecs !== null
-                            ? loadEstSecs < 60
-                              ? `noch ca. ${loadEstSecs} Sek.`
-                              : `noch ca. ${Math.round(loadEstSecs / 60)} Min.`
-                            : "wird berechnet…"}
-                        </span>
-                        <span className="text-xs text-[#4A7C59]/60">{pct}%</span>
-                      </div>
-                    )}
-                  </div>
-                );
-              })()}
+              {/* Recipe count */}
+              <div className="mb-5 px-4 py-2 flex items-center gap-2 text-sm text-[#4A7C59]">
+                <BookOpen className="w-4 h-4 flex-shrink-0" />
+                <span>
+                  <span className="font-bold">{totalRecipes ?? recipes.length}</span>
+                  <span className="opacity-70"> {isFiltered ? "Treffer" : "Rezepte"}</span>
+                </span>
+              </div>
 
               {(searchLoading || isFiltered) && (
                 <div className="mb-4">
@@ -1319,7 +1213,7 @@ export default function MeineRezepte({ onNavigate: _onNavigate, initialOpenRecip
                         </tr>
                       </thead>
                       <tbody>
-                        {tableSorted.map((recipe) => (
+                        {baseList.map((recipe) => (
                           <RecipeTableRow
                             key={recipe.id}
                             recipe={recipe}
@@ -1426,12 +1320,7 @@ export default function MeineRezepte({ onNavigate: _onNavigate, initialOpenRecip
                 setShowImageModal(false);
                 if (savedIds && savedIds.length > 0) {
                   const firstId = savedIds[0];
-                  const alreadyInList = recipes.find((r) => r.id === firstId);
-                  if (alreadyInList) {
-                    openRecipe(firstId);
-                  } else {
-                    pendingOpenIdRef.current = firstId;
-                  }
+                  openRecipe(firstId);
                 }
               }}
               onAdd={async (newRecipes) => {

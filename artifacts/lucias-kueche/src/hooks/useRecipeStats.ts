@@ -9,6 +9,8 @@ export interface RecipeStats {
   top3: { id: number; title: string; rating: string | null; cookedCount: number | null; category: string }[];
   veryDeliciousCount: number;
   avgIngredients: number;
+  hasVariants: boolean;
+  seasonal: { id: number; title: string; category: string; imageUrl: string | null }[];
 }
 
 const API_BASE = `${import.meta.env.BASE_URL}api`;

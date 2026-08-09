@@ -40,6 +40,8 @@ function recipeListCacheKey(userId?: number, filter?: string, page?: number, lim
     qf.photoType ?? "",
     qf.variants ?? "",
     qf.chefPick ?? "",
+    qf.sort ?? "",
+    qf.dir ?? "",
   ].join("|") : "";
   return `${userId ?? "anon"}:${filter ?? "all"}:p${page ?? 1}:l${limit ?? 24}:${extra}`;
 }
@@ -52,6 +54,8 @@ interface RecipeQueryFilters {
   photoType?: string; // "none" | "ai" | "scan" | "own"
   variants?: string;  // "true" = show all; otherwise parent_recipe_id IS NULL
   chefPick?: string;  // "true" = chef_pick = true only
+  sort?: string;      // alphabetisch|kategorie|bewertung|neueste|haeufig_gekocht|schwierigkeit|zeit
+  dir?: string;       // "asc" | "desc"
 }
 
 /** Returns a SQL expression computing total_time in minutes. NULL when not parseable (no digits). */
@@ -113,6 +117,43 @@ function buildExtraFilters(qf?: RecipeQueryFilters): SQL {
 
   if (parts.length === 0) return sql``;
   return parts.reduce<SQL>((acc, part) => sql`${acc} ${part}`, sql``);
+}
+
+/** Builds ORDER BY SQL fragment for getRecipesWithIngredients. */
+function buildSortOrder(qf?: RecipeQueryFilters): SQL {
+  const sort = qf?.sort;
+  const DEFAULTS: Record<string, "asc" | "desc"> = {
+    alphabetisch: "asc",
+    kategorie: "asc",
+    bewertung: "desc",
+    neueste: "desc",
+    haeufig_gekocht: "desc",
+    schwierigkeit: "asc",
+    zeit: "asc",
+  };
+  const dir = (qf?.dir === "asc" || qf?.dir === "desc")
+    ? qf.dir
+    : (sort ? (DEFAULTS[sort] ?? "asc") : "asc");
+  const D = dir === "desc" ? "DESC" : "ASC";
+
+  switch (sort) {
+    case "alphabetisch":
+      return sql.raw(`r.title ${D}`);
+    case "kategorie":
+      return sql.raw(`r.category ${D}, r.title ASC`);
+    case "bewertung":
+      return sql.raw(`CASE r.rating WHEN 'sehr lecker' THEN 2 WHEN 'lecker' THEN 1 ELSE 0 END ${D}, r.id ASC`);
+    case "neueste":
+      return sql.raw(`r.created_at ${D}`);
+    case "haeufig_gekocht":
+      return sql.raw(`COALESCE(r.cooked_count, 0) ${D}, r.id ASC`);
+    case "schwierigkeit":
+      return sql.raw(`CASE r.difficulty WHEN 'simpel' THEN 0 WHEN 'normal' THEN 1 WHEN 'schwer' THEN 2 ELSE 1 END ${D}, r.title ASC`);
+    case "zeit":
+      return sql.raw(`(CASE WHEN r.total_time IS NULL OR r.total_time !~ '[0-9]' THEN NULL ELSE (SELECT CASE WHEN COUNT(*) = 1 THEN MAX(CASE WHEN rn = 1 THEN num ELSE NULL END) ELSE MAX(CASE WHEN rn = 1 THEN num ELSE NULL END) * 60 + COALESCE(MAX(CASE WHEN rn = 2 THEN num ELSE NULL END), 0) END FROM (SELECT m[1]::int AS num, ROW_NUMBER() OVER () AS rn FROM regexp_matches(r.total_time, '[0-9]+', 'g') AS t(m)) sub WHERE rn <= 2) END) ${D} NULLS LAST, r.id ASC`);
+    default:
+      return sql.raw("r.id ASC");
+  }
 }
 
 export function invalidateRecipeListCache() {
@@ -298,7 +339,7 @@ async function getRecipesWithIngredients(currentUserId?: number, filter?: string
     ${filterExpr}
     ${extraFilters}
     GROUP BY r.id, u.display_name, u.avatar_url
-    ORDER BY r.id
+    ORDER BY ${buildSortOrder(queryFilters)}
     LIMIT ${limitNum} OFFSET ${offset}
   `);
 
@@ -852,6 +893,8 @@ router.get("/recipes", async (req, res) => {
       photoType: req.query.photoType as string | undefined,
       variants: req.query.variants as string | undefined,
       chefPick: req.query.chefPick as string | undefined,
+      sort: req.query.sort as string | undefined,
+      dir: req.query.dir as string | undefined,
     };
 
     const cacheKey = recipeListCacheKey(currentUserId, filter, page, limit, queryFilters);
@@ -1139,6 +1182,32 @@ router.get("/recipes/stats", authMiddleware, async (req, res) => {
       bucketMap[row.bucket] = Number(row.Rezepte ?? 0);
     }
 
+    // hasVariants
+    const hasVariantsResult = await db.execute(sql`
+      SELECT EXISTS(
+        SELECT 1 FROM recipes WHERE deleted_at IS NULL AND parent_recipe_id IS NOT NULL
+      ) AS has_variants
+    `);
+    const hasVariantsRows = (hasVariantsResult as unknown as { rows: Array<{ has_variants: boolean }> }).rows
+      ?? (hasVariantsResult as unknown as Array<{ has_variants: boolean }>);
+    const hasVariants = Boolean(hasVariantsRows[0]?.has_variants);
+
+    // seasonal (current season, max 12)
+    const month = new Date().getMonth() + 1;
+    const currentSeason = month >= 3 && month <= 5 ? "spring"
+      : month >= 6 && month <= 8 ? "summer"
+      : month >= 9 && month <= 11 ? "autumn"
+      : "winter";
+    const seasonalResult = await db.execute(sql`
+      SELECT id, title, category, image_url AS "imageUrl"
+      FROM recipes
+      WHERE deleted_at IS NULL AND seasons @> jsonb_build_array(${currentSeason})
+      ORDER BY id
+      LIMIT 12
+    `);
+    const seasonalRows = (seasonalResult as unknown as { rows: Array<{ id: number; title: string; category: string; imageUrl: string | null }> }).rows
+      ?? (seasonalResult as unknown as Array<{ id: number; title: string; category: string; imageUrl: string | null }>);
+
     res.json({
       total: Number(agg.total ?? 0),
       categories: catRows.map((r) => ({ name: r.name, value: Number(r.value) })),
@@ -1153,6 +1222,13 @@ router.get("/recipes/stats", authMiddleware, async (req, res) => {
       })),
       veryDeliciousCount: Number(agg.very_delicious_count ?? 0),
       avgIngredients: Number(avgRows[0]?.avg_ingredients ?? 0),
+      hasVariants,
+      seasonal: seasonalRows.map((r) => ({
+        id: Number(r.id),
+        title: r.title,
+        category: r.category,
+        imageUrl: r.imageUrl ?? null,
+      })),
     });
   } catch (err) {
     req.log.error({ err }, "Failed to get recipe stats");

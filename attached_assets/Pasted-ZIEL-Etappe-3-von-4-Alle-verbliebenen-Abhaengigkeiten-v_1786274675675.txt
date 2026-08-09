@@ -1,0 +1,76 @@
+ZIEL
+Etappe 3 von 4: Alle verbliebenen Abhaengigkeiten vom vollstaendigen
+Datensatz aufloesen. Der Hintergrund-Vorlader bleibt in dieser
+Etappe NOCH drin und wird erst in Etappe 4 entfernt.
+
+VORAUSSETZUNG
+Etappen 1 und 2 sind abgeschlossen und verifiziert.
+
+TEIL A — SERVER: Sortierung erweitern
+Datei: artifacts/api-server/src/routes/recipes.ts
+
+GET /recipes: der Parameter "sort" bekommt zwei weitere Werte,
+passend zu den Spalten der Tabellenansicht:
+  schwierigkeit   simpel < normal < schwer
+  zeit            geparste Minuten aufsteigend, ohne Angabe zuletzt
+
+Neuer Parameter "dir" mit den Werten "asc" oder "desc".
+Fehlt er, gilt die bisherige Richtung je Sortierung unveraendert.
+"dir" gehoert in den Cache-Key.
+
+TEIL B — SERVER: /recipes/stats ergaenzen
+Die Antwort bekommt zwei zusaetzliche Felder:
+  hasVariants   boolean, true wenn mindestens ein Rezept mit
+                parent_recipe_id IS NOT NULL existiert
+  seasonal      Array mit id, title, category, imageUrl der
+                Rezepte der AKTUELLEN Saison, maximal 12 Stueck
+                Die aktuelle Saison bestimmt der Server analog
+                zu getCurrentSeason im Client.
+
+TEIL C — CLIENT
+Datei: artifacts/lucias-kueche/src/pages/MeineRezepte.tsx
+
+1. Tabellenansicht: tableSortKey und tableSortDir werden an
+   useRecipes durchgereicht statt clientseitig sortiert.
+   Mapping der Spalten auf die Server-Sortierungen:
+     title -> alphabetisch, category -> kategorie,
+     difficulty -> schwierigkeit, time -> zeit,
+     rating -> bewertung, cookedCount -> haeufig_gekocht,
+     createdAt -> neueste
+   Der useMemo-Block "tableSorted" ab ca. Zeile 907 entfaellt.
+
+2. knownCategories (ca. Zeile 896) und der Kategorien-Block bei
+   ca. Zeile 819 kommen aus /recipes/stats statt aus recipes.
+
+3. seasonalRecipes (ca. Zeile 900) kommt aus dem neuen Feld
+   seasonal von /recipes/stats.
+
+4. hasVariants (ca. Zeile 1007) kommt aus dem neuen Feld
+   hasVariants von /recipes/stats.
+
+5. Die Rezept-Lookups per recipes.find bei ca. Zeile 627, 691,
+   709 und 1429 muessen auf fetchRecipeById zurueckfallen, wenn
+   das Rezept nicht in der geladenen Liste ist.
+
+VERBOTEN
+- Den Hintergrund-Vorlader NICHT entfernen
+- Keine Aenderung an den Filtern aus Etappe 1
+- Keine Aenderung an /recipes/search
+- Keine Aenderung an Wochenplan, MeineKueche, Admin, Profil
+- Keine Aenderung am Statistiken-Diagramm
+
+VERIFIKATION
+1. Tabellenansicht: jede der sieben Spalten einmal auf- und
+   einmal absteigend sortieren. Erster und letzter Eintrag
+   plausibel, Gesamtzahl unveraendert.
+2. Kategorie-Chips: dieselben Kategorien wie vorher, gleiche
+   Reihenfolge.
+3. Saison-Block: dieselben Rezepte wie vorher.
+4. Ein Rezept per Direktlink oeffnen, das nicht auf der ersten
+   Seite liegt -> muss sich oeffnen lassen.
+5. curl auf /api/recipes/stats -> hasVariants und seasonal
+   sind vorhanden.
+
+ROLLBACK
+Bei falscher Sortierreihenfolge oder fehlenden Kategorien:
+komplette Etappe zurueck.

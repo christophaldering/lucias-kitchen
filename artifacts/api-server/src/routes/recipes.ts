@@ -1,7 +1,7 @@
 import { Router, type IRouter } from "express";
 import { db } from "@workspace/db";
 import { recipesTable, recipeIngredientsTable, recipePhotosTable, recipeFavoritesTable, usersTable, groupMembersTable, groupsTable, photosTable, recipePhotoLinksTable, deleteConfirmationTokensTable } from "@workspace/db/schema";
-import { eq, inArray, sql, desc, and, isNull, lt } from "drizzle-orm";
+import { eq, inArray, sql, desc, and, isNull, lt, type SQL } from "drizzle-orm";
 import { z } from "zod/v4";
 import { seedRecipes } from "../db/seedRecipes";
 import { singleImageUploadMiddleware, UPLOADS_DIR } from "../lib/imageUpload";
@@ -31,8 +31,88 @@ function cacheSet(key: string, value: { etag: string; body: string }) {
   recipeListCache.set(key, value);
 }
 
-function recipeListCacheKey(userId?: number, filter?: string, page?: number, limit?: number) {
-  return `${userId ?? "anon"}:${filter ?? "all"}:p${page ?? 1}:l${limit ?? 24}`;
+function recipeListCacheKey(userId?: number, filter?: string, page?: number, limit?: number, qf?: RecipeQueryFilters) {
+  const extra = qf ? [
+    qf.category ?? "",
+    qf.time ?? "",
+    qf.season ?? "",
+    qf.cooked ?? "",
+    qf.photoType ?? "",
+    qf.variants ?? "",
+    qf.chefPick ?? "",
+  ].join("|") : "";
+  return `${userId ?? "anon"}:${filter ?? "all"}:p${page ?? 1}:l${limit ?? 24}:${extra}`;
+}
+
+interface RecipeQueryFilters {
+  category?: string;
+  time?: string;      // "unter30" | "unter60"
+  season?: string;
+  cooked?: string;    // "gekocht" | "nicht"
+  photoType?: string; // "none" | "ai" | "scan" | "own"
+  variants?: string;  // "true" = show all; otherwise parent_recipe_id IS NULL
+  chefPick?: string;  // "true" = chef_pick = true only
+}
+
+/** Returns a SQL expression computing total_time in minutes. NULL when not parseable (no digits). */
+function totalTimeParsedMinutesSql(columnExpr: string): SQL {
+  return sql.raw(`(CASE
+    WHEN ${columnExpr} IS NULL OR ${columnExpr} !~ '[0-9]' THEN NULL
+    ELSE (
+      SELECT
+        CASE
+          WHEN COUNT(*) = 1 THEN MAX(CASE WHEN rn = 1 THEN num ELSE NULL END)
+          ELSE MAX(CASE WHEN rn = 1 THEN num ELSE NULL END) * 60
+               + COALESCE(MAX(CASE WHEN rn = 2 THEN num ELSE NULL END), 0)
+        END
+      FROM (
+        SELECT m[1]::int AS num, ROW_NUMBER() OVER () AS rn
+        FROM regexp_matches(${columnExpr}, '[0-9]+', 'g') AS t(m)
+      ) sub
+      WHERE rn <= 2
+    )
+  END)`);
+}
+
+/** Builds extra SQL WHERE fragments (each starting with AND) from RecipeQueryFilters. */
+function buildExtraFilters(qf?: RecipeQueryFilters): SQL {
+  if (!qf) return sql``;
+  const parts: SQL[] = [];
+
+  if (qf.category) {
+    parts.push(sql`AND r.category = ${qf.category}`);
+  }
+  if (qf.time === "unter30") {
+    parts.push(sql`AND ${totalTimeParsedMinutesSql("r.total_time")} < 30`);
+  } else if (qf.time === "unter60") {
+    parts.push(sql`AND ${totalTimeParsedMinutesSql("r.total_time")} < 60`);
+  }
+  if (qf.season) {
+    parts.push(sql`AND r.seasons @> jsonb_build_array(${qf.season})`);
+  }
+  if (qf.cooked === "gekocht") {
+    parts.push(sql`AND COALESCE(r.cooked_count, 0) > 0`);
+  } else if (qf.cooked === "nicht") {
+    parts.push(sql`AND (r.cooked_count = 0 OR r.cooked_count IS NULL)`);
+  }
+  if (qf.photoType === "none") {
+    parts.push(sql`AND r.image_url IS NULL`);
+  } else if (qf.photoType === "ai") {
+    parts.push(sql`AND r.is_ai_generated = true`);
+  } else if (qf.photoType === "scan") {
+    parts.push(sql`AND (r.image_source = 'web' AND r.is_ai_generated IS NOT TRUE AND r.image_url IS NOT NULL)`);
+  } else if (qf.photoType === "own") {
+    parts.push(sql`AND (r.image_url IS NOT NULL AND r.is_ai_generated IS NOT TRUE AND r.image_source IS DISTINCT FROM 'web')`);
+  }
+  if (qf.variants !== "true") {
+    parts.push(sql`AND r.parent_recipe_id IS NULL`);
+  }
+  if (qf.chefPick === "true") {
+    parts.push(sql`AND r.chef_pick = true`);
+  }
+
+  if (parts.length === 0) return sql``;
+  return parts.reduce<SQL>((acc, part) => sql`${acc} ${part}`, sql``);
 }
 
 export function invalidateRecipeListCache() {
@@ -118,7 +198,7 @@ async function getFullRecipesByIds(ids: number[]): Promise<Record<number, unknow
   return result;
 }
 
-async function getRecipesWithIngredients(currentUserId?: number, filter?: string, page?: number, limit?: number) {
+async function getRecipesWithIngredients(currentUserId?: number, filter?: string, page?: number, limit?: number, queryFilters?: RecipeQueryFilters) {
   const pageNum = Math.max(1, page ?? 1);
   const limitNum = limit != null ? Math.max(1, limit) : 24;
   const offset = (pageNum - 1) * limitNum;
@@ -138,11 +218,14 @@ async function getRecipesWithIngredients(currentUserId?: number, filter?: string
       ? sql`AND EXISTS(SELECT 1 FROM recipe_favorites rf2 WHERE rf2.recipe_id = r.id AND rf2.user_id = ${currentUserId})`
       : sql``;
 
+  const extraFilters = buildExtraFilters(queryFilters);
+
   const countRows = await db.execute(sql`
     SELECT COUNT(*) AS total
     FROM recipes r
     WHERE r.deleted_at IS NULL
     ${filterExpr}
+    ${extraFilters}
   `);
   const rawCountRows = (countRows as unknown as { rows: Array<{ total: string | number }> }).rows ?? (countRows as unknown as Array<{ total: string | number }>);
   const total = Number(rawCountRows[0]?.total ?? 0);
@@ -213,6 +296,7 @@ async function getRecipesWithIngredients(currentUserId?: number, filter?: string
     LEFT JOIN users u ON u.id = r.created_by
     WHERE r.deleted_at IS NULL
     ${filterExpr}
+    ${extraFilters}
     GROUP BY r.id, u.display_name, u.avatar_url
     ORDER BY r.id
     LIMIT ${limitNum} OFFSET ${offset}
@@ -760,7 +844,17 @@ router.get("/recipes", async (req, res) => {
     const page = req.query.page != null ? Math.max(1, parseInt(String(req.query.page), 10) || 1) : 1;
     const limit = req.query.limit != null ? Math.min(200, Math.max(1, parseInt(String(req.query.limit), 10) || 24)) : 24;
 
-    const cacheKey = recipeListCacheKey(currentUserId, filter, page, limit);
+    const queryFilters: RecipeQueryFilters = {
+      category: req.query.category as string | undefined,
+      time: req.query.time as string | undefined,
+      season: req.query.season as string | undefined,
+      cooked: req.query.cooked as string | undefined,
+      photoType: req.query.photoType as string | undefined,
+      variants: req.query.variants as string | undefined,
+      chefPick: req.query.chefPick as string | undefined,
+    };
+
+    const cacheKey = recipeListCacheKey(currentUserId, filter, page, limit, queryFilters);
     const cached = recipeListCache.get(cacheKey);
 
     if (cached) {
@@ -774,7 +868,7 @@ router.get("/recipes", async (req, res) => {
       return;
     }
 
-    const result = await getRecipesWithIngredients(currentUserId, filter, page, limit);
+    const result = await getRecipesWithIngredients(currentUserId, filter, page, limit, queryFilters);
     const body = JSON.stringify(result);
     const etag = `"${createHash("sha1").update(body).digest("hex").slice(0, 24)}"`;
     cacheSet(cacheKey, { etag, body });
@@ -985,34 +1079,17 @@ router.get("/recipes/stats", authMiddleware, async (req, res) => {
     const diffRows = (diffResult as unknown as { rows: Array<{ name: string; value: number }> }).rows
       ?? (diffResult as unknown as Array<{ name: string; value: number }>);
 
-    // Time buckets — same parsing as client parseTotalMinutes:
-    // all digit groups; 1 group = minutes; 2+ groups = first*60+second
-    // NULL / empty / no digits -> sentinel -1 -> "ohne Angabe" bucket
+    // Time buckets — uses totalTimeParsedMinutesSql helper (same logic as /recipes time filter)
+    // NULL = no parseable time → "ohne Angabe" bucket
     const timeResult = await db.execute(sql`
       WITH time_parsed AS (
-        SELECT
-          CASE
-            WHEN total_time IS NULL OR total_time !~ '[0-9]' THEN -1
-            ELSE (
-              SELECT
-                CASE
-                  WHEN COUNT(*) = 1 THEN MAX(CASE WHEN rn = 1 THEN num ELSE NULL END)
-                  ELSE MAX(CASE WHEN rn = 1 THEN num ELSE NULL END) * 60
-                       + COALESCE(MAX(CASE WHEN rn = 2 THEN num ELSE NULL END), 0)
-                END
-              FROM (
-                SELECT m[1]::int AS num, ROW_NUMBER() OVER () AS rn
-                FROM regexp_matches(total_time, '[0-9]+', 'g') AS t(m)
-              ) sub
-              WHERE rn <= 2
-            )
-          END AS minutes
+        SELECT ${totalTimeParsedMinutesSql("total_time")} AS minutes
         FROM recipes
         WHERE deleted_at IS NULL
       )
       SELECT
         CASE
-          WHEN minutes = -1 THEN 'ohne Angabe'
+          WHEN minutes IS NULL THEN 'ohne Angabe'
           WHEN minutes > 60 THEN '>60 Min'
           WHEN minutes <= 30 THEN '≤30 Min'
           WHEN minutes <= 45 THEN '31–45 Min'

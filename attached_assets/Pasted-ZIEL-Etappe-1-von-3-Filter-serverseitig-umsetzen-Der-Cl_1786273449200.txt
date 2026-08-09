@@ -1,0 +1,77 @@
+ZIEL
+Etappe 1 von 3: Filter serverseitig umsetzen. Der Client uebergibt
+die Filter als Query-Parameter statt im Browser zu filtern.
+Die Sortierung bleibt in dieser Etappe unveraendert im Client.
+Der Hintergrund-Vorlader bleibt in dieser Etappe ebenfalls drin.
+
+TEIL 1 — SERVER
+Datei: artifacts/api-server/src/routes/recipes.ts
+
+GET /recipes akzeptiert zusaetzlich diese Query-Parameter.
+Fehlt ein Parameter, wird nicht danach gefiltert.
+
+  category   exakter Vergleich auf recipes.category
+  time       "unter30" -> Minuten < 30
+             "unter60" -> Minuten < 60
+             Rezepte OHNE Zeitangabe werden dabei AUSGESCHLOSSEN
+             (repliziert parseTotalMinutes -> Infinity)
+  season     Wert muss im Array recipes.seasons enthalten sein
+  cooked     "gekocht"     -> cooked_count > 0
+             "nicht"       -> cooked_count = 0 ODER NULL
+  photoType  "none" -> image_url IS NULL
+             "ai"   -> is_ai_generated = true
+             "scan" -> image_source = 'web' AND is_ai_generated
+                       ist nicht true AND image_url IS NOT NULL
+             "own"  -> image_url IS NOT NULL AND is_ai_generated
+                       ist nicht true AND image_source ist nicht 'web'
+  variants   "true"  -> keine Einschraenkung
+             sonst   -> parent_recipe_id IS NULL
+  chefPick   "true"  -> chef_pick = true
+
+Das Zeitparsing ist identisch zu dem in der Route /recipes/stats.
+Die Logik dort in eine wiederverwendbare SQL-Hilfsfunktion ziehen
+und an beiden Stellen nutzen.
+
+Alle Filter werden in getRecipesWithIngredients ergaenzt, sowohl
+in der COUNT-Abfrage als auch in der Datenabfrage. total muss
+die gefilterte Menge zaehlen, nicht die Gesamtmenge.
+
+WICHTIG — Cache-Key erweitern
+recipeListCacheKey beruecksichtigt bisher nur userId, filter, page
+und limit. Alle neuen Parameter MUESSEN in den Key einfliessen,
+sonst liefert der Cache falsche Ergebnisse.
+
+TEIL 2 — CLIENT
+Datei: artifacts/lucias-kueche/src/hooks/useRecipes.ts
+useRecipes nimmt ein zusaetzliches Objekt mit den Filterwerten
+entgegen und haengt gesetzte Werte an die URL an.
+Die Filterwerte gehoeren in den queryKey, sonst cacht
+React Query falsch.
+
+Datei: artifacts/lucias-kueche/src/pages/MeineRezepte.tsx
+Die Filterzustaende an useRecipes durchreichen.
+Der clientseitige Block "const filtered = useMemo(...)" ab ca.
+Zeile 886 entfaellt; stattdessen wird die Serverantwort direkt
+verwendet.
+knownCategories und seasonalRecipes bleiben in dieser Etappe
+unveraendert auf recipes basierend.
+
+VERBOTEN
+- Keine Aenderung an der Sortierung
+- Keine Aenderung an /recipes/search
+- Keine Aenderung an /recipes/stats ausser der SQL-Hilfsfunktion
+- Den Hintergrund-Vorlader NICHT entfernen
+- Keine Aenderung an Wochenplan, MeineKueche, Admin, Profil
+
+VERIFIKATION
+1. Ohne Filter: Gesamtzahl unveraendert (678)
+2. Je Filter einzeln setzen und Trefferzahl mit dem alten Stand
+   vergleichen — muessen exakt uebereinstimmen
+3. Besonders pruefen: Zeitfilter. Rezepte ohne Zeitangabe duerfen
+   NICHT erscheinen
+4. Zwei Filter kombinieren, Trefferzahl plausibel
+5. grep -n "category" artifacts/api-server/src/routes/recipes.ts
+   im Bereich recipeListCacheKey -> Parameter muss im Key sein
+
+ROLLBACK
+Bei abweichenden Trefferzahlen: komplette Etappe zurueck.

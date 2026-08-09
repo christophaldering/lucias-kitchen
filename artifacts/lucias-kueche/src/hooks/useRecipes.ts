@@ -52,10 +52,31 @@ export async function fetchRecipeById(id: number): Promise<import("@/types/recip
 
 export type RecipeFilter = "all" | "mine" | "favorites";
 
-export function useRecipes(filter: RecipeFilter = "all", options?: { loadAll?: boolean }) {
+export interface ActiveFilters {
+  category?: string;
+  time?: string;      // "unter30" | "unter60"
+  season?: string;
+  cooked?: string;    // "gekocht" | "nicht"
+  photoType?: string; // "none" | "ai" | "scan" | "own"
+  variants?: string;  // "true" = show all (including variants)
+  chefPick?: string;  // "true" = chef picks only
+}
+
+export function useRecipes(filter: RecipeFilter = "all", options?: { loadAll?: boolean }, activeFilters?: ActiveFilters) {
   const { authReady } = useAuth();
   const queryClient = useQueryClient();
   const loadAll = options?.loadAll ?? false;
+
+  // When any filter is active, skip local cache (it holds unfiltered data)
+  const hasActiveFilters = !!(
+    activeFilters?.category ||
+    activeFilters?.time ||
+    activeFilters?.season ||
+    activeFilters?.cooked ||
+    activeFilters?.photoType ||
+    activeFilters?.variants ||
+    activeFilters?.chefPick
+  );
 
   const [cacheState, setCacheState] = useState<{ filter: RecipeFilter; recipes: Recipe[]; loaded: boolean }>({
     filter,
@@ -66,6 +87,7 @@ export function useRecipes(filter: RecipeFilter = "all", options?: { loadAll?: b
   const cacheLoadedRef = useRef(false);
 
   useEffect(() => {
+    if (hasActiveFilters) return; // skip cache when filters are active
     let cancelled = false;
     setCacheState({ filter, recipes: [], loaded: false });
     cacheLoadedRef.current = false;
@@ -77,15 +99,28 @@ export function useRecipes(filter: RecipeFilter = "all", options?: { loadAll?: b
       }
     });
     return () => { cancelled = true; };
-  }, [filter]);
+  }, [filter, hasActiveFilters]);
 
   const cachedRecipes = cacheState.filter === filter ? cacheState.recipes : [];
   const cacheLoaded = cacheState.filter === filter && cacheState.loaded;
 
-  const baseUrl = filter === "all" ? `${API_BASE}/recipes` : `${API_BASE}/recipes?filter=${filter}`;
+  const filterParamStr = useMemo(() => {
+    const p = new URLSearchParams();
+    if (filter !== "all") p.set("filter", filter);
+    if (activeFilters?.category) p.set("category", activeFilters.category);
+    if (activeFilters?.time) p.set("time", activeFilters.time);
+    if (activeFilters?.season) p.set("season", activeFilters.season);
+    if (activeFilters?.cooked) p.set("cooked", activeFilters.cooked);
+    if (activeFilters?.photoType) p.set("photoType", activeFilters.photoType);
+    if (activeFilters?.variants) p.set("variants", activeFilters.variants);
+    if (activeFilters?.chefPick) p.set("chefPick", activeFilters.chefPick);
+    return p.toString();
+  }, [filter, activeFilters?.category, activeFilters?.time, activeFilters?.season, activeFilters?.cooked, activeFilters?.photoType, activeFilters?.variants, activeFilters?.chefPick]);
+
+  const baseUrl = filterParamStr ? `${API_BASE}/recipes?${filterParamStr}` : `${API_BASE}/recipes`;
 
   const infiniteQuery = useInfiniteQuery<RecipePage, Error>({
-    queryKey: ["recipes", filter],
+    queryKey: ["recipes", filter, activeFilters ?? {}],
     queryFn: async ({ pageParam }) => {
       const page = (pageParam as number) ?? 1;
       const sep = baseUrl.includes("?") ? "&" : "?";
@@ -129,6 +164,7 @@ export function useRecipes(filter: RecipeFilter = "all", options?: { loadAll?: b
   const hasServerData = infiniteQuery.data !== undefined && !infiniteQuery.isLoading;
 
   useEffect(() => {
+    if (hasActiveFilters) return; // never overwrite the full cache with filtered results
     if (infiniteQuery.isError) {
       setIsBackgroundRefreshing(false);
       return;
@@ -140,7 +176,7 @@ export function useRecipes(filter: RecipeFilter = "all", options?: { loadAll?: b
         setCachedRecipes(filter, serverRecipes).catch(() => {});
       }
     }
-  }, [filter, infiniteQuery.isError, infiniteQuery.isLoading, infiniteQuery.isFetchingNextPage, infiniteQuery.data, infiniteQuery.hasNextPage, serverRecipes.length]);
+  }, [hasActiveFilters, filter, infiniteQuery.isError, infiniteQuery.isLoading, infiniteQuery.isFetchingNextPage, infiniteQuery.data, infiniteQuery.hasNextPage, serverRecipes.length]);
 
   useEffect(() => {
     if (cacheLoaded && cacheLoadedRef.current && cachedRecipes.length > 0 && !hasServerData) {

@@ -4,7 +4,7 @@ import type { Season } from "@/types/recipe";
 import { SEASON_LABELS, SEASON_ICONS, getCurrentSeason } from "@/types/recipe";
 import { useRecipes, fetchRecipeById } from "@/hooks/useRecipes";
 import { Clock, Search, ChefHat, Upload, Link, Camera, Loader2, LayoutGrid, Table, Settings2, Plus, ArrowUp, ArrowDown, ArrowUpDown, UtensilsCrossed, MessageCircle, Star, BookOpen, Share2, Sparkles } from "lucide-react";
-import type { RecipeFilter } from "@/hooks/useRecipes";
+import type { RecipeFilter, ActiveFilters } from "@/hooks/useRecipes";
 import RecipeModal from "@/components/RecipeModal";
 import RecipeSuggestModal from "@/components/RecipeSuggestModal";
 import CookingMode from "@/components/CookingMode";
@@ -517,7 +517,23 @@ const FILTER_LABELS: Record<RecipeFilter, string> = {
 
 export default function MeineRezepte({ onNavigate: _onNavigate, initialOpenRecipeId, onRecipeOpened, initialSortOrder, onSortOrderApplied, refreshToken }: MeineRezepteProps) {
   const [recipeFilter, setRecipeFilter] = useState<RecipeFilter>("all");
-  const { recipes, totalRecipes, loading, error, addRecipes, refetch, patchRecipeSilent, patchRecipeLocal, deleteRecipeSilent, deleteRecipe, updateRecipe, toggleFavorite, fetchNextPage, hasNextPage, isFetchingNextPage } = useRecipes(recipeFilter);
+  const [activeCategory, setActiveCategory] = useState("Alle");
+  const [timeFilter, setTimeFilter] = useState("Alle");
+  const [seasonFilter, setSeasonFilter] = useState<Season | "Alle">("Alle");
+  const [cookedFilter, setCookedFilter] = useState<"Alle" | "gekocht" | "nicht_ausprobiert">("Alle");
+  const [showVariants, setShowVariants] = useState(false);
+  const [photoType, setPhotoType] = useState<PhotoTypeFilter>("all");
+  const [chefPickFilter, setChefPickFilter] = useState(false);
+  const serverFilters: ActiveFilters = {
+    category: activeCategory !== "Alle" ? activeCategory : undefined,
+    time: timeFilter === "Unter 30 Min" ? "unter30" : timeFilter !== "Alle" ? "unter60" : undefined,
+    season: seasonFilter !== "Alle" ? String(seasonFilter) : undefined,
+    cooked: cookedFilter === "gekocht" ? "gekocht" : cookedFilter === "nicht_ausprobiert" ? "nicht" : undefined,
+    photoType: photoType !== "all" ? photoType : undefined,
+    variants: showVariants ? "true" : undefined,
+    chefPick: chefPickFilter ? "true" : undefined,
+  };
+  const { recipes, totalRecipes, loading, error, addRecipes, refetch, patchRecipeSilent, patchRecipeLocal, deleteRecipeSilent, deleteRecipe, updateRecipe, toggleFavorite, fetchNextPage, hasNextPage, isFetchingNextPage } = useRecipes(recipeFilter, undefined, serverFilters);
   const fetchNextPageRef = useRef(fetchNextPage);
   const hasNextPageRef = useRef(hasNextPage);
   const isFetchingNextPageRef = useRef(isFetchingNextPage);
@@ -606,13 +622,6 @@ export default function MeineRezepte({ onNavigate: _onNavigate, initialOpenRecip
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const abortControllerRef = useRef<AbortController | null>(null);
   const cyclingPlaceholder = useCyclingPlaceholder(AI_SEARCH_PLACEHOLDERS);
-  const [activeCategory, setActiveCategory] = useState("Alle");
-  const [timeFilter, setTimeFilter] = useState("Alle");
-  const [seasonFilter, setSeasonFilter] = useState<Season | "Alle">("Alle");
-  const [cookedFilter, setCookedFilter] = useState<"Alle" | "gekocht" | "nicht_ausprobiert">("Alle");
-  const [showVariants, setShowVariants] = useState(false);
-  const [photoType, setPhotoType] = useState<PhotoTypeFilter>("all");
-  const [chefPickFilter, setChefPickFilter] = useState(false);
   const [selectedId, setSelectedId] = useState<number | null>(null);
   const [selectedFullRecipe, setSelectedFullRecipe] = useState<Recipe | null>(null);
   const selected = selectedFullRecipe ?? (selectedId != null ? (recipes.find((r) => r.id === selectedId) ?? null) : null);
@@ -883,29 +892,6 @@ export default function MeineRezepte({ onNavigate: _onNavigate, initialOpenRecip
     return sorted;
   }, [searchResults, sorted, activeSortOrder]);
 
-  const filtered = useMemo(() => baseList.filter((r) => {
-    const matchesCat = activeCategory === "Alle" || r.category === activeCategory;
-    const mins = parseTotalMinutes(r.totalTime);
-    const matchesTime =
-      timeFilter === "Alle" ? true :
-      timeFilter === "Unter 30 Min" ? mins < 30 : mins < 60;
-    const matchesSeason =
-      seasonFilter === "Alle" ? true :
-      (r.seasons ?? []).includes(seasonFilter as Season);
-    const matchesVariantFilter = showVariants || !r.parentRecipeId;
-    const matchesCooked =
-      cookedFilter === "Alle" ? true :
-      cookedFilter === "gekocht" ? ((r.cookedCount ?? 0) > 0) :
-      (r.cookedCount === 0 || r.cookedCount == null);
-    const matchesPhotoType =
-      photoType === "all" ? true :
-      photoType === "none" ? !r.imageUrl :
-      photoType === "ai" ? r.isAiGenerated === true :
-      photoType === "scan" ? (r.imageSource === "web" && !r.isAiGenerated && !!r.imageUrl) :
-      (!!r.imageUrl && !r.isAiGenerated && r.imageSource !== "web");
-    const matchesChefPick = !chefPickFilter || r.chefPick === true;
-    return matchesCat && matchesTime && matchesSeason && matchesVariantFilter && matchesCooked && matchesPhotoType && matchesChefPick;
-  }), [baseList, activeCategory, timeFilter, seasonFilter, showVariants, cookedFilter, photoType, chefPickFilter]);
 
   const knownCategories = useMemo(() => Array.from(new Set(recipes.map((r) => r.category))).sort(), [recipes]);
 
@@ -919,7 +905,7 @@ export default function MeineRezepte({ onNavigate: _onNavigate, initialOpenRecip
   const RATING_SCORE = (r: Recipe) => r.rating === "sehr lecker" ? 2 : r.rating === "lecker" ? 1 : 0;
 
   const tableSorted = useMemo(() => {
-    const base = [...filtered];
+    const base = [...baseList];
     const dir = tableSortDir === "asc" ? 1 : -1;
     base.sort((a, b) => {
       switch (tableSortKey) {
@@ -938,7 +924,7 @@ export default function MeineRezepte({ onNavigate: _onNavigate, initialOpenRecip
       }
     });
     return base;
-  }, [filtered, tableSortKey, tableSortDir]);
+  }, [baseList, tableSortKey, tableSortDir]);
 
   const isFiltered = search.trim() !== "" || activeCategory !== "Alle" || timeFilter !== "Alle" || seasonFilter !== "Alle" || cookedFilter !== "Alle" || photoType !== "all" || chefPickFilter;
 
@@ -1119,7 +1105,7 @@ export default function MeineRezepte({ onNavigate: _onNavigate, initialOpenRecip
                         )}
                         {isFiltered && (
                           <span className="ml-3 font-semibold text-[#C1693A]">
-                            · {filtered.length} Treffer
+                            · {baseList.length} Treffer
                           </span>
                         )}
                       </span>
@@ -1167,11 +1153,11 @@ export default function MeineRezepte({ onNavigate: _onNavigate, initialOpenRecip
                       <Sparkles className="w-4 h-4 text-amber-500 flex-shrink-0" />
                       <span className="font-medium text-amber-800">{aiSearchSummary}</span>
                     </div>
-                  ) : filtered.length === 0 ? (
+                  ) : baseList.length === 0 ? (
                     <p className="text-sm text-muted-foreground">Keine Treffer</p>
                   ) : (
                     <p className="text-sm flex items-center gap-2">
-                      <span className="font-semibold text-[#C1693A]">{filtered.length} Treffer</span>
+                      <span className="font-semibold text-[#C1693A]">{baseList.length} Treffer</span>
                       {savedSortOrder !== "alphabetisch" && (
                         <span className="text-xs text-muted-foreground/70">
                           (sortiert: {savedSortOrder === "kategorie" ? "nach Kategorie" : savedSortOrder === "bewertung" ? "nach Bewertung" : savedSortOrder === "zuletzt_gekocht" ? "zuletzt gekocht" : "am häufigsten gekocht"})
@@ -1214,7 +1200,7 @@ export default function MeineRezepte({ onNavigate: _onNavigate, initialOpenRecip
                     </div>
                   ))}
                 </div>
-              ) : !searchLoading && filtered.length === 0 ? (
+              ) : !searchLoading && baseList.length === 0 ? (
                 <div className="text-center py-16 text-muted-foreground">
                   <p className="text-4xl mb-4">🔍</p>
                   <p className="font-serif text-lg">Kein Rezept gefunden.</p>
@@ -1222,7 +1208,7 @@ export default function MeineRezepte({ onNavigate: _onNavigate, initialOpenRecip
               ) : viewMode === "galerie" ? (
                 <>
                   <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-5">
-                    {filtered.map((recipe) => (
+                    {baseList.map((recipe) => (
                       <RecipeCard
                         key={recipe.id}
                         recipe={recipe}

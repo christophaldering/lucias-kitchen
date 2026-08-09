@@ -104,7 +104,7 @@ function buildExtraFilters(qf?: RecipeQueryFilters): SQL {
   } else if (qf.photoType === "own") {
     parts.push(sql`AND (r.image_url IS NOT NULL AND r.is_ai_generated IS NOT TRUE AND r.image_source IS DISTINCT FROM 'web')`);
   }
-  if (qf.variants !== "true") {
+  if (qf.variants !== undefined && qf.variants !== "true") {
     parts.push(sql`AND r.parent_recipe_id IS NULL`);
   }
   if (qf.chefPick === "true") {

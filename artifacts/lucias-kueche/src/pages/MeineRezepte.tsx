@@ -530,7 +530,7 @@ export default function MeineRezepte({ onNavigate: _onNavigate, initialOpenRecip
     season: seasonFilter !== "Alle" ? String(seasonFilter) : undefined,
     cooked: cookedFilter === "gekocht" ? "gekocht" : cookedFilter === "nicht_ausprobiert" ? "nicht" : undefined,
     photoType: photoType !== "all" ? photoType : undefined,
-    variants: showVariants ? "true" : undefined,
+    variants: showVariants ? "true" : "false",
     chefPick: chefPickFilter ? "true" : undefined,
   };
   const { recipes, totalRecipes, loading, error, addRecipes, refetch, patchRecipeSilent, patchRecipeLocal, deleteRecipeSilent, deleteRecipe, updateRecipe, toggleFavorite, fetchNextPage, hasNextPage, isFetchingNextPage } = useRecipes(recipeFilter, undefined, serverFilters);

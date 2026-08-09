@@ -53,22 +53,6 @@ async function smartSearchApi(
   return res.json();
 }
 
-const AI_SEARCH_PLACEHOLDERS = [
-  "Was Schnelles für Kinder…",
-  "Vegetarisch ohne Käse…",
-  "Etwas Festliches für Gäste…",
-  "Schnelles Abendessen mit Zucchini…",
-  "Pasta ohne Fleisch unter 30 Min…",
-];
-
-function useCyclingPlaceholder(placeholders: string[], intervalMs = 3000): string {
-  const [index, setIndex] = useState(0);
-  useEffect(() => {
-    const id = setInterval(() => setIndex((i) => (i + 1) % placeholders.length), intervalMs);
-    return () => clearInterval(id);
-  }, [placeholders.length, intervalMs]);
-  return `Suche nach '${placeholders[index]}'`;
-}
 
 const CATEGORY_EMOJIS: Record<string, string> = {
   Fisch: "🐟",
@@ -594,18 +578,19 @@ export default function MeineRezepte({ onNavigate: _onNavigate, initialOpenRecip
   };
 
   const [field1, setField1] = useState("");
-  const [field2, setField2] = useState("");
   const [field3, setField3] = useState("");
   const [searchResults, setSearchResults] = useState<Recipe[] | null>(null);
   const [searchLoading, setSearchLoading] = useState(false);
   const [aiSearchLoading, setAiSearchLoading] = useState(false);
   const [aiSearchSummary, setAiSearchSummary] = useState<string | null>(null);
-  // tracks which field produced the current searchResults ("direct" = field1, "ai" = field2/kochidee)
-  const activeSourceRef = useRef<"direct" | "ai" | null>(null);
+  // "direct" = unified field (stage 1 or 2), "kochidee" = Kochidee-Dialog
+  const activeSourceRef = useRef<"direct" | "kochidee" | null>(null);
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const aiDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const abortControllerRef = useRef<AbortController | null>(null);
   const aiAbortRef = useRef<AbortController | null>(null);
-  const aiCyclingPlaceholder = useCyclingPlaceholder(AI_SEARCH_PLACEHOLDERS);
+  // filled by useEffect so Enter can fire stage 2 immediately
+  const fireAiSearchRef = useRef<(() => Promise<void>) | null>(null);
   const [selectedId, setSelectedId] = useState<number | null>(null);
   const [selectedFullRecipe, setSelectedFullRecipe] = useState<Recipe | null>(null);
   const selected = selectedFullRecipe ?? (selectedId != null ? (recipes.find((r) => r.id === selectedId) ?? null) : null);
@@ -727,25 +712,32 @@ export default function MeineRezepte({ onNavigate: _onNavigate, initialOpenRecip
   };
 
   useEffect(() => {
+    // Cancel all pending timers and in-flight requests on every keystroke
     if (debounceRef.current) clearTimeout(debounceRef.current);
+    if (aiDebounceRef.current) clearTimeout(aiDebounceRef.current);
     abortControllerRef.current?.abort();
     abortControllerRef.current = null;
+    aiAbortRef.current?.abort();
+    aiAbortRef.current = null;
+    fireAiSearchRef.current = null;
 
     const trimmed = field1.trim();
     if (trimmed.length < 2) {
-      // Only clear results if field1 owns them; preserve AI/Kochidee results
-      if (activeSourceRef.current === "direct") {
+      // Preserve Kochidee-Dialog results; clear everything else
+      if (activeSourceRef.current !== "kochidee") {
         setSearchResults(null);
         setAiSearchSummary(null);
         setIsKochideeResult(false);
         activeSourceRef.current = null;
       }
       setSearchLoading(false);
+      setAiSearchLoading(false);
       return;
     }
 
     setSearchLoading(true);
 
+    // Stage 1 — 300 ms: GET /recipes/search (sofortige Treffer)
     debounceRef.current = setTimeout(async () => {
       const controller = new AbortController();
       abortControllerRef.current = controller;
@@ -764,55 +756,46 @@ export default function MeineRezepte({ onNavigate: _onNavigate, initialOpenRecip
           setIsKochideeResult(false);
           activeSourceRef.current = "direct";
         }
-      } catch {
-        if (!controller.signal.aborted) {
-          if (activeSourceRef.current === "direct") setSearchResults(null);
-          setAiSearchSummary(null);
-          activeSourceRef.current = null;
-        }
-      } finally {
-        if (!controller.signal.aborted) {
-          setSearchLoading(false);
-        }
+      } catch { /* abort is normal */ }
+      finally {
+        if (!controller.signal.aborted) setSearchLoading(false);
       }
     }, 300);
 
+    // Stage 2 — 800 ms: POST /recipes/smart-search (KI-Veredelung)
+    const doAiSearch = async () => {
+      aiAbortRef.current?.abort();
+      const controller = new AbortController();
+      aiAbortRef.current = controller;
+      setAiSearchLoading(true);
+      try {
+        const { recipes, summary } = await smartSearchApi(trimmed, recipeFilter, controller.signal);
+        if (!controller.signal.aborted) {
+          setSearchResults(recipes);
+          setAiSearchSummary(summary ?? null);
+          setIsKochideeResult(false);
+          activeSourceRef.current = "direct";
+        }
+      } catch { /* abort is normal */ }
+      finally {
+        if (!controller.signal.aborted) setAiSearchLoading(false);
+      }
+    };
+    // Expose for immediate call on Enter
+    fireAiSearchRef.current = doAiSearch;
+    aiDebounceRef.current = setTimeout(() => void doAiSearch(), 800);
+
     return () => {
       if (debounceRef.current) clearTimeout(debounceRef.current);
+      if (aiDebounceRef.current) clearTimeout(aiDebounceRef.current);
       abortControllerRef.current?.abort();
+      aiAbortRef.current?.abort();
     };
   }, [field1, recipeFilter]);
-
-  const runAiSearch = useCallback(async () => {
-    const trimmed = field2.trim();
-    if (!trimmed) return;
-    aiAbortRef.current?.abort();
-    const controller = new AbortController();
-    aiAbortRef.current = controller;
-    setAiSearchLoading(true);
-    try {
-      const { recipes, summary } = await smartSearchApi(trimmed, recipeFilter, controller.signal);
-      if (!controller.signal.aborted) {
-        setSearchResults(recipes);
-        setAiSearchSummary(summary ?? null);
-        setIsKochideeResult(false);
-        activeSourceRef.current = "ai";
-      }
-    } catch {
-      if (!controller.signal.aborted) {
-        setSearchResults(null);
-        setAiSearchSummary(null);
-        activeSourceRef.current = null;
-      }
-    } finally {
-      if (!controller.signal.aborted) setAiSearchLoading(false);
-    }
-  }, [field2, recipeFilter]);
 
   useEffect(() => {
     setSearchResults(null);
     setField1("");
-    setField2("");
     setField3("");
     setAiSearchSummary(null);
     setIsKochideeResult(false);
@@ -925,7 +908,7 @@ export default function MeineRezepte({ onNavigate: _onNavigate, initialOpenRecip
           {/* Search + category filters */}
           {(
             <div className="space-y-2 sm:space-y-2.5">
-              {/* Feld 1: Direkte Suche */}
+              {/* Vereintes Suchfeld: Stufe 1 (300 ms GET) + Stufe 2 (800 ms KI) */}
               <div className="space-y-0.5">
                 <label className="text-[11px] font-medium text-muted-foreground flex items-center gap-1 pl-0.5">
                   <Search className="w-3 h-3" /> In meinen Rezepten
@@ -934,45 +917,23 @@ export default function MeineRezepte({ onNavigate: _onNavigate, initialOpenRecip
                   <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground pointer-events-none" />
                   <input
                     type="text"
-                    placeholder="Titel, Zutat oder Kategorie…"
+                    placeholder="Suche — einfach tippen, die KI denkt mit…"
                     value={field1}
                     onChange={(e) => setField1(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter" && field1.trim().length >= 2) {
+                        if (aiDebounceRef.current) clearTimeout(aiDebounceRef.current);
+                        void fireAiSearchRef.current?.();
+                      }
+                    }}
                     className="w-full pl-9 pr-9 py-2 rounded-xl border border-border bg-white text-sm focus:outline-none focus:ring-2 focus:ring-[#4A7C59]/30 min-h-[44px] transition-all"
                   />
-                  {searchLoading && (
+                  {/* Stufe-1-Spinner grün, Stufe-2-Spinner amber */}
+                  {aiSearchLoading ? (
+                    <Sparkles className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 animate-pulse text-amber-500 pointer-events-none" />
+                  ) : searchLoading ? (
                     <Loader2 className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 animate-spin text-[#4A7C59] pointer-events-none" />
-                  )}
-                </div>
-              </div>
-
-              {/* Feld 2: KI-Suche in meinen Rezepten */}
-              <div className="space-y-0.5">
-                <label className="text-[11px] font-medium text-amber-600 flex items-center gap-1 pl-0.5">
-                  <Sparkles className="w-3 h-3" /> KI-Suche in meinen Rezepten
-                </label>
-                <div className="flex gap-2">
-                  <div className="relative flex-1">
-                    <Sparkles className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-amber-400 pointer-events-none" />
-                    <input
-                      type="text"
-                      placeholder={aiCyclingPlaceholder}
-                      value={field2}
-                      onChange={(e) => setField2(e.target.value)}
-                      onKeyDown={(e) => { if (e.key === "Enter") runAiSearch(); }}
-                      className="w-full pl-9 pr-9 py-2 rounded-xl border border-amber-200 bg-amber-50/60 text-sm focus:outline-none focus:ring-2 focus:ring-amber-400/30 min-h-[44px] transition-all"
-                    />
-                    {aiSearchLoading && (
-                      <Loader2 className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 animate-spin text-amber-500 pointer-events-none" />
-                    )}
-                  </div>
-                  <button
-                    onClick={runAiSearch}
-                    disabled={!field2.trim() || aiSearchLoading}
-                    className="flex-shrink-0 px-4 rounded-xl bg-amber-500 text-white text-sm font-semibold hover:bg-amber-600 disabled:opacity-40 disabled:cursor-not-allowed transition-colors min-h-[44px]"
-                    title="KI-Suche starten"
-                  >
-                    <Sparkles className="w-4 h-4" />
-                  </button>
+                  ) : null}
                 </div>
               </div>
 
@@ -1119,13 +1080,13 @@ export default function MeineRezepte({ onNavigate: _onNavigate, initialOpenRecip
                     <div className="flex items-center gap-2 px-3 py-2 rounded-xl bg-amber-50 border border-amber-200 text-sm flex-wrap">
                       <Sparkles className="w-4 h-4 text-amber-500 flex-shrink-0" />
                       <span className="font-medium text-amber-800 flex-1 min-w-0">{aiSearchSummary}</span>
-                      {baseList.length === 0 && field2.trim() && (
+                      {baseList.length === 0 && field1.trim() && (
                         <button
-                          onClick={() => { setField3(field2.trim()); setWebSearchQuery(field2.trim()); setShowWebSearch(true); }}
+                          onClick={() => { setField3(field1.trim()); setWebSearchQuery(field1.trim()); setShowWebSearch(true); }}
                           className="flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-full border border-[#4A7C59]/30 text-[#4A7C59] hover:bg-[#4A7C59]/5 transition-colors flex-shrink-0"
                         >
                           <Globe className="w-3 h-3" />
-                          Im Web nach „{field2.trim()}" suchen
+                          Im Web nach „{field1.trim()}" suchen
                         </button>
                       )}
                       {isKochideeResult && (
@@ -1185,7 +1146,7 @@ export default function MeineRezepte({ onNavigate: _onNavigate, initialOpenRecip
               )}
 
               {/* Seasonal hint banner */}
-              {seasonFilter === "Alle" && seasonalRecipes.length > 0 && !field1 && !field2 && (
+              {seasonFilter === "Alle" && seasonalRecipes.length > 0 && !field1 && (
                 <div
                   className="mb-4 flex items-center justify-between gap-3 px-4 py-3 rounded-xl border cursor-pointer hover:opacity-90 transition-opacity"
                   style={{ background: "linear-gradient(135deg, #f5ede0, #fdf6ec)", borderColor: "#e2c9a8" }}
@@ -1220,18 +1181,13 @@ export default function MeineRezepte({ onNavigate: _onNavigate, initialOpenRecip
                 <div className="text-center py-16 text-muted-foreground">
                   <p className="text-4xl mb-4">🔍</p>
                   <p className="font-serif text-lg">Kein Rezept gefunden.</p>
-                  {(field1.trim() || field2.trim()) && (
+                  {field1.trim() && (
                     <button
-                      onClick={() => {
-                        const q = field1.trim() || field2.trim();
-                        setField3(q);
-                        setWebSearchQuery(q);
-                        setShowWebSearch(true);
-                      }}
+                      onClick={() => { setField3(field1.trim()); setWebSearchQuery(field1.trim()); setShowWebSearch(true); }}
                       className="mt-4 inline-flex items-center gap-1.5 text-sm px-4 py-2 rounded-full border border-[#4A7C59]/30 text-[#4A7C59] hover:bg-[#4A7C59]/5 transition-colors"
                     >
                       <Globe className="w-3.5 h-3.5" />
-                      Im Web nach „{field1.trim() || field2.trim()}" suchen
+                      Im Web nach „{field1.trim()}" suchen
                     </button>
                   )}
                 </div>
@@ -1610,7 +1566,7 @@ export default function MeineRezepte({ onNavigate: _onNavigate, initialOpenRecip
                   setSearchResults(resultRecipes as unknown as Recipe[]);
                   setAiSearchSummary(summary);
                   setIsKochideeResult(true);
-                  activeSourceRef.current = "ai";
+                  activeSourceRef.current = "kochidee";
                   setSearchLoading(false);
                   setKochideeOpen(false);
                 }}

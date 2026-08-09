@@ -1,0 +1,54 @@
+ZIEL
+Feld 1 (direkte Suche) und Feld 2 (KI-Suche) zu EINEM Feld
+"In meinen Rezepten" zusammenlegen. Zweistufig: sofortige
+exakte Treffer beim Tippen, automatische Veredelung durch
+smart-search nach kurzer Tipp-Pause. Feld "Im Internet suchen"
+bleibt separat bestehen.
+
+DATEI
+artifacts/lucias-kueche/src/pages/MeineRezepte.tsx
+
+VERHALTEN DES VEREINTEN FELDS
+Stufe 1 — beim Tippen (Debounce 300 ms):
+  bestehende Mehrwort-Suche GET /recipes/search, Treffer sofort
+  in der Galerie. Kein KI-Aufruf.
+Stufe 2 — nach 800 ms Tipp-Pause ODER Enter:
+  zusaetzlich POST /recipes/smart-search mit der Anfrage.
+  Antwort ersetzt die Trefferliste (sie enthaelt die exakten
+  Treffer bereits an erster Stelle). summary-Banner erscheint
+  wie bisher, wenn Kriterien extrahiert oder semantische
+  Treffer ergaenzt wurden.
+Weitertippen bricht eine laufende Stufe-2-Anfrage ab
+(AbortController) und startet den Zyklus neu. Pro Tipp-Pause
+maximal EIN smart-search-Aufruf.
+
+AUFRAEUMEN
+- Feld 2 samt Label, State und runAiSearch-Verdrahtung
+  entfaellt; die Logik wandert in die Stufe-2-Ausloesung
+- Erklaer-Zeile anpassen: das vereinte Feld erklaert sich
+  ueber den Platzhalter ("Suche — einfach tippen, die KI
+  denkt mit…"), die Zeile darunter behaelt nur noch den
+  Kochidee-Hinweis
+- Kochidee-Button und Web-Feld unveraendert
+
+VERBOTEN
+- Kein smart-search-Aufruf pro Tastendruck — nur nach Pause
+  oder Enter
+- Keine Aenderung an den Server-Routen
+- Kein GPT-Aufruf fuer Anfragen ohne Bedingungswoerter (die
+  serverseitige lokale Erkennung uebernimmt das bereits —
+  nicht anfassen)
+
+VERIFIKATION
+1. "Auflauf" tippen: sofort Treffer; nach der Pause bleibt
+   die Liste stabil oder ergaenzt sich unauffaellig
+2. "ohne Fleisch unter 30 Minuten": waehrend des Tippens
+   duenne exakte Treffer, nach der Pause die korrekt
+   gefilterte Liste mit Banner
+3. Netzwerk-Tab: beim schnellen Durchtippen eines Satzes
+   genau EIN smart-search-Aufruf am Ende, keine Kaskade
+4. Web-Feld: unveraendert, feuert nur auf Enter/Button
+5. iPhone: die Suchzone ist sichtbar kuerzer als vorher
+
+ROLLBACK
+Zurueck zu zwei getrennten Feldern.

@@ -6,7 +6,7 @@
  * onSelectUrl öffnet den URL-Import im Elternelement.
  */
 import { useEffect, useState } from "react";
-import { X, Globe, Loader2, ExternalLink } from "lucide-react";
+import { X, Globe, Loader2, ExternalLink, Download } from "lucide-react";
 import { authFetch, authHeaders } from "@/lib/authFetch";
 
 const API_BASE = "/api";
@@ -103,21 +103,17 @@ export default function WebSearchResults({ query, onClose, onSelectUrl }: Props)
           ) : (
             <div className="flex flex-col gap-3">
               <p className="text-xs text-muted-foreground mb-1">
-                Tippe auf ein Ergebnis, um es als Rezept zu importieren.
+                Sieh dir das Original an oder übernimm es direkt in deine Sammlung.
               </p>
               {results.map((r, i) => (
-                <button
+                <div
                   key={i}
-                  onClick={() => onSelectUrl(r.url)}
-                  className="w-full text-left bg-white rounded-2xl border border-border p-4 hover:shadow-md hover:border-[#4A7C59]/30 transition-all active:scale-[0.98]"
+                  className="w-full text-left bg-white rounded-2xl border border-border p-4"
                   style={{ boxShadow: "0 1px 6px rgba(0,0,0,0.06)" }}
                 >
-                  <div className="flex items-start justify-between gap-2">
-                    <h3 className="font-serif font-semibold text-sm text-foreground leading-snug flex-1">
-                      {r.title}
-                    </h3>
-                    <ExternalLink className="w-3.5 h-3.5 text-muted-foreground flex-shrink-0 mt-0.5" />
-                  </div>
+                  <h3 className="font-serif font-semibold text-sm text-foreground leading-snug">
+                    {r.title}
+                  </h3>
                   {r.description && (
                     <p className="text-xs text-muted-foreground mt-1 leading-relaxed line-clamp-2">
                       {r.description}
@@ -127,7 +123,26 @@ export default function WebSearchResults({ query, onClose, onSelectUrl }: Props)
                     <Globe className="w-2.5 h-2.5" />
                     {r.source}
                   </span>
-                </button>
+                  {/* Aktions-Buttons */}
+                  <div className="flex gap-2 mt-3">
+                    <a
+                      href={r.url}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="flex-1 flex items-center justify-center gap-1.5 px-3 py-2 rounded-xl border border-border text-xs font-semibold text-foreground hover:bg-[#f5ede0] hover:border-[#4A7C59]/30 transition-colors min-h-[44px]"
+                    >
+                      <ExternalLink className="w-3.5 h-3.5 flex-shrink-0" />
+                      Original ansehen
+                    </a>
+                    <button
+                      onClick={() => onSelectUrl(r.url)}
+                      className="flex-1 flex items-center justify-center gap-1.5 px-3 py-2 rounded-xl bg-[#4A7C59] text-white text-xs font-semibold hover:bg-[#3a6347] active:bg-[#2f5139] transition-colors min-h-[44px]"
+                    >
+                      <Download className="w-3.5 h-3.5 flex-shrink-0" />
+                      Übernehmen
+                    </button>
+                  </div>
+                </div>
               ))}
             </div>
           )}

@@ -941,34 +941,24 @@ export default function MeineRezepte({ onNavigate: _onNavigate, initialOpenRecip
                   }}
                   className="flex-1 pl-3 pr-2 py-3 bg-transparent text-base focus:outline-none"
                 />
-                {/* Stufe-1-Spinner grün, Stufe-2-Funkel amber — links des Trennstrichs */}
-                {(aiSearchLoading || searchLoading) && (
-                  <div className="flex-shrink-0 flex items-center pr-2">
-                    {aiSearchLoading ? (
-                      <Sparkles className="w-4 h-4 animate-pulse text-amber-500" />
-                    ) : (
-                      <Loader2 className="w-4 h-4 animate-spin text-[#4A7C59]" />
-                    )}
-                  </div>
-                )}
-                {/* Trennstrich + Websuche + Kochidee */}
-                <div className="self-stretch flex items-center border-l border-border">
-                  <button
-                    onClick={() => { setWebSearchQuery(field1.trim()); setShowWebSearch(true); }}
-                    title="Im Web nach Rezepten suchen"
-                    className="flex items-center justify-center w-11 h-full min-h-[44px] text-[#4A7C59] hover:bg-[#4A7C59]/10 transition-colors"
-                  >
-                    <Globe className="w-4 h-4" />
-                  </button>
-                  <div className="self-stretch w-px bg-border flex-shrink-0" />
-                  <button
-                    onClick={() => setKochideeOpen(true)}
-                    title="Kochidee — im Dialog eingrenzen"
-                    className="flex items-center justify-center w-11 h-full min-h-[44px] text-[#C1693A] hover:bg-[#C1693A]/10 transition-colors"
-                  >
-                    <Lightbulb className="w-5 h-5" />
-                  </button>
-                </div>
+              </div>
+
+              {/* Aktionszeile: Im Web suchen + Kochidee fragen */}
+              <div className="flex gap-2">
+                <button
+                  onClick={() => { setWebSearchQuery(field1.trim()); setShowWebSearch(true); }}
+                  className="flex-1 flex items-center justify-center gap-1.5 min-h-[44px] px-3 rounded-full border border-[#4A7C59] text-[#4A7C59] text-sm font-medium whitespace-nowrap hover:bg-[#4A7C59]/10 transition-colors"
+                >
+                  <Globe className="w-4 h-4 flex-shrink-0" />
+                  Im Web suchen
+                </button>
+                <button
+                  onClick={() => setKochideeOpen(true)}
+                  className="flex-1 flex items-center justify-center gap-1.5 min-h-[44px] px-3 rounded-full bg-[#C1693A] text-white text-sm font-medium whitespace-nowrap hover:bg-[#C1693A]/90 transition-colors"
+                >
+                  <Lightbulb className="w-4 h-4 flex-shrink-0" />
+                  Kochidee fragen
+                </button>
               </div>
 
               {/* Filter button + quick category chips */}

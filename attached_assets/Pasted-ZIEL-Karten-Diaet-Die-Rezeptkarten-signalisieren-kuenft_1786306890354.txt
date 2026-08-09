@@ -1,0 +1,62 @@
+ZIEL
+Karten-Diaet: Die Rezeptkarten signalisieren kuenftig das
+Besondere statt das Fehlende. "Noch nicht ausprobiert" als
+Dauer-Badge entfaellt — unausprobiert ist der Normalfall und
+schweigt. Dafuer leuchten Auszeichnungen.
+
+DATEIEN
+artifacts/lucias-kueche/src/pages/MeineRezepte.tsx (Galerie-
+Karten) und ggf. die Kartendarstellung im Kochidee-Overlay —
+ueberall, wo Rezeptkarten gerendert werden, gilt dieselbe
+Logik.
+
+AENDERUNG
+
+1. WEG: das orange "Noch nicht ausprobiert"-Badge auf den
+   Karten. (Die Information bleibt in den Daten und im
+   Filter "nicht ausprobiert" — nur die Karte schweigt.)
+
+2. HIN — maximal EIN Auszeichnungs-Badge pro Karte, in
+   dieser Prioritaet:
+   a) rating === "sehr lecker"  -> "⭐ Sehr lecker"
+      (warme Akzentfarbe, gefuellt)
+   b) cookedCount >= 3          -> "<N>× gekocht"
+      (dezent, neutraler Ton — der Familienklassiker-Beweis)
+   c) createdAt juenger als 14 Tage -> "Neu"
+      (ruhiges Gruen)
+   Trifft nichts zu: KEIN Badge im Inhaltsbereich.
+
+3. RUHIGE META-ZEILE: Schwierigkeit und Kategorie ruecken
+   aus Badge-Optik in eine schlichte Textzeile unter dem
+   Titel: "simpel · Vegetarisch". Das Kategorie-Badge AUF
+   dem Bild (oben links) bleibt wie es ist, ebenso das
+   Zeit-Badge auf dem Bild.
+
+4. BLEIBT UNBEDINGT: die kursiven Notiz-Zitate unter den
+   Karten ("gut vorzubereiten und superlecker...") — das ist
+   der Charakter der App. Darstellung unveraendert.
+
+5. Etwas mehr Bildanteil: Falls die Karte eine feste
+   Bildhoehe/Ratio hat, um eine Stufe grosszuegiger (z.B.
+   von 75% auf 80% paddingTop o.ae.) — nur wenn es ohne
+   Layoutbruch geht, sonst lassen.
+
+VERBOTEN
+- Keine Aenderung an Filtern, Sortierung, Daten oder Routen
+- Der Filter "nicht ausprobiert" muss weiter funktionieren
+- Keine Aenderung an der Tabellenansicht (dort ist
+  "Ausprobiert" eine Spalte, das ist korrekt)
+- Kein neues Badge-Feuerwerk: hoechstens EINES pro Karte
+
+VERIFIKATION
+1. Galerie "Alle": die orange Flut ist weg; die Mehrheit
+   der Karten traegt KEIN Inhalts-Badge
+2. Ein "sehr lecker"-Rezept zeigt den Stern; ein oft
+   gekochtes die Zahl; das heute importierte Pho Bo zeigt
+   "Neu"
+3. Filter "nicht ausprobiert": liefert weiterhin korrekt
+4. Notiz-Zitate unveraendert sichtbar
+5. Kochidee-Ergebniskarten folgen derselben Logik
+
+ROLLBACK
+Badge-Logik zurueck auf den heutigen Stand.

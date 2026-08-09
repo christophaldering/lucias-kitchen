@@ -80,17 +80,33 @@ function parseTotalMinutes(totalTime: string | null): number {
   return nums[0] * 60 + (nums[1] ?? 0);
 }
 
-function RatingBadge({ rating }: { rating: string | null }) {
-  if (!rating) return null;
-  const color =
-    rating === "sehr lecker"
-      ? "text-amber-700 bg-amber-50/90 border-amber-200"
-      : "text-green-700 bg-green-50/90 border-green-200";
-  return (
-    <span className={`text-xs font-medium px-2 py-0.5 rounded-full border ${color}`}>
-      {rating === "sehr lecker" ? "⭐ sehr lecker" : "👍 lecker"}
-    </span>
-  );
+/** Maximal EIN Auszeichnungs-Badge pro Karte, in Prioritätsreihenfolge. */
+function AchievementBadge({ recipe }: { recipe: Recipe }) {
+  if (recipe.rating === "sehr lecker") {
+    return (
+      <span className="inline-flex items-center gap-1 text-xs font-semibold px-2 py-0.5 rounded-full bg-amber-100 text-amber-700 border border-amber-200">
+        ⭐ Sehr lecker
+      </span>
+    );
+  }
+  if ((recipe.cookedCount ?? 0) >= 3) {
+    return (
+      <span className="text-xs text-muted-foreground">
+        {recipe.cookedCount}× gekocht
+      </span>
+    );
+  }
+  if (recipe.createdAt) {
+    const ageDays = (Date.now() - new Date(recipe.createdAt).getTime()) / 86_400_000;
+    if (ageDays < 14) {
+      return (
+        <span className="inline-flex items-center text-xs font-medium px-2 py-0.5 rounded-full bg-green-100 text-green-700 border border-green-200">
+          Neu
+        </span>
+      );
+    }
+  }
+  return null;
 }
 
 function OwnerBadge({ recipe }: { recipe: Recipe }) {
@@ -208,13 +224,6 @@ function RecipeCard({
   const [hovered, setHovered] = useState(false);
   const emoji = CATEGORY_EMOJIS[recipe.category] ?? "🍽️";
 
-  const diffColor =
-    recipe.difficulty === "simpel"
-      ? "bg-green-100 text-green-700"
-      : recipe.difficulty === "normal"
-      ? "bg-amber-100 text-amber-700"
-      : "bg-red-100 text-red-700";
-
   const handleFavorite = (e: React.MouseEvent) => {
     e.stopPropagation();
     onToggleFavorite?.(recipe.id, recipe.isFavorite ?? false);
@@ -228,8 +237,8 @@ function RecipeCard({
       onMouseLeave={() => setHovered(false)}
       onClick={onClick}
     >
-      {/* 4:3 image area */}
-      <div className="relative w-full overflow-hidden" style={{ paddingTop: "75%" }}>
+      {/* image area */}
+      <div className="relative w-full overflow-hidden" style={{ paddingTop: "80%" }}>
         <RecipeCardImage recipe={recipe} hovered={hovered} />
 
         {/* Category badge overlay */}
@@ -280,35 +289,27 @@ function RecipeCard({
       </div>
 
       <div className="p-4">
-        <h3 className="font-serif font-semibold text-foreground leading-snug mb-2 line-clamp-2">
+        <h3 className="font-serif font-semibold text-foreground leading-snug mb-1 line-clamp-2">
           {recipe.title}
         </h3>
 
-        <div className="flex items-center gap-2 mb-3 flex-wrap">
-          <span className={`flex items-center gap-1 text-xs font-medium px-2 py-0.5 rounded-full ${diffColor}`}>
-            <ChefHat className="w-3 h-3" />
-            {recipe.difficulty}
-          </span>
-          <RatingBadge rating={recipe.rating} />
+        {/* Ruhige Meta-Zeile: Schwierigkeit · Kategorie */}
+        <p className="text-xs text-muted-foreground mb-2">
+          {recipe.difficulty}{recipe.category ? ` · ${recipe.category}` : ""}
           {recipe.seasons && recipe.seasons.length > 0 && (
-            <span className="text-sm" title={(recipe.seasons as Season[]).map((s) => SEASON_LABELS[s]).join(", ")}>
+            <span className="ml-1" title={(recipe.seasons as Season[]).map((s) => SEASON_LABELS[s]).join(", ")}>
               {(recipe.seasons as Season[]).map((s) => SEASON_ICONS[s]).join("")}
             </span>
           )}
           {recipe.variantName && (
-            <span className="text-xs font-medium px-2 py-0.5 rounded-full bg-amber-100 text-amber-700">
-              🔀 {recipe.variantName}
-            </span>
+            <span className="ml-1 font-medium text-amber-700">· 🔀 {recipe.variantName}</span>
           )}
-        </div>
+        </p>
 
-        {(!recipe.tried && (recipe.cookedCount === 0 || recipe.cookedCount == null)) ? (
-          <span className="inline-flex items-center gap-1 text-xs font-semibold px-2 py-0.5 rounded-full bg-orange-100 text-orange-700 border border-orange-200">
-            🍽️ Noch nicht ausprobiert
-          </span>
-        ) : showCookCount && (
-          <p className="text-xs text-muted-foreground">🍳 {recipe.cookedCount}× gekocht</p>
-        )}
+        {/* Auszeichnungs-Badge — maximal eines */}
+        <div className="mb-1 min-h-[1.25rem]">
+          <AchievementBadge recipe={recipe} />
+        </div>
 
         {(commentCount !== undefined && commentCount > 0) && (
           <div className="flex items-center gap-2 mt-1.5">
@@ -1156,7 +1157,7 @@ export default function MeineRezepte({ onNavigate: _onNavigate, initialOpenRecip
                 <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-5">
                   {[1, 2, 3, 4].map((i) => (
                     <div key={i} className="bg-white rounded-2xl border border-border overflow-hidden animate-pulse" style={{ boxShadow: "0 2px 12px rgba(120,70,30,0.10)" }}>
-                      <div className="w-full bg-gray-200" style={{ paddingTop: "75%" }} />
+                      <div className="w-full bg-gray-200" style={{ paddingTop: "80%" }} />
                       <div className="p-4 space-y-2">
                         <div className="h-4 bg-gray-200 rounded w-3/4" />
                         <div className="h-3 bg-gray-100 rounded w-1/2" />

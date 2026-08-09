@@ -14,6 +14,7 @@ export const usersTable = pgTable("users", {
   dietaryPreference: text("dietary_preference").default("Alles"),
   onboardingCompleted: boolean("onboarding_completed").notNull().default(false),
   activeBulkImportSessionId: integer("active_bulk_import_session_id"),
+  tokenVersion: integer("token_version").notNull().default(0),
   createdAt: timestamp("created_at").notNull().defaultNow(),
   lastLoginAt: timestamp("last_login_at"),
 });

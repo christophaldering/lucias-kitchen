@@ -1,7 +1,7 @@
 import { Router, type IRouter, type Request, type Response, type NextFunction } from "express";
 import { db } from "@workspace/db";
 import { usersTable, groupMembersTable, groupsTable, notificationsTable } from "@workspace/db/schema";
-import { eq } from "drizzle-orm";
+import { eq, sql } from "drizzle-orm";
 import bcrypt from "bcryptjs";
 import jwt from "jsonwebtoken";
 import { z } from "zod/v4";
@@ -11,15 +11,17 @@ import { authLimiter } from "../lib/rateLimits";
 
 const router: IRouter = Router();
 
-const JWT_SECRET = process.env["JWT_SECRET"];
-if (!JWT_SECRET) {
+const JWT_SECRET_RAW = process.env["JWT_SECRET"];
+if (!JWT_SECRET_RAW) {
   throw new Error("JWT_SECRET ist nicht gesetzt — Server startet nicht ohne Secret.");
 }
+const JWT_SECRET: string = JWT_SECRET_RAW;
 
 export interface AuthUser {
   id: number;
   email: string;
   displayName: string;
+  tokenVersion: number;
 }
 
 declare global {
@@ -30,7 +32,7 @@ declare global {
   }
 }
 
-export function authMiddleware(req: Request, res: Response, next: NextFunction) {
+export async function authMiddleware(req: Request, res: Response, next: NextFunction) {
   const authHeader = req.headers["authorization"];
   if (!authHeader || !authHeader.startsWith("Bearer ")) {
     res.status(401).json({ error: "unauthorized", message: "No token provided" });
@@ -38,17 +40,47 @@ export function authMiddleware(req: Request, res: Response, next: NextFunction) 
   }
 
   const token = authHeader.slice(7);
+  let decoded: AuthUser;
   try {
-    const decoded = jwt.verify(token, JWT_SECRET) as AuthUser;
-    req.authUser = decoded;
-    next();
+    const payload = jwt.verify(token, JWT_SECRET);
+    if (typeof payload !== "object" || payload === null) {
+      res.status(401).json({ error: "unauthorized", message: "Invalid token payload" });
+      return;
+    }
+    const p = payload as Record<string, unknown>;
+    if (typeof p["id"] !== "number" || typeof p["email"] !== "string" || typeof p["displayName"] !== "string" || typeof p["tokenVersion"] !== "number") {
+      res.status(401).json({ error: "unauthorized", message: "Invalid token claims" });
+      return;
+    }
+    decoded = { id: p["id"] as number, email: p["email"] as string, displayName: p["displayName"] as string, tokenVersion: p["tokenVersion"] as number };
   } catch {
     res.status(401).json({ error: "unauthorized", message: "Invalid or expired token" });
+    return;
   }
+
+  // Verify tokenVersion against the DB to support password-change revocation.
+  // Tokens issued before a password change carry an older tokenVersion and are rejected.
+  try {
+    const [user] = await db
+      .select({ tokenVersion: usersTable.tokenVersion })
+      .from(usersTable)
+      .where(eq(usersTable.id, decoded.id));
+
+    if (!user || user.tokenVersion !== decoded.tokenVersion) {
+      res.status(401).json({ error: "unauthorized", message: "Session invalidated — please log in again" });
+      return;
+    }
+  } catch {
+    res.status(500).json({ error: "internal_error", message: "Session check failed" });
+    return;
+  }
+
+  req.authUser = decoded;
+  next();
 }
 
 function sanitizeUser(user: typeof usersTable.$inferSelect) {
-  const { passwordHash: _, ...safe } = user;
+  const { passwordHash: _, tokenVersion: __, ...safe } = user;
   return safe;
 }
 
@@ -116,7 +148,7 @@ router.post("/auth/register", authLimiter, async (req, res) => {
     }
 
     const token = jwt.sign(
-      { id: user.id, email: user.email, displayName: user.displayName },
+      { id: user.id, email: user.email, displayName: user.displayName, tokenVersion: user.tokenVersion },
       JWT_SECRET,
       { expiresIn: "30d" }
     );
@@ -159,13 +191,14 @@ router.post("/auth/login", authLimiter, async (req, res) => {
       .where(eq(usersTable.id, user.id))
       .returning();
 
+    const finalUser = updatedUser ?? user;
     const token = jwt.sign(
-      { id: user.id, email: user.email, displayName: user.displayName },
+      { id: finalUser.id, email: finalUser.email, displayName: finalUser.displayName, tokenVersion: finalUser.tokenVersion },
       JWT_SECRET,
       { expiresIn: "30d" }
     );
 
-    res.json({ token, user: sanitizeUser(updatedUser ?? user) });
+    res.json({ token, user: sanitizeUser(finalUser) });
   } catch (err) {
     if (err instanceof z.ZodError) {
       res.status(400).json({ error: "validation_error", issues: err.issues });
@@ -258,13 +291,22 @@ router.put("/auth/password", authMiddleware, async (req, res) => {
     }
 
     const newHash = await bcrypt.hash(newPassword, 12);
+
+    // Increment tokenVersion atomically — invalidates all previously issued tokens.
     const [updated] = await db
       .update(usersTable)
-      .set({ passwordHash: newHash })
+      .set({ passwordHash: newHash, tokenVersion: sql`${usersTable.tokenVersion} + 1` })
       .where(eq(usersTable.id, req.authUser!.id))
       .returning();
 
-    res.json(sanitizeUser(updated));
+    // Issue a fresh token with the new version so the current session stays alive.
+    const newToken = jwt.sign(
+      { id: updated.id, email: updated.email, displayName: updated.displayName, tokenVersion: updated.tokenVersion },
+      JWT_SECRET,
+      { expiresIn: "30d" }
+    );
+
+    res.json({ token: newToken, user: sanitizeUser(updated) });
   } catch (err) {
     if (err instanceof z.ZodError) {
       res.status(400).json({ error: "validation_error", issues: err.issues });

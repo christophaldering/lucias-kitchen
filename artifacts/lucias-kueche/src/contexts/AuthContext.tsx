@@ -169,6 +169,16 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       const err = await res.json().catch(() => ({}));
       throw new Error(err.message ?? "Passwort konnte nicht geändert werden");
     }
+    // Server returns a fresh token with the incremented tokenVersion.
+    // Persist it so the current session stays valid after password change.
+    const data = await res.json().catch(() => ({}));
+    if (data.token) {
+      setStoredToken(data.token);
+      setToken(data.token);
+    }
+    if (data.user) {
+      setUser(data.user);
+    }
   }, []);
 
   const completeOnboarding = useCallback(async () => {

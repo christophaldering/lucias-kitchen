@@ -134,6 +134,13 @@
       "when": 1775230593505,
       "tag": "0022_add_chef_pick",
       "breakpoints": true
+    },
+    {
+      "idx": 19,
+      "version": "7",
+      "when": 1786293297162,
+      "tag": "0024_add_token_version",
+      "breakpoints": true
     }
   ]
 }

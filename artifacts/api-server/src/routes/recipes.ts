@@ -950,6 +950,137 @@ router.get("/recipes/confirm-delete", async (req, res) => {
   }
 });
 
+router.get("/recipes/stats", authMiddleware, async (req, res) => {
+  try {
+    // Total + veryDeliciousCount in one pass
+    const aggResult = await db.execute(sql`
+      SELECT
+        COUNT(*)::int AS total,
+        COUNT(*) FILTER (WHERE rating = 'sehr lecker')::int AS very_delicious_count
+      FROM recipes
+      WHERE deleted_at IS NULL
+    `);
+    const aggRows = (aggResult as unknown as { rows: Array<Record<string, unknown>> }).rows
+      ?? (aggResult as unknown as Array<Record<string, unknown>>);
+    const agg = aggRows[0] ?? {};
+
+    // Categories sorted desc
+    const catResult = await db.execute(sql`
+      SELECT category AS name, COUNT(*)::int AS value
+      FROM recipes
+      WHERE deleted_at IS NULL
+      GROUP BY category
+      ORDER BY value DESC
+    `);
+    const catRows = (catResult as unknown as { rows: Array<{ name: string; value: number }> }).rows
+      ?? (catResult as unknown as Array<{ name: string; value: number }>);
+
+    // Difficulties
+    const diffResult = await db.execute(sql`
+      SELECT difficulty AS name, COUNT(*)::int AS value
+      FROM recipes
+      WHERE deleted_at IS NULL
+      GROUP BY difficulty
+    `);
+    const diffRows = (diffResult as unknown as { rows: Array<{ name: string; value: number }> }).rows
+      ?? (diffResult as unknown as Array<{ name: string; value: number }>);
+
+    // Time buckets — same parsing as client parseTotalMinutes:
+    // all digit groups; 1 group = minutes; 2+ groups = first*60+second
+    // NULL / empty / no digits -> sentinel -1 -> "ohne Angabe" bucket
+    const timeResult = await db.execute(sql`
+      WITH time_parsed AS (
+        SELECT
+          CASE
+            WHEN total_time IS NULL OR total_time !~ '[0-9]' THEN -1
+            ELSE (
+              SELECT
+                CASE
+                  WHEN COUNT(*) = 1 THEN MAX(CASE WHEN rn = 1 THEN num ELSE NULL END)
+                  ELSE MAX(CASE WHEN rn = 1 THEN num ELSE NULL END) * 60
+                       + COALESCE(MAX(CASE WHEN rn = 2 THEN num ELSE NULL END), 0)
+                END
+              FROM (
+                SELECT m[1]::int AS num, ROW_NUMBER() OVER () AS rn
+                FROM regexp_matches(total_time, '[0-9]+', 'g') AS t(m)
+              ) sub
+              WHERE rn <= 2
+            )
+          END AS minutes
+        FROM recipes
+        WHERE deleted_at IS NULL
+      )
+      SELECT
+        CASE
+          WHEN minutes = -1 THEN 'ohne Angabe'
+          WHEN minutes > 60 THEN '>60 Min'
+          WHEN minutes <= 30 THEN '≤30 Min'
+          WHEN minutes <= 45 THEN '31–45 Min'
+          ELSE '46–60 Min'
+        END AS bucket,
+        COUNT(*)::int AS "Rezepte"
+      FROM time_parsed
+      GROUP BY bucket
+    `);
+    const timeRows = (timeResult as unknown as { rows: Array<{ bucket: string; Rezepte: number }> }).rows
+      ?? (timeResult as unknown as Array<{ bucket: string; Rezepte: number }>);
+
+    // Top 3: rating score desc, then cooked_count desc
+    const top3Result = await db.execute(sql`
+      SELECT
+        id, title, rating,
+        cooked_count AS "cookedCount",
+        category
+      FROM recipes
+      WHERE deleted_at IS NULL
+      ORDER BY
+        CASE rating WHEN 'sehr lecker' THEN 2 WHEN 'lecker' THEN 1 ELSE 0 END DESC,
+        COALESCE(cooked_count, 0) DESC
+      LIMIT 3
+    `);
+    const top3Rows = (top3Result as unknown as { rows: Array<{ id: number; title: string; rating: string | null; cookedCount: number | null; category: string }> }).rows
+      ?? (top3Result as unknown as Array<{ id: number; title: string; rating: string | null; cookedCount: number | null; category: string }>);
+
+    // avgIngredients: rounded average of ingredient count per recipe
+    const avgResult = await db.execute(sql`
+      SELECT COALESCE(ROUND(AVG(cnt))::int, 0) AS avg_ingredients
+      FROM (
+        SELECT recipe_id, COUNT(*)::int AS cnt
+        FROM recipe_ingredients
+        WHERE recipe_id IN (SELECT id FROM recipes WHERE deleted_at IS NULL)
+        GROUP BY recipe_id
+      ) sub
+    `);
+    const avgRows = (avgResult as unknown as { rows: Array<{ avg_ingredients: number }> }).rows
+      ?? (avgResult as unknown as Array<{ avg_ingredients: number }>);
+
+    const BUCKET_NAMES = ["≤30 Min", "31–45 Min", "46–60 Min", ">60 Min", "ohne Angabe"];
+    const bucketMap: Record<string, number> = {};
+    for (const row of timeRows) {
+      bucketMap[row.bucket] = Number(row.Rezepte ?? 0);
+    }
+
+    res.json({
+      total: Number(agg.total ?? 0),
+      categories: catRows.map((r) => ({ name: r.name, value: Number(r.value) })),
+      difficulties: diffRows.map((r) => ({ name: r.name, value: Number(r.value) })),
+      timeBuckets: BUCKET_NAMES.map((name) => ({ name, Rezepte: bucketMap[name] ?? 0 })),
+      top3: top3Rows.map((r) => ({
+        id: r.id,
+        title: r.title,
+        rating: r.rating ?? null,
+        cookedCount: r.cookedCount != null ? Number(r.cookedCount) : null,
+        category: r.category,
+      })),
+      veryDeliciousCount: Number(agg.very_delicious_count ?? 0),
+      avgIngredients: Number(avgRows[0]?.avg_ingredients ?? 0),
+    });
+  } catch (err) {
+    req.log.error({ err }, "Failed to get recipe stats");
+    res.status(500).json({ error: "internal_error" });
+  }
+});
+
 router.get("/recipes/:id", authMiddleware, async (req, res) => {
   try {
     const id = Number(req.params.id);

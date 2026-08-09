@@ -1,11 +1,10 @@
-import { useRecipes } from "@/hooks/useRecipes";
+import { useRecipeStats } from "@/hooks/useRecipeStats";
 import { useKcalHistory } from "@/hooks/useNutritionSummary";
 import { useCookingLog } from "@/hooks/useCookingLog";
 import {
   PieChart, Pie, Cell, BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer,
 } from "recharts";
 import { Loader2, Flame } from "lucide-react";
-import type { Recipe } from "@/types/recipe";
 import { useState, useEffect, useRef } from "react";
 
 function useCountUp(target: number, duration = 1200): number {
@@ -44,61 +43,6 @@ const CATEGORY_EMOJIS: Record<string, string> = {
   Fisch: "🐟", Geflügel: "🍗", Fleisch: "🥩", Vegetarisch: "🌿", Pasta: "🍝",
 };
 
-function buildCategoryData(recipes: Recipe[]) {
-  const counts: Record<string, number> = {};
-  recipes.forEach((r) => {
-    counts[r.category] = (counts[r.category] || 0) + 1;
-  });
-  return Object.entries(counts)
-    .map(([name, value]) => ({ name, value }))
-    .sort((a, b) => b.value - a.value);
-}
-
-function parseTotalMinutes(totalTime: string | null): number {
-  if (!totalTime) return Infinity;
-  const match = totalTime.match(/(\d+)/g);
-  if (!match) return Infinity;
-  const nums = match.map(Number);
-  if (nums.length === 1) return nums[0];
-  return nums[0] * 60 + (nums[1] ?? 0);
-}
-
-function buildTimeData(recipes: Recipe[]) {
-  const buckets = [
-    { label: "≤30 Min", check: (m: number) => m <= 30 },
-    { label: "31–45 Min", check: (m: number) => m > 30 && m <= 45 },
-    { label: "46–60 Min", check: (m: number) => m > 45 && m <= 60 },
-    { label: ">60 Min", check: (m: number) => m > 60 },
-  ];
-  return buckets.map((b) => ({
-    name: b.label,
-    Rezepte: recipes.filter((r) => b.check(parseTotalMinutes(r.totalTime))).length,
-  }));
-}
-
-function buildDifficultyData(recipes: Recipe[]) {
-  const counts: Record<string, number> = {};
-  recipes.forEach((r) => {
-    counts[r.difficulty] = (counts[r.difficulty] || 0) + 1;
-  });
-  return Object.entries(counts).map(([name, value]) => ({ name, value }));
-}
-
-const RATING_SCORE: Record<string, number> = {
-  "sehr lecker": 2,
-  "lecker": 1,
-};
-
-function getTopRecipes(recipes: Recipe[], n = 3) {
-  return [...recipes]
-    .sort((a, b) => {
-      const ratingDiff = (RATING_SCORE[b.rating ?? ""] ?? 0) - (RATING_SCORE[a.rating ?? ""] ?? 0);
-      if (ratingDiff !== 0) return ratingDiff;
-      return (b.cookedCount ?? 0) - (a.cookedCount ?? 0);
-    })
-    .slice(0, n);
-}
-
 const insights = [
   "Du liebst Sahnesaucen 🥛",
   "Fisch steht bei dir hoch im Kurs 🐟",
@@ -128,11 +72,11 @@ function RecipesHeroCard({ count }: { count: number }) {
 }
 
 export default function Statistiken() {
-  const { recipes, loading, error, isBackgroundRefreshing } = useRecipes("all", { loadAll: true });
+  const { data: stats, isLoading, error, isFetching } = useRecipeStats();
   const { history: kcalHistory, loading: kcalLoading } = useKcalHistory(4);
   const { entries: logEntries, loading: logLoading } = useCookingLog();
 
-  if (loading && recipes.length === 0) {
+  if (isLoading || !stats) {
     return (
       <div className="flex flex-col items-center py-20 gap-3 text-muted-foreground">
         <Loader2 className="w-8 h-8 animate-spin text-[#4A7C59]" />
@@ -145,21 +89,12 @@ export default function Statistiken() {
     return (
       <div className="text-center py-16">
         <p className="text-4xl mb-4">⚠️</p>
-        <p className="font-serif text-lg text-foreground">{error}</p>
+        <p className="font-serif text-lg text-foreground">{(error as Error).message}</p>
       </div>
     );
   }
 
-  const catData = buildCategoryData(recipes);
-  const timeData = buildTimeData(recipes);
-  const diffData = buildDifficultyData(recipes);
-  const top3 = getTopRecipes(recipes, 3);
-
-  const veryDeliciousCount = recipes.filter((r) => r.rating === "sehr lecker").length;
-  const sehrLeckerPct = recipes.length ? Math.round((veryDeliciousCount / recipes.length) * 100) : 0;
-  const avgIngredients = recipes.length
-    ? Math.round(recipes.reduce((s, r) => s + r.ingredients.length, 0) / recipes.length)
-    : 0;
+  const sehrLeckerPct = stats.total ? Math.round((stats.veryDeliciousCount / stats.total) * 100) : 0;
 
   return (
     <div className="max-w-5xl mx-auto px-4 py-6 pb-28 space-y-10">
@@ -167,7 +102,7 @@ export default function Statistiken() {
         📊 Statistiken & Muster
       </h2>
 
-      {isBackgroundRefreshing && (
+      {isFetching && !isLoading && (
         <div className="flex items-center gap-2 px-3 py-2 rounded-xl bg-[#4A7C59]/8 border border-[#4A7C59]/20 text-sm text-[#4A7C59]">
           <Loader2 className="w-3.5 h-3.5 animate-spin flex-shrink-0" />
           <span>Statistiken werden aktualisiert…</span>
@@ -177,12 +112,12 @@ export default function Statistiken() {
       {/* Quick stats row */}
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
         <div className="col-span-2 sm:col-span-4">
-          <RecipesHeroCard count={recipes.length} />
+          <RecipesHeroCard count={stats.total} />
         </div>
         {[
           { label: "\"Sehr lecker\"", value: `${sehrLeckerPct}%`, emoji: "⭐" },
-          { label: "Ø Zutaten", value: avgIngredients, emoji: "🛒" },
-          { label: "Kategorien", value: catData.length, emoji: "🍽️" },
+          { label: "Ø Zutaten", value: stats.avgIngredients, emoji: "🛒" },
+          { label: "Kategorien", value: stats.categories.length, emoji: "🍽️" },
         ].map((s) => (
           <div key={s.label} className="bg-white rounded-2xl border border-border shadow-sm p-4 text-center">
             <p className="text-2xl mb-1">{s.emoji}</p>
@@ -202,7 +137,7 @@ export default function Statistiken() {
           <ResponsiveContainer width="100%" height={260}>
             <PieChart margin={{ top: 20, right: 30, bottom: 20, left: 30 }}>
               <Pie
-                data={catData}
+                data={stats.categories}
                 cx="50%"
                 cy="50%"
                 outerRadius={70}
@@ -210,7 +145,7 @@ export default function Statistiken() {
                 label={({ name, percent }) => `${name} ${(percent * 100).toFixed(0)}%`}
                 labelLine={false}
               >
-                {catData.map((_, i) => (
+                {stats.categories.map((_, i) => (
                   <Cell key={i} fill={COLORS[i % COLORS.length]} />
                 ))}
               </Pie>
@@ -224,9 +159,9 @@ export default function Statistiken() {
           <h3 className="font-serif font-semibold text-lg mb-4 text-foreground">
             ⏱️ Schnell vs. aufwendig
           </h3>
-          <ResponsiveContainer width="100%" height={220}>
-            <BarChart data={timeData} margin={{ top: 0, right: 10, left: -20, bottom: 0 }}>
-              <XAxis dataKey="name" tick={{ fontSize: 11 }} />
+          <ResponsiveContainer width="100%" height={240}>
+            <BarChart data={stats.timeBuckets} margin={{ top: 0, right: 10, left: -20, bottom: 24 }}>
+              <XAxis dataKey="name" tick={{ fontSize: 10 }} angle={-30} textAnchor="end" interval={0} />
               <YAxis tick={{ fontSize: 11 }} allowDecimals={false} />
               <Tooltip />
               <Bar dataKey="Rezepte" fill="#4A7C59" radius={[6, 6, 0, 0]} />
@@ -240,7 +175,7 @@ export default function Statistiken() {
             👩‍🍳 Schwierigkeitsgrad
           </h3>
           <ResponsiveContainer width="100%" height={160}>
-            <BarChart data={diffData} layout="vertical" margin={{ top: 0, right: 20, left: 20, bottom: 0 }}>
+            <BarChart data={stats.difficulties} layout="vertical" margin={{ top: 0, right: 20, left: 20, bottom: 0 }}>
               <XAxis type="number" tick={{ fontSize: 11 }} allowDecimals={false} />
               <YAxis type="category" dataKey="name" tick={{ fontSize: 12 }} width={60} />
               <Tooltip />
@@ -256,7 +191,7 @@ export default function Statistiken() {
           ⭐ Favoriten
         </h3>
         <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-          {top3.map((r, i) => (
+          {stats.top3.map((r, i) => (
             <div
               key={r.id}
               className={`rounded-xl p-4 flex flex-col gap-2 ${
@@ -398,7 +333,7 @@ export default function Statistiken() {
       {/* Teaser */}
       <div className="sticky-note rounded-xl p-5 text-center">
         <p className="font-script text-xl text-amber-900">
-          {recipes.length} Rezepte – und mit dem PDF-Upload wird die Sammlung noch größer! 🍳
+          {stats.total} Rezepte – und mit dem PDF-Upload wird die Sammlung noch größer! 🍳
         </p>
         <p className="text-sm text-amber-700 mt-2 font-sans">
           Neue Rezepte können jederzeit über das PDF-Upload ergänzt werden.

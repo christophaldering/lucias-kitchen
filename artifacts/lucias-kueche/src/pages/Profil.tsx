@@ -1,6 +1,6 @@
 import { useState, useRef } from "react";
 import { useAuth } from "@/contexts/AuthContext";
-import { useRecipes } from "@/hooks/useRecipes";
+import { useRecipeStats } from "@/hooks/useRecipeStats";
 import {
   Camera, Save, Eye, EyeOff, Loader2, CheckCircle2,
 } from "lucide-react";
@@ -32,9 +32,9 @@ function computePasswordStrength(pw: string): number {
 const STRENGTH_LABELS = ["", "Sehr schwach", "Schwach", "Mittel", "Stark", "Sehr stark"];
 const STRENGTH_COLORS = ["", "bg-red-400", "bg-orange-400", "bg-yellow-400", "bg-green-400", "bg-green-600"];
 
-function computeBadges(recipes: { category: string }[]) {
+function computeBadges(total: number, categories: { name: string; value: number }[]) {
   const counts: Record<string, number> = {};
-  recipes.forEach((r) => { counts[r.category] = (counts[r.category] || 0) + 1; });
+  categories.forEach((c) => { counts[c.name] = c.value; });
 
   const badges: { label: string; emoji: string }[] = [];
 
@@ -44,8 +44,8 @@ function computeBadges(recipes: { category: string }[]) {
   if ((counts["Vegetarisch"] ?? 0) >= 3) badges.push({ label: "Grüne Göttin", emoji: "🌿" });
   if ((counts["Fleisch"] ?? 0) >= 3) badges.push({ label: "Grill-Meisterin", emoji: "🥩" });
   if (Object.keys(counts).length >= 4) badges.push({ label: "Weltenbummlerin", emoji: "🌍" });
-  if (recipes.length >= 10) badges.push({ label: "Rezept-Sammlerin", emoji: "📖" });
-  if (recipes.length >= 20) badges.push({ label: "Kochbuch-Legende", emoji: "👑" });
+  if (total >= 10) badges.push({ label: "Rezept-Sammlerin", emoji: "📖" });
+  if (total >= 20) badges.push({ label: "Kochbuch-Legende", emoji: "👑" });
 
   if (badges.length === 0) badges.push({ label: "Aufgehender Stern", emoji: "⭐" });
 
@@ -110,7 +110,7 @@ function AvatarSection({ user, onUpload }: { user: ReturnType<typeof useAuth>["u
 
 export default function Profil() {
   const { user, updateProfile, uploadAvatar, changePassword } = useAuth();
-  const { recipes } = useRecipes("all", { loadAll: true });
+  const { data: stats } = useRecipeStats();
 
   const [displayName, setDisplayName] = useState(user?.displayName ?? "");
   const [bio, setBio] = useState(user?.bio ?? "");
@@ -127,16 +127,9 @@ export default function Profil() {
   const [savingPassword, setSavingPassword] = useState(false);
 
   const passwordStrength = computePasswordStrength(newPassword);
-  const badges = computeBadges(recipes);
+  const badges = computeBadges(stats?.total ?? 0, stats?.categories ?? []);
 
-  const topCategory = recipes.length > 0
-    ? Object.entries(
-        recipes.reduce<Record<string, number>>((acc, r) => {
-          acc[r.category] = (acc[r.category] || 0) + 1;
-          return acc;
-        }, {})
-      ).sort((a, b) => b[1] - a[1])[0]?.[0]
-    : null;
+  const topCategory = stats?.categories?.[0]?.name ?? null;
 
   const createdAt = user?.createdAt
     ? new Date(user.createdAt).toLocaleDateString("de-DE", { day: "2-digit", month: "long", year: "numeric" })
@@ -387,7 +380,7 @@ export default function Profil() {
         </h2>
         <div className="grid grid-cols-3 gap-4 mb-6">
           <div className="text-center">
-            <div className="text-3xl font-bold text-[#4A7C59] font-serif">{recipes.length}</div>
+            <div className="text-3xl font-bold text-[#4A7C59] font-serif">{stats?.total ?? 0}</div>
             <div className="text-xs text-muted-foreground mt-1">Rezepte gesamt</div>
           </div>
           <div className="text-center">

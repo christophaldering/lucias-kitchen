@@ -1,0 +1,64 @@
+ZIEL
+Neuer Aggregat-Endpunkt GET /api/recipes/stats, damit Statistiken und
+Profil nicht mehr alle Rezepte laden müssen.
+
+TEIL 1 — SERVER
+Datei: artifacts/api-server/src/routes/recipes.ts
+Neue Route GET /recipes/stats einfügen VOR der bestehenden Route
+"/recipes/:id" (sonst greift der :id-Handler).
+
+Antwortformat (exakt einhalten):
+{
+  "total": number,
+  "categories": [{ "name": string, "value": number }],
+  "difficulties": [{ "name": string, "value": number }],
+  "timeBuckets": [{ "name": string, "Rezepte": number }],
+  "top3": [{ "id","title","rating","cookedCount","category" }],
+  "veryDeliciousCount": number,
+  "avgIngredients": number
+}
+
+Semantik, exakt wie bisher im Client:
+- Nur Rezepte mit deleted_at IS NULL
+- categories absteigend nach Anzahl sortiert
+- timeBuckets in dieser Reihenfolge und Benennung:
+  "≤30 Min", "31–45 Min", "46–60 Min", ">60 Min"
+- Zeitparsing wie parseTotalMinutes in Statistiken.tsx:
+  alle Zifferngruppen aus total_time; eine Zahl = Minuten;
+  zwei Zahlen = erste*60 + zweite; kein Wert = Bucket ">60 Min"
+- top3 sortiert nach rating ("sehr lecker"=2, "lecker"=1, sonst 0)
+  absteigend, dann cooked_count absteigend
+- avgIngredients = gerundeter Durchschnitt der Zutatenanzahl
+
+Alles per SQL aggregieren. KEIN Laden aller Rezepte in JS.
+
+TEIL 2 — CLIENT
+Neuer Hook useRecipeStats in artifacts/lucias-kueche/src/hooks/
+Nutzt useQuery auf /api/recipes/stats, staleTime 60_000.
+
+Statistiken.tsx und Profil.tsx auf den neuen Hook umstellen.
+In beiden Dateien entfällt useRecipes("all", { loadAll: true }).
+Die Hilfsfunktionen buildCategoryData, buildTimeData,
+buildDifficultyData, getTopRecipes in Statistiken.tsx werden
+nicht mehr gebraucht und können entfernt werden.
+
+VERBOTEN
+- Keine Änderung an getRecipesWithIngredients
+- Keine Änderung an der bestehenden Route GET /recipes
+- Keine Änderung an Wochenplan.tsx, MeineKueche.tsx, Admin.tsx
+- Kein neues Package installieren
+
+VERIFIKATION
+1. grep -n "recipes/stats" artifacts/api-server/src/routes/recipes.ts
+2. grep -n "loadAll" artifacts/lucias-kueche/src/pages/Statistiken.tsx
+   -> muss leer sein
+3. grep -n "loadAll" artifacts/lucias-kueche/src/pages/Profil.tsx
+   -> muss leer sein
+4. curl auf /api/recipes/stats -> 200, alle Felder befuellt
+5. WICHTIG: Zahlen auf der Statistikseite mit dem Stand VOR der
+   Aenderung vergleichen. Gesamtzahl, Kategorienverteilung und
+   Top 3 muessen identisch sein.
+
+ROLLBACK
+Bei abweichenden Zahlen oder Build-Fehler: alle Aenderungen
+zurueck, Ausgangszustand wiederherstellen.

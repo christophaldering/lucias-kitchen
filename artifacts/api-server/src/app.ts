@@ -10,7 +10,10 @@ import jwt from "jsonwebtoken";
 import type { AuthUser } from "./routes/auth";
 import { createProxyMiddleware } from "http-proxy-middleware";
 
-const JWT_SECRET = process.env["JWT_SECRET"] ?? "lucias-kueche-secret-key-2026";
+const JWT_SECRET = process.env["JWT_SECRET"];
+if (!JWT_SECRET) {
+  throw new Error("JWT_SECRET ist nicht gesetzt — Server startet nicht ohne Secret.");
+}
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
 let devProxy: ReturnType<typeof createProxyMiddleware> | undefined;

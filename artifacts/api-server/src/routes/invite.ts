@@ -9,7 +9,10 @@ import { sendEmail, isEmailConfigured } from "../lib/email";
 import { joinedNotificationEmail } from "../lib/emailTemplates";
 
 const router: IRouter = Router();
-const JWT_SECRET = process.env["JWT_SECRET"] ?? "lucias-kueche-secret-key-2026";
+const JWT_SECRET = process.env["JWT_SECRET"];
+if (!JWT_SECRET) {
+  throw new Error("JWT_SECRET ist nicht gesetzt — Server startet nicht ohne Secret.");
+}
 
 router.get("/invite/:token", async (req, res) => {
   try {

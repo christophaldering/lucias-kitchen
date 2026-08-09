@@ -1,10 +1,12 @@
 /**
- * Embedding-Infrastruktur — Etappe A der semantischen Suche.
+ * Embedding-Infrastruktur — semantische Suche.
  *
  * Modell:       Gemini text-embedding-004 (768 Dimensionen)
+ * API:          Echter Google-Endpunkt (GEMINI_API_KEY), nicht der Replit-Proxy
+ *               (der Proxy blockiert alle Embedding-Endpunkte)
  * Speicherweg:  JSONB (float[]-Array)
  * Invalidierung: content_hash = sha256(EMBEDDING_MODEL + ":" + text)
- *               → Modellwechsel invalidiert alle bestehenden Embeddings automatisch.
+ *               → Modellwechsel markiert alle Einträge automatisch als veraltet.
  *
  * Eingebetteter Text: Titel, Kategorie, Tags, Zutatennamen, notes.
  * AUSDRÜCKLICH NICHT: personalNotes oder andere nutzerbezogene Daten.
@@ -18,16 +20,19 @@ import {
   recipeEmbeddingsTable,
 } from "@workspace/db/schema";
 import { eq, isNull } from "drizzle-orm";
-import { GoogleGenAI } from "@google/genai";
 import { logger } from "./logger";
 
 const EMBEDDING_MODEL = "text-embedding-004";
-const BATCH_SIZE = 50; // konservativ wegen Gemini-Rate-Limits
-const CONCURRENCY = 5; // parallele API-Aufrufe pro Batch
+const GEMINI_BASE    = "https://generativelanguage.googleapis.com/v1beta";
 
-// (GoogleGenAI wird aktuell nicht genutzt — direkter fetch-Aufruf umgeht
-//  das interne batchEmbedContents, das der Proxy nicht unterstützt.)
-void GoogleGenAI; // verhindert "unused import"-Warnung
+/**
+ * Wie viele Texte parallel per embedContent eingebettet werden.
+ * Google AI Studio Free Tier: ~100 RPM → CONCURRENCY ≤ 5 ist sicher.
+ */
+const BATCH_SIZE    = 100; // Rezepte pro "Chunk" (sequenzielle Verarbeitung)
+const CONCURRENCY   =   5; // parallele embedContent-Aufrufe innerhalb eines Chunks
+/** Max. Wiederholungsversuche bei 429 / RESOURCE_EXHAUSTED */
+const MAX_RETRIES   = 5;
 
 // ---------------------------------------------------------------------------
 // Interne Hilfsfunktionen
@@ -62,30 +67,55 @@ function buildEmbeddingText(
   return parts.filter(Boolean).join(". ");
 }
 
+/** Exponentielles Backoff mit Jitter (in ms). */
+function backoffMs(attempt: number): number {
+  return Math.pow(2, attempt) * 1000 + Math.random() * 500;
+}
+
+/** Gibt true zurück, wenn der Fehler ein Rate-Limit ist (429 / RESOURCE_EXHAUSTED). */
+function isRateLimit(err: unknown): boolean {
+  const msg = String(err);
+  return msg.includes("429") || msg.includes("RESOURCE_EXHAUSTED");
+}
+
 /**
- * Bettet einen einzelnen Text via Gemini embedContent ein.
- * Nutzt direkten fetch statt des SDKs, weil der Proxy kein batchEmbedContents
- * unterstützt (das der SDK-Client intern verwendet).
+ * Führt fn mit bis zu MAX_RETRIES Wiederholungen bei Rate-Limit-Fehlern aus.
+ */
+async function withRetry<T>(fn: () => Promise<T>): Promise<T> {
+  for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
+    try {
+      return await fn();
+    } catch (err) {
+      if (attempt === MAX_RETRIES || !isRateLimit(err)) throw err;
+      const ms = backoffMs(attempt);
+      logger.warn(
+        { attempt: attempt + 1, waitMs: Math.round(ms) },
+        "Embeddings: Rate Limit (429) — warte und versuche erneut.",
+      );
+      await new Promise((r) => setTimeout(r, ms));
+    }
+  }
+  throw new Error("Unreachable");
+}
+
+/**
+ * Bettet einen einzelnen Text ein.
+ * Nutzt POST /v1beta/models/{model}:embedContent direkt via fetch.
  */
 async function embedSingleText(text: string): Promise<number[] | null> {
-  const baseUrl = (process.env.AI_INTEGRATIONS_GEMINI_BASE_URL ?? "").replace(/\/$/, "");
-  const apiKey  = process.env.AI_INTEGRATIONS_GEMINI_API_KEY ?? "";
+  const apiKey = process.env.GEMINI_API_KEY ?? "";
+  if (!apiKey) return null;
 
-  const url = `${baseUrl}/models/${EMBEDDING_MODEL}:embedContent`;
+  const url = `${GEMINI_BASE}/models/${EMBEDDING_MODEL}:embedContent?key=${apiKey}`;
   const res = await fetch(url, {
     method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      "x-goog-api-key": apiKey,
-    },
-    body: JSON.stringify({
-      content: { parts: [{ text }] },
-    }),
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ content: { parts: [{ text }] } }),
   });
 
   if (!res.ok) {
-    const body = await res.text();
-    throw new Error(`Gemini embedContent: HTTP ${res.status} — ${body}`);
+    const errBody = await res.text();
+    throw new Error(`embedContent HTTP ${res.status}: ${errBody}`);
   }
 
   const data = (await res.json()) as { embedding?: { values?: number[] } };
@@ -93,23 +123,22 @@ async function embedSingleText(text: string): Promise<number[] | null> {
 }
 
 /**
- * Bettet mehrere Texte ein — mit begrenzter Parallelität (CONCURRENCY).
- * Wirft bei Fehler, damit der Aufrufer das Batch-Fehlerhandling übernimmt.
+ * Bettet mehrere Texte ein, jeweils CONCURRENCY Aufrufe parallel.
+ * Alle müssen erfolgreich sein — andernfalls wirft die Funktion.
  */
 async function embedTexts(texts: string[]): Promise<number[][]> {
   const results: number[][] = new Array(texts.length);
-
   for (let start = 0; start < texts.length; start += CONCURRENCY) {
     const chunk = texts.slice(start, start + CONCURRENCY);
     const settled = await Promise.allSettled(
-      chunk.map((t) => embedSingleText(t)),
+      chunk.map((t) => withRetry(() => embedSingleText(t))),
     );
     for (let i = 0; i < settled.length; i++) {
       const s = settled[i];
       if (s.status === "rejected" || s.value === null) {
         throw new Error(
-          `Embedding für Index ${start + i} fehlgeschlagen: ${
-            s.status === "rejected" ? String(s.reason) : "leere Antwort"
+          `Embedding Index ${start + i}: ${
+            s.status === "rejected" ? String(s.reason) : "null-Antwort"
           }`,
         );
       }
@@ -145,9 +174,11 @@ export async function checkPgvectorSupport(): Promise<void> {
 
 /**
  * Berechnet das Embedding für ein Rezept neu und speichert es, falls der
- * Inhalt sich geändert hat. Wird nach Create/Update fire-and-forget aufgerufen.
+ * Inhalt sich geändert hat (hash check). Wird nach Create/Update aufgerufen.
  */
 export async function upsertEmbeddingForRecipe(recipeId: number): Promise<void> {
+  if (!process.env.GEMINI_API_KEY) return; // kein Key → überspringen
+
   const [recipe] = await db
     .select({
       id: recipesTable.id,
@@ -169,7 +200,6 @@ export async function upsertEmbeddingForRecipe(recipeId: number): Promise<void> 
   const text = buildEmbeddingText(recipe, ingredients.map((i) => i.name));
   const hash = hashText(text);
 
-  // Nur API-Aufruf wenn Inhalt sich geändert hat
   const [existing] = await db
     .select({ contentHash: recipeEmbeddingsTable.contentHash })
     .from(recipeEmbeddingsTable)
@@ -177,30 +207,38 @@ export async function upsertEmbeddingForRecipe(recipeId: number): Promise<void> 
 
   if (existing?.contentHash === hash) return;
 
-  const embedding = await embedSingleText(text);
-  if (!embedding) {
-    logger.warn({ recipeId }, "Embeddings: API-Aufruf lieferte keinen Vektor.");
-    return;
+  try {
+    const embedding = await withRetry(() => embedSingleText(text));
+    if (!embedding || embedding.length === 0) {
+      logger.warn({ recipeId }, "Embeddings: API lieferte keinen Vektor.");
+      return;
+    }
+    const now = new Date();
+    await db
+      .insert(recipeEmbeddingsTable)
+      .values({ recipeId, embedding, contentHash: hash, updatedAt: now })
+      .onConflictDoUpdate({
+        target: recipeEmbeddingsTable.recipeId,
+        set: { embedding, contentHash: hash, updatedAt: now },
+      });
+    logger.debug({ recipeId }, "Embeddings: Vektor aktualisiert.");
+  } catch (err) {
+    logger.warn({ err, recipeId }, "Embeddings: upsert fehlgeschlagen — überspringe.");
   }
-
-  const now = new Date();
-  await db
-    .insert(recipeEmbeddingsTable)
-    .values({ recipeId, embedding, contentHash: hash, updatedAt: now })
-    .onConflictDoUpdate({
-      target: recipeEmbeddingsTable.recipeId,
-      set: { embedding, contentHash: hash, updatedAt: now },
-    });
-
-  logger.debug({ recipeId }, "Embeddings: Vektor aktualisiert.");
 }
 
 /**
  * Hintergrund-Befüllung: alle Rezepte ohne Embedding oder mit veraltetem
- * content_hash in Batches einbetten.
+ * content_hash in Batches von je 50 Texten einbetten.
+ * Bei 429-Fehlern: bis zu 5 Versuche mit exponentiellem Backoff.
  * Nicht blockierend — wird beim Serverstart fire-and-forget gestartet.
  */
 export async function backfillEmbeddings(): Promise<void> {
+  if (!process.env.GEMINI_API_KEY) {
+    logger.info("Embeddings: GEMINI_API_KEY nicht gesetzt — Befüllung übersprungen.");
+    return;
+  }
+
   const allRecipes = await db
     .select({
       id: recipesTable.id,
@@ -254,34 +292,42 @@ export async function backfillEmbeddings(): Promise<void> {
   }
 
   logger.info(
-    `Embeddings: ${toProcess.length} von ${allRecipes.length} Rezepten werden eingebettet (Gemini ${EMBEDDING_MODEL}, 768 dim) …`,
+    `Embeddings: ${toProcess.length} von ${allRecipes.length} Rezepten werden eingebettet ` +
+    `(Gemini ${EMBEDDING_MODEL}, 768 dim, ${CONCURRENCY} parallel) …`,
   );
 
   let done = 0;
+
+  // BATCH_SIZE Rezepte pro Chunk, innerhalb jedes Chunks CONCURRENCY parallele Aufrufe
   for (let i = 0; i < toProcess.length; i += BATCH_SIZE) {
-    const batch = toProcess.slice(i, i + BATCH_SIZE);
+    const chunk = toProcess.slice(i, i + BATCH_SIZE);
     try {
-      const embeddings = await embedTexts(batch.map((r) => r.text));
+      const embeddings = await embedTexts(chunk.map((r) => r.text));
       const now = new Date();
-      for (let j = 0; j < batch.length; j++) {
-        const { id, hash } = batch[j];
+      for (let j = 0; j < chunk.length; j++) {
+        const { id, hash } = chunk[j];
         const embedding = embeddings[j];
-        await db
-          .insert(recipeEmbeddingsTable)
-          .values({ recipeId: id, embedding, contentHash: hash, updatedAt: now })
-          .onConflictDoUpdate({
-            target: recipeEmbeddingsTable.recipeId,
-            set: { embedding, contentHash: hash, updatedAt: now },
-          });
+        if (!embedding || embedding.length === 0) continue;
+        try {
+          await db
+            .insert(recipeEmbeddingsTable)
+            .values({ recipeId: id, embedding, contentHash: hash, updatedAt: now })
+            .onConflictDoUpdate({
+              target: recipeEmbeddingsTable.recipeId,
+              set: { embedding, contentHash: hash, updatedAt: now },
+            });
+          done++;
+        } catch (dbErr) {
+          logger.warn({ dbErr, recipeId: id }, "Embeddings: DB-Insert fehlgeschlagen.");
+        }
       }
-      done += batch.length;
-      logger.info(`Embeddings: ${done}/${toProcess.length} fertig.`);
     } catch (err) {
       logger.error(
-        { err, batchStart: i },
-        "Embeddings: Batch-Fehler — überspringe und mache weiter.",
+        { err, chunkStart: i },
+        "Embeddings: Chunk-Fehler (auch nach Retries) — überspringe.",
       );
     }
+    logger.info(`Embeddings: ${done}/${toProcess.length} fertig.`);
   }
 
   logger.info(
@@ -298,8 +344,9 @@ export async function backfillEmbeddings(): Promise<void> {
  * Gibt null zurück, wenn die API nicht verfügbar ist (graceful degradation).
  */
 export async function embedQuery(text: string): Promise<number[] | null> {
+  if (!process.env.GEMINI_API_KEY) return null;
   try {
-    return await embedSingleText(text);
+    return await withRetry(() => embedSingleText(text));
   } catch {
     return null;
   }

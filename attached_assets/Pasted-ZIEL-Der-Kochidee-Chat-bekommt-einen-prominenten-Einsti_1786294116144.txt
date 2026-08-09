@@ -1,0 +1,65 @@
+ZIEL
+Der Kochidee-Chat bekommt einen prominenten Einstieg oben auf
+der Rezepte-Seite und funktioniert eigenstaendig — ohne
+Vorratsschrank-Daten und ohne dass Pantry-Zutaten ungefragt in
+die Rezeptsuche einfliessen.
+
+TEIL 1 — EINSTIEG OBEN AUF DER REZEPTE-SEITE
+Datei: artifacts/lucias-kueche/src/pages/MeineRezepte.tsx
+
+Direkt bei der Suchleiste (in der Chip-Zeile mit Filter und
+"Lucias Tipps") einen auffaelligen Button "Kochidee" mit dem
+Gluehbirnen-Icon ergaenzen — optisch hervorgehoben gegenueber
+den Filter-Chips (gefuellte Akzentfarbe statt Outline).
+
+Klick oeffnet den Kochidee-Dialog als Overlay/Modal DIREKT auf
+der Rezepte-Seite — KEIN Tab-Wechsel. Den bestehenden Chat aus
+WasKocheIch.tsx dafuer in eine eigenstaendige Komponente
+extrahieren (z.B. components/KochideeChat.tsx), die von beiden
+Orten genutzt wird: vom Tab wie bisher und vom neuen Overlay.
+Keine Kopie des Codes — eine Komponente, zwei Verwendungen.
+
+Liefert der Dialog im Overlay seine Rezeptvorschlaege, werden
+sie im Overlay selbst als antippbare Karten gezeigt; Tipp auf
+eine Karte oeffnet das Rezept wie ueblich.
+
+TEIL 2 — UNABHAENGIGKEIT VOM VORRATSSCHRANK
+a) Der Chat darf NICHT voraussetzen, dass Pantry-Daten
+   existieren. Ist der Vorratsschrank leer oder nicht gepflegt,
+   startet das Gespraech trotzdem normal.
+b) Im Overlay-Modus (Einstieg von der Rezepte-Seite) werden
+   pantryDefaultIngredients NICHT automatisch in das
+   Suchprofil gemischt — es zaehlt nur, was im Gespraech
+   genannt wurde. Der bestehende Tab-Modus in WasKocheIch
+   bleibt unveraendert (dort ist die Pantry-Anreicherung
+   gewollt).
+c) Der System-Prompt des Chats (kochideeChat.ts) wird um einen
+   Satz ergaenzt: Wenn keine Vorratsdaten uebergeben wurden,
+   NICHT nach dem Vorratsschrank fragen, sondern direkt nach
+   Wunsch, Zeitbudget und Geschmack.
+
+VERBOTEN
+- Keine zweite Chat-Implementierung — eine Komponente
+- Kein Tab-Wechsel beim Oeffnen des Overlays
+- Keine Aenderung an der smart-search-Route
+- Der Kochidee-Tab unten bleibt bestehen und unveraendert
+  in seinem Verhalten
+
+VERIFIKATION
+1. Rezepte-Seite: Kochidee-Button ist oben sichtbar und
+   deutlich als Aktion erkennbar
+2. Klick oeffnet den Chat als Overlay, die Rezepte-Seite
+   bleibt im Hintergrund
+3. Gespraech ohne gepflegten Vorratsschrank: keine Frage nach
+   Vorraeten, Dialog laeuft normal durch
+4. Durchlauf "Ich moechte etwas mit Kartoffeln, keine Pilze":
+   Vorschlaege aus dem Bestand, keine Pilz-Rezepte, KEINE
+   Zutaten aus dem Vorratsschrank im Ergebnis-Profil
+5. Kochidee-Tab unten: funktioniert exakt wie vorher,
+   inklusive Pantry-Anreicherung
+6. Auf dem iPhone: Overlay ist bedienbar, Chips antippbar,
+   Schliessen-Button erreichbar
+
+ROLLBACK
+Bei Problemen: Button und Overlay entfernen; die extrahierte
+Komponente kann bleiben, solange der Tab funktioniert.

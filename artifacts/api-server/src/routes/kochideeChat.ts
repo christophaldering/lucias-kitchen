@@ -36,6 +36,8 @@ Wenn das Profil vollständig ist (nach 2-3 Runden):
   }
 }
 
+WICHTIG: Wenn keine pantryIngredients übergeben wurden (leeres Array), frage NICHT nach dem Vorratsschrank oder was Lucia zu Hause hat. Frage stattdessen direkt nach Wunsch, Zeitbudget und Geschmack – z.B. "Was möchtest du heute kochen? Hast du Lust auf etwas Bestimmtes?"
+
 Antworte IMMER auf Deutsch. Sei warm und freundlich. Gib NUR reines JSON zurück, keine Markdown-Blöcke.`;
 
 interface KochideeContext {

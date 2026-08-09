@@ -9,6 +9,8 @@ import type { Recipe } from "@/types/recipe";
 import RecipeModal from "@/components/RecipeModal";
 import { useAuth } from "@/contexts/AuthContext";
 import { authFetch, authHeaders } from "@/lib/authFetch";
+import KochideeChat from "@/components/KochideeChat";
+import type { KochideeChatCompleteParams } from "@/components/KochideeChat";
 
 const API_BASE = "/api";
 
@@ -274,17 +276,8 @@ export default function WasKocheIch() {
 
   const [selectedRecipe, setSelectedRecipe] = useState<SuggestedRecipe | null>(null);
 
-  // === Concept A: Chat ===
-  const [chatMessages, setChatMessages] = useState<ChatMessage[]>([]);
-  const [chatInput, setChatInput] = useState("");
-  const [chatLoading, setChatLoading] = useState(false);
-  const [chatChips, setChatChips] = useState<string[]>([]);
-  const [chatRounds, setChatRounds] = useState(0);
-  const [chatActive, setChatActive] = useState(false);
-  const [chatContext, setChatContext] = useState<KochideeContext | null>(null);
-  const [chatContextLoading, setChatContextLoading] = useState(false);
-  const [surpriseMode, setSurpriseMode] = useState(false);
-  const chatEndRef = useRef<HTMLDivElement>(null);
+  // Key für KochideeChat-Reset (ändert sich bei resetAll → remount der Komponente)
+  const [chatResetKey, setChatResetKey] = useState(0);
 
   // === Storage Location Tabs ===
   const [activeLocation, setActiveLocation] = useState<StorageLocation>("fridge");
@@ -422,12 +415,6 @@ export default function WasKocheIch() {
       })
       .catch(() => {});
   }, [token]);
-
-  // === Auto-scroll chat ===
-  useEffect(() => {
-    chatEndRef.current?.scrollIntoView({ behavior: "smooth" });
-  }, [chatMessages]);
-
 
   const toggleIngredient = (name: string) => {
     setSelectedIngredients((prev) => {
@@ -751,13 +738,9 @@ export default function WasKocheIch() {
     setIngredientSearch("");
     setSuggestions([]);
     setHasSearched(false);
-    setChatMessages([]);
-    setChatActive(false);
-    setChatRounds(0);
-    setChatChips([]);
     setWasteModeActive(false);
     setIngredientPriorities({});
-    setSurpriseMode(false);
+    setChatResetKey((k) => k + 1);
   };
 
   const stateRef = useRef({
@@ -831,192 +814,31 @@ export default function WasKocheIch() {
     return () => clearTimeout(timer);
   }, [selectedIngredientsKey, likedMoodsKey, dislikedMoodsKey, wasteModeActive, priorityKey]);
 
-  // === Load chat context ===
-  const loadChatContext = useCallback(async (): Promise<KochideeContext | null> => {
-    if (chatContext) return chatContext;
-    if (!token) return null;
-    setChatContextLoading(true);
-    try {
-      const res = await authFetch(`${API_BASE}/kochidee-context`, { headers: authHeaders() });
-      if (!res.ok) return null;
-      const data: KochideeContext = await res.json();
-      setChatContext(data);
-      return data;
-    } catch {
-      return null;
-    } finally {
-      setChatContextLoading(false);
-    }
-  }, [token, chatContext]);
-
-  // === Concept A: Chat ===
-  const startChat = async (withSurprise = false) => {
-    setSurpriseMode(withSurprise);
-    const ctx = await loadChatContext();
-
-    if (withSurprise) {
-      setChatMessages([
-        {
-          role: "assistant",
-          content: "🎲 Lass mich dir eine Überraschung vorschlagen...",
-        },
-      ]);
-      setChatActive(true);
-      setChatChips([]);
-      setChatRounds(0);
-
-      const pantryDefaults = pantryItems
-        .filter((i) => i.isDefault === 1)
-        .map((i) => i.ingredientName);
-
-      setChatLoading(true);
-      try {
-        const res = await authFetch(`${API_BASE}/kochidee-chat`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json", ...authHeaders() },
-          body: JSON.stringify({
-            messages: [{ role: "user", content: "Überrasch mich! Schlag mir etwas völlig Neues vor." }],
-            pantryIngredients: pantryDefaults,
-            forceComplete: false,
-            surpriseMode: true,
-            context: ctx,
-          }),
-        });
-        if (!res.ok) throw new Error("Chat fehlgeschlagen");
-        const data: ChatResponse = await res.json();
-        setChatMessages([
-          { role: "user", content: "Überrasch mich! Schlag mir etwas völlig Neues vor." },
-          { role: "assistant", content: data.message },
-        ]);
-        setChatChips(data.suggestedChips ?? []);
-        setChatRounds(1);
-        if (data.extractedIngredients?.length > 0) {
-          setSelectedIngredients((prev) => {
-            const next = new Set(prev);
-            data.extractedIngredients.forEach((i) => next.add(i));
-            return next;
-          });
-        }
-      } catch {
-        setChatMessages([
-          { role: "assistant", content: "Entschuldigung, da ist etwas schiefgelaufen. Versuche es nochmal." },
-        ]);
-      } finally {
-        setChatLoading(false);
-      }
-    } else {
-      setChatMessages([
-        {
-          role: "assistant",
-          content: "Was hast du gerade zuhause? Schreib mir einfach, was du im Kühlschrank oder in der Speisekammer hast – z.B. \"Ich hab noch Hähnchen und ein bisschen Gemüse\".",
-        },
-      ]);
-      setChatActive(true);
-      setChatChips(["Hähnchen und Gemüse", "Pasta und Tomaten", "Fisch und Kartoffeln"]);
-      setChatRounds(0);
-    }
-  };
-
-  const MAX_CHAT_ROUNDS = 3;
-
-  const sendChatMessage = async (content: string) => {
-    if (!content.trim() || chatLoading) return;
-    const userMsg: ChatMessage = { role: "user", content: content.trim() };
-    const newMessages = [...chatMessages, userMsg];
-    setChatMessages(newMessages);
-    setChatInput("");
-    setChatChips([]);
-    setChatLoading(true);
-
-    const newRoundCount = chatRounds + 1;
-
-    try {
-      const pantryDefaults = pantryItems
-        .filter((i) => i.isDefault === 1)
-        .map((i) => i.ingredientName);
-
-      // Force completion after max rounds
-      const forceComplete = newRoundCount >= MAX_CHAT_ROUNDS;
-
-      const res = await authFetch(`${API_BASE}/kochidee-chat`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json", ...authHeaders() },
-        body: JSON.stringify({
-          messages: newMessages,
-          pantryIngredients: pantryDefaults,
-          forceComplete,
-          surpriseMode,
-          context: chatContext,
-        }),
+  // === Chat-Abschluss-Handler (Tab-Modus) ===
+  const handleChatComplete = useCallback(
+    ({ profile, extractedIngredients }: KochideeChatCompleteParams) => {
+      const merged = new Set([...pantryDefaultIngredients, ...profile.ingredients]);
+      profile.moods.forEach((m: string) =>
+        setMoodStates((prev) => ({ ...prev, [m]: "liked" }))
+      );
+      profile.exclusions.forEach((m: string) =>
+        setMoodStates((prev) => ({ ...prev, [m]: "disliked" }))
+      );
+      setSelectedIngredients(merged);
+      setAllIngredients((prev) => {
+        const combined = new Set([...prev, ...extractedIngredients, ...profile.ingredients]);
+        return Array.from(combined).sort((a, b) => a.localeCompare(b, "de"));
       });
-
-      if (!res.ok) throw new Error("Chat fehlgeschlagen");
-      const data: ChatResponse = await res.json();
-
-      setChatRounds(newRoundCount);
-
-      // If max rounds reached, force completion even if AI didn't set isComplete
-      const shouldComplete = data.isComplete || forceComplete;
-
-      setChatMessages((prev) => [
-        ...prev,
-        { role: "assistant", content: shouldComplete && !data.isComplete ? "Super! Ich habe genug Infos – lass mich passende Rezepte für dich suchen..." : data.message },
-      ]);
-      setChatChips(shouldComplete ? [] : (data.suggestedChips ?? []));
-
-      if (data.extractedIngredients?.length > 0) {
-        setSelectedIngredients((prev) => {
-          const next = new Set(prev);
-          data.extractedIngredients.forEach((i) => next.add(i));
-          return next;
-        });
-        setAllIngredients((prev) => {
-          const combined = new Set([...prev, ...data.extractedIngredients]);
-          return Array.from(combined).sort((a, b) => a.localeCompare(b, "de"));
-        });
-      }
-
-      if (shouldComplete) {
-        const profile = data.finalProfile;
-        if (profile) {
-          setSelectedIngredients((prev) => {
-            const merged = new Set(prev);
-            pantryDefaultIngredients.forEach((d) => merged.add(d));
-            profile.ingredients.forEach((i: string) => merged.add(i));
-            return merged;
-          });
-          const newLiked = new Set(stateRef.current.likedMoods);
-          const newDisliked = new Set(stateRef.current.dislikedMoods);
-          profile.moods.forEach((m: string) => {
-            newLiked.add(m);
-            setMoodStates((prev) => ({ ...prev, [m]: "liked" }));
-          });
-          profile.exclusions.forEach((m: string) => {
-            newDisliked.add(m);
-            setMoodStates((prev) => ({ ...prev, [m]: "disliked" }));
-          });
-          const mergedIngredients = new Set([...Array.from(pantryDefaultIngredients), ...profile.ingredients]);
-          stateRef.current = {
-            ...stateRef.current,
-            selectedIngredients: mergedIngredients,
-            likedMoods: newLiked,
-            dislikedMoods: newDisliked,
-          };
-          await fetchSuggestions([...mergedIngredients]);
-        } else {
-          await fetchSuggestions();
-        }
-        setChatActive(false);
-      }
-    } catch {
-      setChatMessages((prev) => [
-        ...prev,
-        { role: "assistant", content: "Entschuldigung, da ist etwas schiefgelaufen. Versuche es nochmal." },
-      ]);
-    } finally {
-      setChatLoading(false);
-    }
-  };
+      stateRef.current = {
+        ...stateRef.current,
+        selectedIngredients: merged,
+        likedMoods: new Set([...stateRef.current.likedMoods, ...profile.moods]),
+        dislikedMoods: new Set([...stateRef.current.dislikedMoods, ...profile.exclusions]),
+      };
+      fetchSuggestions([...merged]);
+    },
+    [pantryDefaultIngredients, fetchSuggestions]
+  );
 
   // === Concept D: Pantry save ===
   const savePantry = async () => {
@@ -1128,112 +950,17 @@ export default function WasKocheIch() {
           <MessageCircle className="w-4 h-4 text-[#4A7C59]" />
           <h2 className="font-serif font-semibold text-base text-foreground">💬 KI-Assistent fragen</h2>
         </div>
-
-        {!chatActive ? (
-          <div className="flex items-start gap-3">
-            <div className="flex-1">
-              <p className="text-xs text-muted-foreground mb-3">
-                Schreib einfach was du zuhause hast – die KI extrahiert Zutaten und stellt gezielte Rückfragen.
-              </p>
-              <div className="flex gap-2 flex-wrap">
-                <button
-                  onClick={() => startChat(false)}
-                  disabled={chatContextLoading}
-                  className="flex items-center gap-2 px-4 py-2.5 bg-[#4A7C59] text-white rounded-xl text-sm font-medium hover:bg-[#2d5240] transition-colors disabled:opacity-60"
-                >
-                  {chatContextLoading ? (
-                    <Loader2 className="w-4 h-4 animate-spin" />
-                  ) : (
-                    <MessageCircle className="w-4 h-4" />
-                  )}
-                  Assistent starten
-                </button>
-                <button
-                  onClick={() => startChat(true)}
-                  disabled={chatContextLoading}
-                  className="flex items-center gap-2 px-4 py-2.5 bg-[#c1693a] text-white rounded-xl text-sm font-medium hover:bg-[#a0542e] transition-colors disabled:opacity-60"
-                >
-                  {chatContextLoading ? (
-                    <Loader2 className="w-4 h-4 animate-spin" />
-                  ) : (
-                    <span className="text-base leading-none">🎲</span>
-                  )}
-                  Überrasch mich
-                </button>
-              </div>
-            </div>
-          </div>
-        ) : (
-          <div>
-            <div className="space-y-3 max-h-72 overflow-y-auto mb-3 pr-1">
-              {chatMessages.map((msg, i) => (
-                <div
-                  key={i}
-                  className={`flex ${msg.role === "user" ? "justify-end" : "justify-start"}`}
-                >
-                  <div
-                    className={`max-w-[85%] px-3.5 py-2.5 rounded-2xl text-sm leading-relaxed ${
-                      msg.role === "user"
-                        ? "bg-[#4A7C59] text-white rounded-br-sm"
-                        : "bg-[#f5ede0] text-foreground rounded-bl-sm"
-                    }`}
-                  >
-                    {msg.content}
-                  </div>
-                </div>
-              ))}
-              {chatLoading && (
-                <div className="flex justify-start">
-                  <div className="bg-[#f5ede0] px-4 py-2.5 rounded-2xl rounded-bl-sm">
-                    <Loader2 className="w-4 h-4 animate-spin text-[#4A7C59]" />
-                  </div>
-                </div>
-              )}
-              <div ref={chatEndRef} />
-            </div>
-
-            {chatChips.length > 0 && (
-              <div className="flex flex-wrap gap-1.5 mb-2">
-                {chatChips.map((chip) => (
-                  <button
-                    key={chip}
-                    onClick={() => sendChatMessage(chip)}
-                    disabled={chatLoading}
-                    className="px-3 py-1.5 rounded-full text-xs font-medium bg-[#4A7C59]/10 text-[#4A7C59] border border-[#4A7C59]/20 hover:bg-[#4A7C59]/20 transition-colors disabled:opacity-50"
-                  >
-                    {chip}
-                  </button>
-                ))}
-              </div>
-            )}
-
-            <div className="flex gap-2">
-              <input
-                type="text"
-                value={chatInput}
-                onChange={(e) => setChatInput(e.target.value)}
-                onKeyDown={(e) => { if (e.key === "Enter") sendChatMessage(chatInput); }}
-                placeholder="Antworte der KI…"
-                disabled={chatLoading}
-                className="flex-1 px-3 py-2 rounded-xl border border-border bg-[#fdfaf6] text-sm focus:outline-none focus:ring-2 focus:ring-[#4A7C59]/30 disabled:opacity-60"
-              />
-              <button
-                onClick={() => sendChatMessage(chatInput)}
-                disabled={!chatInput.trim() || chatLoading}
-                className="flex items-center gap-1 px-3 py-2 rounded-xl bg-[#4A7C59] text-white text-sm font-medium hover:bg-[#2d5240] disabled:opacity-40 transition-colors"
-              >
-                <Send className="w-4 h-4" />
-              </button>
-              <button
-                onClick={() => { setChatActive(false); setChatMessages([]); setChatChips([]); }}
-                className="px-3 py-2 rounded-xl border border-border text-xs text-muted-foreground hover:bg-[#f5ede0] transition-colors"
-              >
-                <X className="w-4 h-4" />
-              </button>
-            </div>
-            <p className="text-xs text-muted-foreground mt-1.5">Runde {chatRounds} / max. 3</p>
-          </div>
-        )}
+        <KochideeChat
+          key={chatResetKey}
+          mode="tab"
+          pantryItems={pantryItems}
+          pantryDefaultIngredients={pantryDefaultIngredients}
+          onChatComplete={handleChatComplete}
+          onRecipeClick={(id) => {
+            const recipe = suggestions.find((r) => r.id === id);
+            if (recipe) setSelectedRecipe(recipe);
+          }}
+        />
       </section>
 
       {/* === Lagerort-Tabs: Das habe ich zuhause === */}

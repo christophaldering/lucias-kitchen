@@ -3,7 +3,8 @@ import { Recipe } from "@/types/recipe";
 import type { Season } from "@/types/recipe";
 import { SEASON_LABELS, SEASON_ICONS, getCurrentSeason } from "@/types/recipe";
 import { useRecipes, fetchRecipeById } from "@/hooks/useRecipes";
-import { Clock, Search, ChefHat, Upload, Link, Camera, Loader2, LayoutGrid, Table, Settings2, Plus, ArrowUp, ArrowDown, ArrowUpDown, UtensilsCrossed, MessageCircle, Star, BookOpen, Share2, Sparkles } from "lucide-react";
+import { Clock, Search, ChefHat, Upload, Link, Camera, Loader2, LayoutGrid, Table, Settings2, Plus, ArrowUp, ArrowDown, ArrowUpDown, UtensilsCrossed, MessageCircle, Star, BookOpen, Share2, Sparkles, Lightbulb, X } from "lucide-react";
+import KochideeChat from "@/components/KochideeChat";
 import type { RecipeFilter, ActiveFilters } from "@/hooks/useRecipes";
 import RecipeModal from "@/components/RecipeModal";
 import RecipeSuggestModal from "@/components/RecipeSuggestModal";
@@ -648,6 +649,7 @@ export default function MeineRezepte({ onNavigate: _onNavigate, initialOpenRecip
   const [suggestRecipe, setSuggestRecipe] = useState<Recipe | null>(null);
 
   const [fabOpen, setFabOpen] = useState(false);
+  const [kochideeOpen, setKochideeOpen] = useState(false);
   const [managedSelected, setManagedSelected] = useState<Set<number>>(new Set());
 
   const recipeIds = useMemo(() => recipes.map((r) => r.id), [recipes]);
@@ -907,6 +909,13 @@ export default function MeineRezepte({ onNavigate: _onNavigate, initialOpenRecip
                     setPhotoType(pt);
                   }}
                 />
+                <button
+                  onClick={() => setKochideeOpen(true)}
+                  className="flex-shrink-0 flex items-center gap-1.5 px-3 py-1 sm:py-1.5 rounded-full text-xs sm:text-sm font-medium bg-[#C1693A] text-white hover:bg-[#a0542e] transition-colors min-h-[30px] sm:min-h-[36px]"
+                >
+                  <Lightbulb className="w-3.5 h-3.5" />
+                  Kochidee
+                </button>
                 <div className="flex gap-1 sm:gap-1.5 overflow-x-auto pb-0.5 no-scrollbar flex-1">
                   <button
                     onClick={() => setChefPickFilter((v) => !v)}
@@ -1367,6 +1376,46 @@ export default function MeineRezepte({ onNavigate: _onNavigate, initialOpenRecip
             </button>
           </div>
       </>
+
+      {/* Kochidee-Overlay */}
+      {kochideeOpen && (
+        <div
+          className="fixed inset-0 z-50 flex items-end sm:items-center justify-center"
+          style={{ background: "rgba(0,0,0,0.5)", backdropFilter: "blur(2px)" }}
+          onClick={(e) => { if (e.target === e.currentTarget) setKochideeOpen(false); }}
+        >
+          <div
+            className="w-full sm:max-w-lg bg-white rounded-t-3xl sm:rounded-3xl flex flex-col"
+            style={{ maxHeight: "88vh", boxShadow: "0 -4px 40px rgba(0,0,0,0.18)" }}
+          >
+            <div className="flex items-center gap-2.5 px-5 pt-5 pb-3 border-b border-border flex-shrink-0">
+              <div className="w-8 h-8 rounded-full bg-[#C1693A]/15 flex items-center justify-center">
+                <Lightbulb className="w-4 h-4 text-[#C1693A]" />
+              </div>
+              <div>
+                <h2 className="font-serif font-semibold text-base leading-tight">Kochidee finden</h2>
+                <p className="text-xs text-muted-foreground leading-tight">KI-Assistent ohne Vorratsschrank</p>
+              </div>
+              <button
+                onClick={() => setKochideeOpen(false)}
+                className="ml-auto p-1.5 rounded-xl border border-border text-muted-foreground hover:bg-[#f5ede0] transition-colors"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+            <div className="flex-1 overflow-hidden p-5">
+              <KochideeChat
+                mode="overlay"
+                onRecipeClick={(id) => {
+                  setKochideeOpen(false);
+                  openRecipe(id);
+                }}
+                onClose={() => setKochideeOpen(false)}
+              />
+            </div>
+          </div>
+        </div>
+      )}
       </div>
     </div>
   );

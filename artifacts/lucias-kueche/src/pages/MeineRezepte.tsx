@@ -647,6 +647,21 @@ export default function MeineRezepte({ onNavigate: _onNavigate, initialOpenRecip
   const [urlModalInitialUrl, setUrlModalInitialUrl] = useState("");
   const [managedSelected, setManagedSelected] = useState<Set<number>>(new Set());
 
+  // Nach erfolgreichem Löschen: IDs sofort aus searchResults entfernen (kein KI-Re-Trigger)
+  const removeFromSearch = useCallback((ids: number[]) => {
+    setSearchResults((prev) => (prev ? prev.filter((r) => !ids.includes(r.id)) : null));
+  }, []);
+
+  const handleDeleteRecipe = useCallback(async (id: number) => {
+    await deleteRecipe(id);
+    removeFromSearch([id]);
+  }, [deleteRecipe, removeFromSearch]);
+
+  const deleteRecipeSilentFiltered = useCallback(async (id: number) => {
+    await deleteRecipeSilent(id);
+    removeFromSearch([id]);
+  }, [deleteRecipeSilent, removeFromSearch]);
+
   const recipeIds = useMemo(() => recipes.map((r) => r.id), [recipes]);
   const { data: commentStats = {} } = useCommentStats(recipeIds);
   const { data: recipeStats } = useRecipeStats();
@@ -1240,7 +1255,7 @@ export default function MeineRezepte({ onNavigate: _onNavigate, initialOpenRecip
                     onToggle={toggleSelect}
                     onToggleAll={toggleAll}
                     patchRecipeSilent={patchRecipeSilent}
-                    deleteRecipeSilent={deleteRecipeSilent}
+                    deleteRecipeSilent={deleteRecipeSilentFiltered}
                     updateRecipe={updateRecipe}
                     refetch={refetch}
                     onClearSelect={() => setManagedSelected(new Set())}
@@ -1354,7 +1369,7 @@ export default function MeineRezepte({ onNavigate: _onNavigate, initialOpenRecip
               onClose={() => { setSelectedId(null); setSelectedFullRecipe(null); pendingOpenIdRef.current = null; currentFetchIdRef.current = null; }}
               onAddToWeek={_onNavigate ? () => _onNavigate("wochenplan") : undefined}
               onToggleFavorite={toggleFavorite}
-              onDeleteRecipe={deleteRecipe}
+              onDeleteRecipe={handleDeleteRecipe}
               allRecipes={allRecipesForModal}
               onOpenRecipe={(r) => openRecipe(r.id)}
               onRecipeUpdated={(updated) => {
@@ -1392,6 +1407,7 @@ export default function MeineRezepte({ onNavigate: _onNavigate, initialOpenRecip
             <UrlImportModal
               onClose={() => { setShowUrlModal(false); setUrlModalInitialUrl(""); }}
               onAdd={async (newRecipes) => addRecipes(newRecipes)}
+              onOpenRecipe={(id) => { setShowUrlModal(false); setUrlModalInitialUrl(""); openRecipe(id); }}
               initialUrl={urlModalInitialUrl || undefined}
             />
           )}
@@ -1399,9 +1415,8 @@ export default function MeineRezepte({ onNavigate: _onNavigate, initialOpenRecip
           {showPdfModal && (
             <PdfUploadModal
               onClose={() => setShowPdfModal(false)}
-              onAdd={async (newRecipes) => {
-                return addRecipes(newRecipes);
-              }}
+              onAdd={async (newRecipes) => addRecipes(newRecipes)}
+              onOpenRecipe={(id) => { setShowPdfModal(false); openRecipe(id); }}
             />
           )}
 
@@ -1409,14 +1424,11 @@ export default function MeineRezepte({ onNavigate: _onNavigate, initialOpenRecip
             <ImageImportModal
               onClose={(savedIds) => {
                 setShowImageModal(false);
-                if (savedIds && savedIds.length > 0) {
-                  const firstId = savedIds[0];
-                  openRecipe(firstId);
-                }
+                // Kein Auto-Öffnen mehr — Nutzer wählt über "Rezept öffnen" im Modal
+                void savedIds;
               }}
-              onAdd={async (newRecipes) => {
-                return addRecipes(newRecipes);
-              }}
+              onAdd={async (newRecipes) => addRecipes(newRecipes)}
+              onOpenRecipe={(id) => { setShowImageModal(false); openRecipe(id); }}
             />
           )}
 

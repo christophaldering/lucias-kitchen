@@ -1,0 +1,62 @@
+ZIEL
+Verbindliche Vorschau-und-Bestaetigen-Stufe fuer ALLE
+Rezept-Importe. Es wird NIEMALS gespeichert, bevor der Nutzer
+den vollstaendigen Inhalt gesehen und explizit bestaetigt hat.
+
+GELTUNGSBEREICH
+Alle Wege, die Rezepte anlegen koennen: URL-Import (manuell
+und aus der Websuche), PDF-Import, Foto-Import, Bulk-Import.
+Das manuelle Anlegen ueber das Formular ist ausgenommen —
+dort IST die Eingabe die Pruefung.
+
+TEIL 1 — VORSCHAU STATT KURZLISTE
+Der bisherige Auswahl-Dialog ("N Rezepte gefunden") wird zur
+echten Vorschau ausgebaut. Pro gefundenem Rezept aufklappbar
+bzw. bei nur einem Rezept direkt ausgeklappt:
+- Titel (editierbar als Textfeld)
+- Kategorie (editierbar als Auswahl)
+- Zeitangabe, Schwierigkeit
+- vollstaendige Zutatenliste
+- die Zubereitungsschritte (scrollbar)
+- Bild-Thumbnail falls vorhanden
+- Quelle (Domain)
+
+TEIL 2 — EXPLIZITE BESTAETIGUNG
+- Der Speichern-Button heisst "In meine Sammlung uebernehmen"
+  und ist erst aktiv, wenn mindestens ein Rezept angehakt ist
+- Bei mehreren Funden: einzeln an-/abwaehlbar, Vorauswahl AUS
+  (bewusstes Anhaken statt bewusstes Abwaehlen)
+- "Abbrechen" verwirft alles; es darf dabei KEIN Request an
+  POST /recipes gegangen sein
+
+TEIL 3 — TECHNISCHE ABSICHERUNG
+Pruefen (grep ueber alle Import-Komponenten): Es existiert
+KEIN Pfad mehr, der zwischen Extraktion und Nutzerklick
+bereits POST /recipes aufruft. Insbesondere den Bulk-Import
+und den Foto-Import pruefen, ob dort automatisch gespeichert
+wird — falls ja, auch dort die Bestaetigungsstufe einziehen.
+Befund im Bericht dokumentieren.
+
+TEIL 4 — NACH DEM SPEICHERN
+Bestaetigung "Gespeichert: <Titel>" mit Buttons
+"Rezept oeffnen" und "Fertig" (wie frueher spezifiziert).
+
+VERBOTEN
+- Kein Auto-Save an irgendeiner Stelle der Import-Wege
+- Keine Vorauswahl aller Funde
+- Keine Aenderung an POST /recipes selbst
+
+VERIFIKATION
+1. Websuche-Import: Vorschau zeigt Zutaten UND Schritte;
+   ohne Anhaken ist der Uebernehmen-Button inaktiv
+2. Netzwerk-Panel: bis zum Klick auf "Uebernehmen" existiert
+   KEIN POST /recipes-Request
+3. "Abbrechen" nach der Analyse: kein neues Rezept in der
+   Datenbank (Tabellenansicht, Sortierung neueste)
+4. Titel in der Vorschau aendern -> gespeichertes Rezept
+   traegt den geaenderten Titel
+5. PDF- und Foto-Import: gleiche Bestaetigungsstufe aktiv
+
+ROLLBACK
+Vorschau-Ausbau zuruecknehmen; die Regel "kein Save ohne
+Klick" bleibt in jedem Fall bestehen.

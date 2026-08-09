@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect, useCallback } from "react";
-import { X, Camera, ImageIcon, FileText, Check, Loader2, Bot, ChevronUp, Edit2, SkipForward, Zap, Clock, ChefHat } from "lucide-react";
+import { X, Camera, ImageIcon, FileText, Check, Loader2, Bot, ChevronUp, Edit2, SkipForward, Clock, ChefHat } from "lucide-react";
 import type { Recipe } from "@/types/recipe";
 import { extractImageRecipes } from "@/hooks/useRecipes";
 import { compressImageToBase64 } from "@/lib/imageCompression";
@@ -92,6 +92,7 @@ function ImportedRecipeCard({ recipe }: { recipe: Recipe }) {
 interface Props {
   onClose: (savedRecipeIds?: number[]) => void;
   onAdd: (recipes: Partial<Recipe>[]) => Promise<number[]>;
+  onOpenRecipe?: (id: number) => void;
 }
 
 type Step = "upload" | "queue" | "done" | "error";
@@ -191,11 +192,10 @@ function formatZodIssues(issues: Array<{ path: (string | number)[]; message: str
   return messages.join(" · ");
 }
 
-export default function ImageImportModal({ onClose, onAdd }: Props) {
+export default function ImageImportModal({ onClose, onAdd, onOpenRecipe }: Props) {
   const [step, setStep] = useState<Step>("upload");
   const [queue, setQueue] = useState<QueueItem[]>([]);
   const [currentIndex, setCurrentIndex] = useState(0);
-  const [autoSave, setAutoSave] = useState(false);
   const [savedCount, setSavedCount] = useState(0);
   const [skippedCount, setSkippedCount] = useState(0);
   const [globalErrorMsg, setGlobalErrorMsg] = useState("");
@@ -203,7 +203,6 @@ export default function ImageImportModal({ onClose, onAdd }: Props) {
   const [savedRecipes, setSavedRecipes] = useState<Recipe[]>([]);
   const [loadingSavedRecipes, setLoadingSavedRecipes] = useState(false);
   const queueRef = useRef<QueueItem[]>([]);
-  const autoSaveRef = useRef(autoSave);
   const processingRef = useRef(false);
   const currentIndexRef = useRef(0);
   const savedCountRef = useRef(0);
@@ -235,10 +234,6 @@ export default function ImageImportModal({ onClose, onAdd }: Props) {
       setQueue(updater);
     }
   };
-
-  useEffect(() => {
-    autoSaveRef.current = autoSave;
-  }, [autoSave]);
 
   useEffect(() => {
     onAddRef.current = onAdd;
@@ -320,48 +315,8 @@ export default function ImageImportModal({ onClose, onAdd }: Props) {
       if (item.status === "review" && item.extracted) {
         setCurrentIndexSync(index);
         setExpandedEdit(false);
-
-        if (!autoSaveRef.current) {
-          // Show the item to the user for manual review
-          return;
-        }
-
-        // Auto-save mode: save immediately
-        setQueueAndSync((prev) =>
-          prev.map((it, i) => (i === index ? { ...it, status: "saving" } : it))
-        );
-        try {
-          const newIds = await onAddRef.current([{
-            ...item.extracted,
-            sourceDocumentUrl: item.sourceDocumentUrl ?? undefined,
-            imageUrl: item.imageUrl ?? undefined,
-          }]);
-          appendSavedRecipeIds(newIds);
-          setQueueAndSync((prev) =>
-            prev.map((it, i) => (i === index ? { ...it, status: "saved" } : it))
-          );
-          saved++;
-        } catch (err) {
-          let msg = "Rezept konnte nicht gespeichert werden.";
-          if (err instanceof Error) {
-            try {
-              const parsed = JSON.parse(err.message);
-              if (parsed?.issues && Array.isArray(parsed.issues)) {
-                msg = formatZodIssues(parsed.issues);
-              } else if (parsed?.message) {
-                msg = parsed.message;
-              }
-            } catch {
-              if (err.message && !err.message.startsWith("HTTP")) msg = err.message;
-            }
-          }
-          setQueueAndSync((prev) =>
-            prev.map((it, i) => (i === index ? { ...it, status: "error", errorMsg: msg } : it))
-          );
-          skipped++;
-        }
-        index++;
-        continue;
+        // Show the item to the user for manual review
+        return;
       }
 
       if (item.status !== "pending") {
@@ -445,101 +400,10 @@ export default function ImageImportModal({ onClose, onAdd }: Props) {
         )
       );
 
-      if (!autoSaveRef.current) {
-        return;
-      }
-
-      setQueueAndSync((prev) =>
-        prev.map((it, i) => (i === index ? { ...it, status: "saving" } : it))
-      );
-
-      try {
-        const newIds = await onAddRef.current([{
-          ...firstRecipe,
-          sourceDocumentUrl: sourceDocumentUrl ?? undefined,
-          imageUrl: firstRecipeImageUrl ?? undefined,
-        }]);
-        appendSavedRecipeIds(newIds);
-        setQueueAndSync((prev) =>
-          prev.map((it, i) => (i === index ? { ...it, status: "saved" } : it))
-        );
-        saved++;
-      } catch (err) {
-        let msg = "Rezept konnte nicht gespeichert werden.";
-        if (err instanceof Error) {
-          try {
-            const parsed = JSON.parse(err.message);
-            if (parsed?.issues && Array.isArray(parsed.issues)) {
-              msg = formatZodIssues(parsed.issues);
-            } else if (parsed?.message) {
-              msg = parsed.message;
-            }
-          } catch {
-            if (err.message && !err.message.startsWith("HTTP")) msg = err.message;
-          }
-        }
-        setQueueAndSync((prev) =>
-          prev.map((it, i) => (i === index ? { ...it, status: "error", errorMsg: msg } : it))
-        );
-        skipped++;
-      }
-
-      index++;
+      // Warte auf Nutzer-Bestätigung (handleSaveAndNext)
+      return;
     }
   }, []);
-
-  const handleAutoSaveToggle = useCallback(async () => {
-    const newValue = !autoSaveRef.current;
-    setAutoSave(newValue);
-    autoSaveRef.current = newValue;
-
-    if (!newValue) return;
-
-    const idx = currentIndexRef.current;
-    const currentItem = queueRef.current[idx];
-    if (!currentItem || currentItem.status !== "review" || !currentItem.extracted) return;
-
-    setQueueAndSync((prev) =>
-      prev.map((it, i) => (i === idx ? { ...it, status: "saving" } : it))
-    );
-
-    try {
-      const newIds = await onAddRef.current([{ ...currentItem.extracted, sourceDocumentUrl: currentItem.sourceDocumentUrl ?? undefined, imageUrl: currentItem.imageUrl ?? undefined }]);
-      appendSavedRecipeIds(newIds);
-      setQueueAndSync((prev) =>
-        prev.map((it, i) => (i === idx ? { ...it, status: "saved" } : it))
-      );
-      const newSaved = savedCountRef.current + 1;
-      setSavedCountSync(newSaved);
-      const nextIndex = idx + 1;
-      if (nextIndex >= queueRef.current.length) {
-        setStep("done");
-        processingRef.current = false;
-      } else {
-        setCurrentIndexSync(nextIndex);
-        setExpandedEdit(false);
-        processingRef.current = true;
-        await runProcessingLoop(nextIndex, newSaved, skippedCountRef.current);
-      }
-    } catch (err) {
-      let msg = "Rezept konnte nicht gespeichert werden.";
-      if (err instanceof Error) {
-        try {
-          const parsed = JSON.parse(err.message);
-          if (parsed?.issues && Array.isArray(parsed.issues)) {
-            msg = formatZodIssues(parsed.issues);
-          } else if (parsed?.message) {
-            msg = parsed.message;
-          }
-        } catch {
-          if (err.message && !err.message.startsWith("HTTP")) msg = err.message;
-        }
-      }
-      setQueueAndSync((prev) =>
-        prev.map((it, i) => (i === idx ? { ...it, status: "error", errorMsg: msg } : it))
-      );
-    }
-  }, [runProcessingLoop]);
 
   const startQueue = useCallback(async (items: QueueItem[]) => {
     if (processingRef.current) return;
@@ -849,33 +713,6 @@ export default function ImageImportModal({ onClose, onAdd }: Props) {
                 </div>
               )}
 
-              {/* Auto-save toggle */}
-              {totalCount > 1 && currentItem.status !== "saving" && (
-                <button
-                  onClick={() => handleAutoSaveToggle()}
-                  className={`w-full flex items-center justify-between px-4 py-2.5 rounded-xl border text-sm font-medium transition-colors ${
-                    autoSave
-                      ? "bg-[#4A7C59]/10 border-[#4A7C59]/40 text-[#4A7C59]"
-                      : "bg-white border-border text-muted-foreground"
-                  }`}
-                >
-                  <span className="flex items-center gap-2">
-                    <Zap className="w-4 h-4" />
-                    Alle automatisch speichern
-                  </span>
-                  <div
-                    className={`w-10 h-5 rounded-full transition-colors relative ${
-                      autoSave ? "bg-[#4A7C59]" : "bg-gray-300"
-                    }`}
-                  >
-                    <div
-                      className={`absolute top-0.5 w-4 h-4 bg-white rounded-full shadow transition-all ${
-                        autoSave ? "left-5" : "left-0.5"
-                      }`}
-                    />
-                  </div>
-                </button>
-              )}
 
               {/* Current photo preview */}
               <div className="flex justify-center">
@@ -1059,24 +896,22 @@ export default function ImageImportModal({ onClose, onAdd }: Props) {
                   </div>
 
                   {/* Action buttons */}
-                  {!autoSave && (
-                    <div className="flex gap-3">
-                      <button
-                        onClick={handleSaveAndNext}
-                        className="flex-1 py-2.5 bg-[#4A7C59] text-white rounded-xl text-sm font-semibold hover:bg-[#3d6849] transition-colors flex items-center justify-center gap-2"
-                      >
-                        <Check className="w-4 h-4" />
-                        {currentIndex + 1 < totalCount ? "Speichern & Weiter" : "Speichern"}
-                      </button>
-                      <button
-                        onClick={handleSkip}
-                        className="px-4 py-2.5 border border-border rounded-xl text-sm font-medium hover:bg-secondary transition-colors flex items-center gap-1.5"
-                      >
-                        <SkipForward className="w-4 h-4" />
-                        {currentIndex + 1 < totalCount ? "Überspringen" : "Abbrechen"}
-                      </button>
-                    </div>
-                  )}
+                  <div className="flex gap-3">
+                    <button
+                      onClick={handleSaveAndNext}
+                      className="flex-1 py-2.5 bg-[#4A7C59] text-white rounded-xl text-sm font-semibold hover:bg-[#3d6849] transition-colors flex items-center justify-center gap-2"
+                    >
+                      <Check className="w-4 h-4" />
+                      {currentIndex + 1 < totalCount ? "Speichern & Weiter" : "In meine Sammlung übernehmen"}
+                    </button>
+                    <button
+                      onClick={handleSkip}
+                      className="px-4 py-2.5 border border-border rounded-xl text-sm font-medium hover:bg-secondary transition-colors flex items-center gap-1.5"
+                    >
+                      <SkipForward className="w-4 h-4" />
+                      {currentIndex + 1 < totalCount ? "Überspringen" : "Abbrechen"}
+                    </button>
+                  </div>
                 </div>
               )}
             </div>
@@ -1090,11 +925,20 @@ export default function ImageImportModal({ onClose, onAdd }: Props) {
                 <div className="w-14 h-14 rounded-full bg-[#4A7C59]/10 flex items-center justify-center">
                   <Check className="w-7 h-7 text-[#4A7C59]" />
                 </div>
-                <p className="font-serif text-xl text-foreground">Import abgeschlossen!</p>
+                {savedCount === 1 && savedRecipes.length === 1 ? (
+                  <>
+                    <p className="font-serif text-xl text-foreground">Gespeichert!</p>
+                    <p className="text-sm text-foreground font-semibold px-4">
+                      „{savedRecipes[0].title}"
+                    </p>
+                  </>
+                ) : (
+                  <p className="font-serif text-xl text-foreground">Import abgeschlossen!</p>
+                )}
                 <div className="space-y-1">
-                  {savedCount > 0 && (
+                  {savedCount > 1 && (
                     <p className="text-sm text-[#4A7C59] font-semibold">
-                      {savedCount} Rezept{savedCount !== 1 ? "e" : ""} erfolgreich importiert
+                      {savedCount} Rezepte erfolgreich importiert
                     </p>
                   )}
                   {skippedCount > 0 && (
@@ -1142,11 +986,23 @@ export default function ImageImportModal({ onClose, onAdd }: Props) {
 
               {/* Actions */}
               <div className="flex gap-3 pb-4 justify-center">
+                {savedCount === 1 && savedRecipeIdsRef.current.length > 0 && onOpenRecipe && (
+                  <button
+                    onClick={() => { handleClose(); onOpenRecipe(savedRecipeIdsRef.current[0]); }}
+                    className="px-5 py-2.5 bg-[#4A7C59] text-white rounded-xl text-sm font-semibold hover:bg-[#3d6849] transition-colors"
+                  >
+                    Rezept öffnen
+                  </button>
+                )}
                 <button
                   onClick={handleClose}
-                  className="px-6 py-2.5 bg-[#4A7C59] text-white rounded-xl text-sm font-semibold hover:bg-[#3d6849] transition-colors"
+                  className={`px-5 py-2.5 rounded-xl text-sm font-semibold transition-colors ${
+                    savedCount === 1 && savedRecipeIdsRef.current.length > 0 && onOpenRecipe
+                      ? "border border-border hover:bg-secondary"
+                      : "bg-[#4A7C59] text-white hover:bg-[#3d6849]"
+                  }`}
                 >
-                  Schließen
+                  Fertig
                 </button>
                 {savedCount === 0 && (
                   <button

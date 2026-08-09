@@ -258,16 +258,185 @@ function canExtract(ip: string): boolean {
 router.post("/recipes/smart-search", authMiddleware, searchLimiter, async (req, res) => {
   try {
     const bodySchema = z.object({
-      query: z.string().min(1).max(500),
+      query: z.string().min(1).max(500).optional(),
+      profile: z.object({
+        ingredients: z.array(z.string()).default([]),
+        moods: z.array(z.string()).default([]),
+        exclusions: z.array(z.string()).default([]),
+      }).optional(),
       filter: z.string().optional(),
-    });
-    const { query, filter } = bodySchema.parse(req.body);
+    }).refine(
+      (d) => !!d.query !== !!d.profile,
+      { message: "Genau eines von query oder profile muss angegeben werden" }
+    );
+    const { query, profile, filter } = bodySchema.parse(req.body);
     const currentUserId = req.authUser?.id;
+
+    // ── PROFIL-PFAD: kein GPT-Aufruf ────────────────────────────────────────
+    if (profile) {
+      const profileCriteria: AiCriteria = {
+        ingredients: profile.ingredients,
+        exclusions: profile.exclusions,
+        diet: null, maxMinutes: null, mood: null, cuisine: null,
+        keywords: profile.moods,
+        summary: "",
+      };
+      const profileConds = buildAiSearchSqlConditions(profileCriteria, currentUserId, filter);
+
+      // Exakte Treffer über alle profileConds (exclusions als NOT + ingredients/moods als OR)
+      const pExactRes = await db.execute(sql`
+        SELECT DISTINCT r.id FROM recipes r
+        WHERE ${sql.join(profileConds, sql` AND `)}
+        ORDER BY r.id
+      `);
+      const rawPExact = (pExactRes as unknown as { rows: Array<{ id: number }> }).rows
+        ?? (pExactRes as unknown as Array<{ id: number }>);
+      const pExactIds = rawPExact.map((r) => Number(r.id));
+
+      // Semantische Suche (greift nur wenn Embeddings befüllt sind)
+      let pSemanticCandidates: Array<{ id: number; score: number }> = [];
+      const pSemanticQuery = [...profile.ingredients, ...profile.moods].join(" ").trim();
+      if (pSemanticQuery) {
+        const pQueryVector = await embedQuery(pSemanticQuery);
+        if (pQueryVector !== null) {
+          // Kandidaten-Pool = alle Rezepte die exclusions überleben
+          const pBaseConds = buildAiSearchSqlConditions(
+            { ingredients: [], exclusions: profile.exclusions, diet: null, maxMinutes: null, mood: null, cuisine: null, keywords: [], summary: "" },
+            currentUserId, filter,
+          );
+          const pValidRes = await db.execute(sql`
+            SELECT DISTINCT r.id FROM recipes r WHERE ${sql.join(pBaseConds, sql` AND `)}
+          `);
+          const rawPValid = (pValidRes as unknown as { rows: Array<{ id: number }> }).rows
+            ?? (pValidRes as unknown as Array<{ id: number }>);
+          const pValidIdSet = new Set(rawPValid.map((r) => Number(r.id)));
+          const pStoredEmbeddings = await getRecipeEmbeddings();
+          for (const [recipeId, vector] of pStoredEmbeddings) {
+            if (!pValidIdSet.has(recipeId)) continue;
+            const score = cosineSimilarity(pQueryVector, vector);
+            if (score >= SIMILARITY_THRESHOLD) pSemanticCandidates.push({ id: recipeId, score });
+          }
+          pSemanticCandidates.sort((a, b) => b.score - a.score);
+        }
+      }
+
+      const pExactIdSet = new Set(pExactIds);
+      const pMergedIds: number[] = [...pExactIds];
+      for (const { id } of pSemanticCandidates) {
+        if (!pExactIdSet.has(id)) pMergedIds.push(id);
+      }
+      const pLimitedIds = pMergedIds.slice(0, 60);
+      const pExactCount = pExactIds.length;
+      const pSemanticCount = pSemanticCandidates.filter((c) => !pExactIdSet.has(c.id)).length;
+
+      if (pLimitedIds.length === 0) {
+        return res.json({ recipes: [], summary: "Keine passenden Rezepte gefunden", exactCount: 0, semanticCount: 0 });
+      }
+
+      // Hydration (identisch zum Query-Pfad)
+      const pFavExpr = currentUserId != null
+        ? sql`EXISTS(SELECT 1 FROM recipe_favorites rf WHERE rf.recipe_id = r.id AND rf.user_id = ${currentUserId})`
+        : sql`false`;
+      const pIsOwnerExpr = currentUserId != null
+        ? sql`(r.created_by IS NULL OR r.created_by = ${currentUserId})`
+        : sql`(r.created_by IS NULL)`;
+
+      const pHydRows = await db.execute(sql`
+        SELECT
+          r.id, r.title, r.servings,
+          r.prep_time AS "prepTime", r.total_time AS "totalTime",
+          r.difficulty, r.category, r.rating,
+          r.kcal_per_portion AS "kcalPerPortion", r.source,
+          r.last_cooked AS "lastCooked", r.cooked_count AS "cookedCount",
+          r.notes,
+          jsonb_array_length(COALESCE(r.steps, '[]'::jsonb)) > 0 AS "hasSteps",
+          r.image_url AS "imageUrl",
+          r.created_at AS "createdAt", r.seasons, r.tags,
+          r.created_by AS "createdBy",
+          r.parent_recipe_id AS "parentRecipeId", r.variant_name AS "variantName",
+          r.source_document_url AS "sourceDocumentUrl",
+          r.is_ai_generated AS "isAiGenerated", r.image_source AS "imageSource",
+          r.tried, r.chef_pick AS "chefPick",
+          (
+            SELECT p.image_url
+            FROM recipe_photo_links rpl
+            INNER JOIN photos p ON p.id = rpl.photo_id
+            WHERE rpl.recipe_id = r.id AND rpl.is_main = true
+            ORDER BY rpl.sort_order, p.created_at DESC
+            LIMIT 1
+          ) AS "mainPhotoUrl",
+          COALESCE(
+            json_agg(
+              json_build_object(
+                'id', ri.id, 'recipeId', ri.recipe_id,
+                'amount', ri.amount, 'unit', ri.unit,
+                'name', ri.name, 'note', ri.note
+              ) ORDER BY ri.id
+            ) FILTER (WHERE ri.id IS NOT NULL),
+            '[]'
+          ) AS ingredients,
+          ${pFavExpr} AS "isFavorite",
+          ${pIsOwnerExpr} AS "isOwner",
+          u.display_name AS "ownerDisplayName",
+          u.avatar_url AS "ownerAvatarUrl"
+        FROM recipes r
+        LEFT JOIN recipe_ingredients ri ON ri.recipe_id = r.id
+        LEFT JOIN users u ON u.id = r.created_by
+        WHERE r.id = ANY(${sql`ARRAY[${sql.join(pLimitedIds.map((id) => sql`${id}`), sql`, `)}]::int[]`})
+        GROUP BY r.id, u.display_name, u.avatar_url
+        ORDER BY r.id
+      `);
+
+      type SmartRowP = {
+        id: number; title: string; servings: number | null; prepTime: string | null;
+        totalTime: string | null; difficulty: string; category: string; rating: string | null;
+        kcalPerPortion: number | null; source: string | null; lastCooked: string | null;
+        cookedCount: number | null; notes: string | null; hasSteps: boolean;
+        imageUrl: string | null; mainPhotoUrl: string | null; createdAt: Date | string | null;
+        seasons: string[] | null; tags: string[] | null; createdBy: number | null;
+        parentRecipeId: number | null; variantName: string | null; sourceDocumentUrl: string | null;
+        isAiGenerated: boolean; imageSource: string | null; tried: boolean; chefPick: boolean;
+        ingredients: Array<{ id: number; recipeId: number; amount: string; unit: string; name: string; note: string | null }>;
+        isFavorite: boolean; isOwner: boolean; ownerDisplayName: string | null; ownerAvatarUrl: string | null;
+      };
+      const rawPHyd = (pHydRows as unknown as { rows: SmartRowP[] }).rows
+        ?? (pHydRows as unknown as SmartRowP[]);
+      const pHydratedMap = new Map(rawPHyd.map((r) => [r.id, r]));
+      const pRecipes = pLimitedIds.flatMap((id) => {
+        const r = pHydratedMap.get(id);
+        if (!r) return [];
+        return [{
+          id: r.id, title: r.title, servings: r.servings, prepTime: r.prepTime,
+          totalTime: r.totalTime, difficulty: r.difficulty, category: r.category,
+          rating: r.rating, kcalPerPortion: r.kcalPerPortion, source: r.source,
+          lastCooked: r.lastCooked, cookedCount: r.cookedCount, notes: r.notes,
+          steps: [] as unknown[], hasSteps: r.hasSteps ?? false,
+          imageUrl: sanitizeImageUrl(r.imageUrl), mainPhotoUrl: r.mainPhotoUrl ?? null,
+          createdAt: r.createdAt, seasons: r.seasons ?? [], tags: r.tags ?? [],
+          createdBy: r.createdBy, parentRecipeId: r.parentRecipeId, variantName: r.variantName,
+          sourceDocumentUrl: r.sourceDocumentUrl, isAiGenerated: r.isAiGenerated ?? false,
+          imageSource: r.imageSource ?? null, tried: r.tried ?? false, chefPick: r.chefPick ?? false,
+          ingredients: r.ingredients, isFavorite: r.isFavorite, isOwner: r.isOwner,
+          matchedInNotes: false,
+          owner: (r.ownerDisplayName != null || r.ownerAvatarUrl != null)
+            ? { displayName: r.ownerDisplayName!, avatarUrl: r.ownerAvatarUrl } : null,
+        }];
+      });
+      return res.json({
+        recipes: pRecipes,
+        summary: `${pRecipes.length} ${pRecipes.length === 1 ? "Treffer" : "Treffer"}`,
+        exactCount: pExactCount,
+        semanticCount: pSemanticCount,
+      });
+    }
+
+    // ── QUERY-PFAD: bisheriger Code (query garantiert gesetzt durch refine) ──
+    const queryStr = query!;
 
     // -------------------------------------------------------------------------
     // SCHRITT 1: Bedingungserkennung (lokal, kein GPT-Aufruf)
     // -------------------------------------------------------------------------
-    const queryWords = query.trim().toLowerCase().split(/\s+/);
+    const queryWords = queryStr.trim().toLowerCase().split(/\s+/);
     const hasConditions = queryWords.some((w) => SMART_CONDITION_WORDS.has(w));
 
     // -------------------------------------------------------------------------
@@ -283,7 +452,7 @@ router.post("/recipes/smart-search", authMiddleware, searchLimiter, async (req, 
           max_completion_tokens: 400,
           messages: [
             { role: "system", content: AI_SEARCH_SYSTEM_PROMPT },
-            { role: "user", content: query },
+            { role: "user", content: queryStr },
           ],
         });
         let rawJson = aiResp.choices[0]?.message?.content ?? "{}";
@@ -320,7 +489,7 @@ router.post("/recipes/smart-search", authMiddleware, searchLimiter, async (req, 
     // -------------------------------------------------------------------------
     // SCHRITT 3: Exakte Treffer (Mehrwort-AND-Suche über alle Felder)
     // -------------------------------------------------------------------------
-    const searchWords = query
+    const searchWords = queryStr
       .trim()
       .split(/\s+/)
       .map((w) => w.trim().toLowerCase())
@@ -356,7 +525,7 @@ router.post("/recipes/smart-search", authMiddleware, searchLimiter, async (req, 
     // SCHRITT 4: Semantische Treffer (Embedding + Cosine-Ähnlichkeit)
     // -------------------------------------------------------------------------
     let semanticCandidates: Array<{ id: number; score: number }> = [];
-    const queryVector = await embedQuery(query);
+    const queryVector = await embedQuery(queryStr);
     if (queryVector !== null) {
       // Gültige Kandidaten-IDs laut baseConds aus der DB holen
       const validRes = await db.execute(sql`

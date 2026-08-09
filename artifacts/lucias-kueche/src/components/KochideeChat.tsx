@@ -57,8 +57,8 @@ interface SuggestedRecipe {
   difficulty: string;
   totalTime?: string | null;
   imageUrl?: string | null;
-  matchScore: number;
-  ingredientMatches: number;
+  matchScore?: number;
+  ingredientMatches?: number;
 }
 
 export interface KochideeChatCompleteParams {
@@ -108,6 +108,7 @@ export default function KochideeChat({
   const [surpriseMode, setSurpriseMode] = useState(false);
   const [suggestions, setSuggestions] = useState<SuggestedRecipe[]>([]);
   const [suggestLoading, setSuggestLoading] = useState(false);
+  const [chatCompleted, setChatCompleted] = useState(false);
   const chatEndRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -147,6 +148,7 @@ export default function KochideeChat({
     setSuggestions([]);
     setSurpriseMode(false);
     setChatInput("");
+    setChatCompleted(false);
   };
 
   // Nach Abschluss: Tab → Callback; Overlay → Rezepte laden
@@ -158,21 +160,21 @@ export default function KochideeChat({
       setChatActive(false);
       onChatComplete?.({ profile, extractedIngredients });
     } else {
+      // Overlay-Modus: sofort Abschluss-State setzen, Rezepte via smart-search laden
       setChatActive(false);
+      setChatCompleted(true);
       setSuggestLoading(true);
       try {
-        const res = await authFetch(`${API_BASE}/recipes/suggest`, {
+        const res = await authFetch(`${API_BASE}/recipes/smart-search`, {
           method: "POST",
           headers: { "Content-Type": "application/json", ...authHeaders() },
-          body: JSON.stringify({
-            ingredients: profile.ingredients,
-            moods: profile.moods,
-            exclusions: profile.exclusions,
-          }),
+          body: JSON.stringify({ profile }),
         });
         if (res.ok) {
           const data = await res.json();
           setSuggestions(data.recipes ?? []);
+        } else {
+          setSuggestions([]);
         }
       } catch {
         setSuggestions([]);
@@ -298,8 +300,18 @@ export default function KochideeChat({
     }
   };
 
-  // ─── Rezeptvorschläge (Overlay-Modus nach Abschluss) ────────────────────────
-  if (!chatActive && suggestions.length > 0) {
+  // ─── Ladeanimation (nach Chat-Abschluss, Rezepte werden gesucht) ─────────────
+  if (chatCompleted && suggestLoading) {
+    return (
+      <div className="flex flex-col items-center justify-center h-full gap-3 text-muted-foreground">
+        <Loader2 className="w-8 h-8 animate-spin text-[#4A7C59]" />
+        <p className="font-serif text-sm">Ich suche passende Rezepte…</p>
+      </div>
+    );
+  }
+
+  // ─── Rezeptvorschläge (nach Abschluss, Treffer gefunden) ─────────────────────
+  if (chatCompleted && !suggestLoading && suggestions.length > 0) {
     return (
       <div className="flex flex-col h-full">
         <div className="flex items-center justify-between mb-4 flex-shrink-0">
@@ -352,7 +364,7 @@ export default function KochideeChat({
                   >
                     {emoji} {recipe.category}
                   </span>
-                  {recipe.ingredientMatches > 0 && (
+                  {(recipe.ingredientMatches ?? 0) > 0 && (
                     <span
                       className="absolute top-2 right-2 flex items-center gap-0.5 text-xs font-semibold px-2 py-0.5 rounded-full text-white shadow"
                       style={{ background: "rgba(193,105,58,0.88)" }}
@@ -395,12 +407,31 @@ export default function KochideeChat({
     );
   }
 
-  // ─── Ladeanimation (Rezepte werden gesucht) ──────────────────────────────────
-  if (suggestLoading) {
+  // ─── Keine Treffer / Fehler (nach Abschluss, 0 Ergebnisse) ──────────────────
+  if (chatCompleted && !suggestLoading) {
     return (
-      <div className="flex flex-col items-center justify-center h-full gap-3 text-muted-foreground">
-        <Loader2 className="w-8 h-8 animate-spin text-[#4A7C59]" />
-        <p className="font-serif text-sm">Suche passende Rezepte…</p>
+      <div className="flex flex-col items-center justify-center h-full gap-4 text-center px-4">
+        <span className="text-4xl">🔍</span>
+        <div>
+          <p className="font-serif font-semibold text-foreground mb-1">Dazu habe ich leider nichts gefunden</p>
+          <p className="text-xs text-muted-foreground">Versuch es mit anderen Zutaten oder einem neuen Gespräch.</p>
+        </div>
+        <div className="flex gap-2 flex-wrap justify-center">
+          <button
+            onClick={resetChat}
+            className="px-4 py-2.5 bg-[#4A7C59] text-white rounded-xl text-sm font-medium hover:bg-[#2d5240] transition-colors"
+          >
+            Nochmal versuchen
+          </button>
+          {onClose && (
+            <button
+              onClick={onClose}
+              className="px-4 py-2.5 border border-border text-sm rounded-xl text-muted-foreground hover:bg-[#f5ede0] transition-colors"
+            >
+              Schliessen
+            </button>
+          )}
+        </div>
       </div>
     );
   }

@@ -892,6 +892,20 @@ export default function MeineRezepte({ onNavigate: _onNavigate, initialOpenRecip
                 </div>
               </div>
 
+              {/* Kochidee-Zeile: erklärt beide Suchwege */}
+              <div className="flex items-center justify-between gap-3 flex-wrap">
+                <span className="text-xs text-muted-foreground leading-tight">
+                  Suchfeld findet direkt in deinen Rezepten
+                </span>
+                <button
+                  onClick={() => setKochideeOpen(true)}
+                  className="flex-shrink-0 flex items-center gap-1.5 px-3.5 py-2.5 rounded-xl text-xs font-semibold bg-[#C1693A] text-white hover:bg-[#a0542e] transition-colors min-h-[44px]"
+                >
+                  <Lightbulb className="w-3.5 h-3.5" />
+                  Kochidee — KI hilft beim Eingrenzen
+                </button>
+              </div>
+
               {/* Filter button + quick category chips */}
               <div className="flex items-center gap-2">
                 <FilterBottomSheet
@@ -909,13 +923,6 @@ export default function MeineRezepte({ onNavigate: _onNavigate, initialOpenRecip
                     setPhotoType(pt);
                   }}
                 />
-                <button
-                  onClick={() => setKochideeOpen(true)}
-                  className="flex-shrink-0 flex items-center gap-1.5 px-3 py-1 sm:py-1.5 rounded-full text-xs sm:text-sm font-medium bg-[#C1693A] text-white hover:bg-[#a0542e] transition-colors min-h-[30px] sm:min-h-[36px]"
-                >
-                  <Lightbulb className="w-3.5 h-3.5" />
-                  Kochidee
-                </button>
                 <div className="flex gap-1 sm:gap-1.5 overflow-x-auto pb-0.5 no-scrollbar flex-1">
                   <button
                     onClick={() => setChefPickFilter((v) => !v)}

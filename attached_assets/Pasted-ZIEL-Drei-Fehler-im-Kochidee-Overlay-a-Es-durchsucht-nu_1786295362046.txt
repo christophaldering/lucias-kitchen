@@ -1,0 +1,66 @@
+ZIEL
+Drei Fehler im Kochidee-Overlay:
+a) Es durchsucht nur die ersten 24 Rezepte (alte Route
+   /recipes/suggest mit Default-Limit)
+b) Zutaten-Ausschluesse werden dort ignoriert
+c) Bei null Treffern faellt das Overlay kommentarlos auf den
+   Startbildschirm zurueck — das Gespraech scheint verpufft
+
+TEIL 1 — SERVER: PROFIL-EINGANG FUER SMART-SEARCH
+Route POST /recipes/smart-search akzeptiert zusaetzlich zu
+{ query } auch { profile }:
+  profile: { ingredients: string[], moods: string[],
+             exclusions: string[] }
+Genau eines von query/profile muss gesetzt sein (zod refine).
+
+Verarbeitung bei profile:
+- KEIN GPT-Aufruf — das Profil ist bereits strukturiert
+- exclusions als harte WHERE-Bedingung ueber den bestehenden
+  SQL-Kriterienfilter (Zutatennamen, Titel, Kategorie)
+- ingredients + moods als Mehrwort-ODER-Suche ueber Titel,
+  Kategorie, Zutatennamen (volle Korpusbreite via SQL) sowie
+  als semantischer Suchtext, sobald Embeddings befuellt sind
+- KEIN getRecipesWithIngredients mit Default-Limit
+- Antwortformat identisch zum query-Pfad
+
+TEIL 2 — CLIENT: OVERLAY UMHAENGEN UND ERGEBNIS-ZUSTAENDE
+KochideeChat.tsx, handleComplete, overlay-Zweig:
+statt /recipes/suggest jetzt /recipes/smart-search mit
+{ profile }.
+
+Nach Abschluss des Gespraechs zeigt das Overlay IMMER einen
+dieser drei Zustaende — NIEMALS den Startbildschirm:
+- Laden: Spinner mit "Ich suche passende Rezepte..."
+- Treffer: die Rezeptkarten wie vorgesehen
+- Null Treffer oder Fehler: freundliche Meldung ("Dazu habe
+  ich leider nichts gefunden") plus Button "Nochmal
+  versuchen", der ein NEUES Gespraech startet, und Button
+  "Schliessen"
+Der Startbildschirm mit "Assistent starten / Ueberrasch mich"
+erscheint nur beim frischen Oeffnen des Overlays.
+
+TEIL 3 — UNVERAENDERT
+Der tab-Modus, die Route /recipes/suggest und der Chat-Dialog
+selbst bleiben unangetastet.
+
+VERBOTEN
+- Kein GPT-Aufruf im profile-Pfad
+- Keine Aenderung an /recipes/suggest
+- Keine Aenderung am System-Prompt
+
+VERIFIKATION
+1. Overlay: "etwas mit Zucchini" -> Treffer auch aus dem
+   hinteren Alphabet
+2. Overlay: "Kartoffeln, aber keine Pilze" -> kein Treffer
+   mit Pilzen/Champignons in den Zutaten
+3. Overlay: absichtlich Unsinn suchen ("etwas mit Drachenfrucht
+   und Goldstaub") -> Meldung "nichts gefunden" mit "Nochmal
+   versuchen" — NICHT der Startbildschirm
+4. Der Durchlauf von eben ("etwas Suesses und Saures") ->
+   liefert jetzt Treffer (Apfelkompott, Chutneys, Kuchen o.ae.)
+5. Kochidee-Tab: unveraendert
+6. Server-Log: beim Abschluss KEIN GPT-Aufruf
+
+ROLLBACK
+Overlay zurueck auf /recipes/suggest, Ergebnis-Zustaende
+koennen bleiben.

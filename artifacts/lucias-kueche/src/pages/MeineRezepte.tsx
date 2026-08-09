@@ -1018,6 +1018,15 @@ export default function MeineRezepte({ onNavigate: _onNavigate, initialOpenRecip
                     <div className="flex items-center gap-2 px-3 py-2 rounded-xl bg-amber-50 border border-amber-200 text-sm flex-wrap">
                       <Sparkles className="w-4 h-4 text-amber-500 flex-shrink-0" />
                       <span className="font-medium text-amber-800 flex-1 min-w-0">{aiSearchSummary}</span>
+                      {baseList.length === 0 && search.trim() && (
+                        <button
+                          onClick={() => { setWebSearchQuery(search.trim()); setShowWebSearch(true); }}
+                          className="flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-full border border-[#4A7C59]/30 text-[#4A7C59] hover:bg-[#4A7C59]/5 transition-colors flex-shrink-0"
+                        >
+                          <Globe className="w-3 h-3" />
+                          Im Web nach „{search.trim()}" suchen
+                        </button>
+                      )}
                       {isKochideeResult && (
                         <>
                           <button
@@ -1110,6 +1119,15 @@ export default function MeineRezepte({ onNavigate: _onNavigate, initialOpenRecip
                 <div className="text-center py-16 text-muted-foreground">
                   <p className="text-4xl mb-4">🔍</p>
                   <p className="font-serif text-lg">Kein Rezept gefunden.</p>
+                  {search.trim() && (
+                    <button
+                      onClick={() => { setWebSearchQuery(search.trim()); setShowWebSearch(true); }}
+                      className="mt-4 inline-flex items-center gap-1.5 text-sm px-4 py-2 rounded-full border border-[#4A7C59]/30 text-[#4A7C59] hover:bg-[#4A7C59]/5 transition-colors"
+                    >
+                      <Globe className="w-3.5 h-3.5" />
+                      Im Web nach „{search.trim()}" suchen
+                    </button>
+                  )}
                 </div>
               ) : viewMode === "galerie" ? (
                 <>

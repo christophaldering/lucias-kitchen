@@ -1,0 +1,77 @@
+ZIEL
+Die Suchzone von drei Feldern auf EIN Feld reduzieren. Die
+Faehigkeiten bleiben alle erhalten, sie zeigen sich nur im
+richtigen Moment statt permanent: Eigene-Rezepte-Suche im
+Feld, Websuche als kontextuelle Aktion, Kochidee als Button
+im Feld.
+
+DATEI
+artifacts/lucias-kueche/src/pages/MeineRezepte.tsx
+
+AENDERUNG
+
+1. ES BLEIBT: ein einziges, grosszuegiges Suchfeld.
+   - Platzhalter: "Wonach ist dir heute?"
+   - Label-Zeile darueber ENTFAELLT (der Platzhalter traegt
+     die Erklaerung)
+   - Die bestehende Zwei-Stufen-Logik (300 ms exakt, 800 ms
+     smart-search) bleibt UNVERAENDERT
+   - Etwas hoehere Feldhoehe als bisher (py-3, text-base),
+     damit das eine Feld als Buehne wirkt
+
+2. KOCHIDEE WANDERT INS FELD:
+   - Rechts im Feld, durch feinen Trenner abgesetzt, ein
+     Gluehbirnen-Button in der Kochidee-Akzentfarbe
+     (min. 44x44px Tippflaeche), title="Kochidee — im
+     Dialog eingrenzen"
+   - Klick oeffnet das bestehende Kochidee-Overlay
+   - Die komplette bisherige Kochidee-Zeile (Label +
+     orangener Balken) ENTFAELLT
+   - Das pulsierende Funkel-Icon der KI-Veredelung bleibt,
+     positioniert LINKS des Gluehbirnen-Buttons, damit sich
+     nichts ueberlappt
+
+3. WEBSUCHE-FELD ENTFAELLT, FAEHIGKEIT BLEIBT:
+   - Das Feld "Im Internet suchen" samt Label und
+     Globus-Button wird entfernt (State der Eingabe kann weg;
+     setWebSearchQuery/setShowWebSearch und das
+     WebSearchResults-Overlay bleiben BESTEHEN)
+   - Die vorhandenen Null-Treffer-Einstiege ("Im Web nach
+     '<Anfrage>' suchen" im Banner und im Leer-Zustand)
+     bleiben und sind kuenftig der Hauptweg
+   - ZUSAETZLICH: Sobald eine Suche aktiv ist und Treffer
+     liefert, erscheint in der Trefferzeile rechts ein
+     dezenter Text-Link "· auch im Web suchen", der
+     dasselbe Overlay mit der aktuellen Anfrage oeffnet —
+     so ist die Websuche auch MIT Treffern erreichbar
+
+4. AUFRAEUMEN:
+   - Der Bereich ueber der Galerie besteht danach aus:
+     Ansichts-Toggle-Zeile, EIN Suchfeld, Filter-Chip-Zeile.
+     Sonst nichts.
+   - Ungenutzte States/Handler des entfernten Felds
+     entfernen
+
+VERBOTEN
+- Keine Aenderung an der Suchlogik, den Routen oder den
+  Overlays (Kochidee, WebSearchResults)
+- Keine Aenderung am Kochidee-Tab unten
+- Der Skeleton-Fix und "KI verfeinert…" bleiben unangetastet
+
+VERIFIKATION
+1. Desktop: genau EIN Suchfeld mit Gluehbirne rechts; die
+   Zone ist sichtbar flacher als vorher
+2. Tippen "Waffeltorte": Treffer wie gehabt, Funkel-Icon
+   pulsiert waehrend der Veredelung, nichts ueberlappt
+3. Gluehbirne: oeffnet das Kochidee-Overlay
+4. "Pho Bo" (0 Treffer): Web-Button im Leer-Zustand
+   funktioniert wie bisher
+5. "Auflauf" (viele Treffer): "· auch im Web suchen" in der
+   Trefferzeile oeffnet das Web-Overlay mit "Auflauf"
+6. grep "Im Internet suchen" -> 0; grep "im Dialog
+   eingrenzen" -> 0
+7. iPhone-Breite: Feld volle Breite, Gluehbirne gut tippbar,
+   Galerie beginnt deutlich weiter oben
+
+ROLLBACK
+Zurueck zur Drei-Zeilen-Variante.

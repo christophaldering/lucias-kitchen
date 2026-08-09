@@ -21,7 +21,15 @@ function isAdmin(email: string) {
   return email === ADMIN_EMAIL;
 }
 
+const RECIPE_CACHE_MAX = 50;
 const recipeListCache = new Map<string, { etag: string; body: string }>();
+function cacheSet(key: string, value: { etag: string; body: string }) {
+  if (recipeListCache.size >= RECIPE_CACHE_MAX) {
+    const oldest = recipeListCache.keys().next().value;
+    if (oldest !== undefined) recipeListCache.delete(oldest);
+  }
+  recipeListCache.set(key, value);
+}
 
 function recipeListCacheKey(userId?: number, filter?: string, page?: number, limit?: number) {
   return `${userId ?? "anon"}:${filter ?? "all"}:p${page ?? 1}:l${limit ?? 24}`;
@@ -37,7 +45,7 @@ export async function warmupRecipeCache(userId?: number) {
     const result = await getRecipesWithIngredients(userId, undefined, 1, 24);
     const body = JSON.stringify(result);
     const etag = `"${createHash("sha1").update(body).digest("hex").slice(0, 24)}"`;
-    recipeListCache.set(cacheKey, { etag, body });
+    cacheSet(cacheKey, { etag, body });
   } catch {
   }
 }
@@ -365,7 +373,7 @@ router.post("/recipes/ai-search", async (req, res) => {
       return;
     }
 
-    const allRecipesResult = await getRecipesWithIngredients(currentUserId, filter, 1, 10000);
+    const allRecipesResult = await getRecipesWithIngredients(currentUserId, filter, 1, 500);
     const allRecipes = allRecipesResult.recipes;
 
     const matchedRecipes = allRecipes.filter((recipe) => {
@@ -498,7 +506,7 @@ router.get("/recipes/search", async (req, res) => {
     const filter = req.query.filter as string | undefined;
 
     if (!q) {
-      const result = await getRecipesWithIngredients(currentUserId, filter, 1, 10000);
+      const result = await getRecipesWithIngredients(currentUserId, filter, 1, 500);
       return res.json(result.recipes);
     }
 
@@ -769,7 +777,7 @@ router.get("/recipes", async (req, res) => {
     const result = await getRecipesWithIngredients(currentUserId, filter, page, limit);
     const body = JSON.stringify(result);
     const etag = `"${createHash("sha1").update(body).digest("hex").slice(0, 24)}"`;
-    recipeListCache.set(cacheKey, { etag, body });
+    cacheSet(cacheKey, { etag, body });
     res.set("ETag", etag);
     res.set("Cache-Control", "private, no-cache");
     if (req.headers["if-none-match"] === etag) {

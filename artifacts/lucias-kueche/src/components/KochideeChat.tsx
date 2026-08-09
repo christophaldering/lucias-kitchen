@@ -9,7 +9,7 @@
  */
 import { useState, useRef, useEffect, useCallback } from "react";
 import {
-  MessageCircle, Send, X, Loader2, ChefHat, Clock, CheckCircle2, Globe,
+  MessageCircle, Send, X, Loader2, Globe,
 } from "lucide-react";
 import { authFetch, authHeaders } from "@/lib/authFetch";
 import { useAuth } from "@/contexts/AuthContext";
@@ -50,7 +50,7 @@ interface PantryItem {
   isDefault: number;
 }
 
-interface SuggestedRecipe {
+export interface SuggestedRecipe {
   id: number;
   title: string;
   category: string;
@@ -79,15 +79,9 @@ export interface KochideeChatProps {
   onClose?: () => void;
   /** Overlay: Websuche starten (query = ingredients joined) */
   onWebSearch?: (query: string) => void;
+  /** Overlay: Treffer an Galerie übergeben (Overlay schließt sich danach) */
+  onResults?: (recipes: SuggestedRecipe[], summary: string) => void;
 }
-
-const CATEGORY_EMOJIS: Record<string, string> = {
-  Fisch: "🐟",
-  Geflügel: "🍗",
-  Fleisch: "🥩",
-  Vegetarisch: "🌿",
-  Pasta: "🍝",
-};
 
 export default function KochideeChat({
   mode,
@@ -97,6 +91,7 @@ export default function KochideeChat({
   onRecipeClick,
   onClose,
   onWebSearch,
+  onResults,
 }: KochideeChatProps) {
   const { token } = useAuth();
 
@@ -164,9 +159,8 @@ export default function KochideeChat({
       setChatActive(false);
       onChatComplete?.({ profile, extractedIngredients });
     } else {
-      // Overlay-Modus: sofort Abschluss-State setzen, Rezepte via smart-search laden
+      // Overlay-Modus: Rezepte via smart-search laden
       setChatActive(false);
-      setChatCompleted(true);
       setLastProfile(profile);
       setSuggestLoading(true);
       try {
@@ -177,11 +171,21 @@ export default function KochideeChat({
         });
         if (res.ok) {
           const data = await res.json();
-          setSuggestions(data.recipes ?? []);
+          const resultRecipes: SuggestedRecipe[] = data.recipes ?? [];
+          if (resultRecipes.length > 0 && onResults) {
+            // Treffer → an Galerie übergeben, Overlay schließt sich
+            onResults(resultRecipes, data.summary ?? "");
+          } else {
+            // 0 Treffer → Null-Treffer-Screen im Overlay
+            setChatCompleted(true);
+            setSuggestions([]);
+          }
         } else {
+          setChatCompleted(true);
           setSuggestions([]);
         }
       } catch {
+        setChatCompleted(true);
         setSuggestions([]);
       } finally {
         setSuggestLoading(false);
@@ -305,109 +309,12 @@ export default function KochideeChat({
     }
   };
 
-  // ─── Ladeanimation (nach Chat-Abschluss, Rezepte werden gesucht) ─────────────
-  if (chatCompleted && suggestLoading) {
+  // ─── Ladeanimation (Rezepte werden gesucht) ──────────────────────────────────
+  if (suggestLoading && !chatActive) {
     return (
       <div className="flex flex-col items-center justify-center h-full gap-3 text-muted-foreground">
         <Loader2 className="w-8 h-8 animate-spin text-[#4A7C59]" />
         <p className="font-serif text-sm">Ich suche passende Rezepte…</p>
-      </div>
-    );
-  }
-
-  // ─── Rezeptvorschläge (nach Abschluss, Treffer gefunden) ─────────────────────
-  if (chatCompleted && !suggestLoading && suggestions.length > 0) {
-    return (
-      <div className="flex flex-col h-full">
-        <div className="flex items-center justify-between mb-4 flex-shrink-0">
-          <h3 className="font-serif font-semibold text-base text-foreground">✨ Passende Rezepte</h3>
-          <div className="flex gap-2">
-            <button
-              onClick={resetChat}
-              className="text-xs text-muted-foreground hover:text-foreground px-3 py-1.5 rounded-xl border border-border hover:bg-[#f5ede0] transition-colors"
-            >
-              Neu starten
-            </button>
-            {onClose && (
-              <button
-                onClick={onClose}
-                className="p-1.5 rounded-xl border border-border text-muted-foreground hover:bg-[#f5ede0] transition-colors"
-              >
-                <X className="w-4 h-4" />
-              </button>
-            )}
-          </div>
-        </div>
-        <div className="overflow-y-auto flex-1 grid grid-cols-2 gap-3 content-start">
-          {suggestions.map((recipe) => {
-            const emoji = CATEGORY_EMOJIS[recipe.category] ?? "🍽️";
-            return (
-              <button
-                key={recipe.id}
-                onClick={() => onRecipeClick(recipe.id)}
-                className="bg-white rounded-2xl border border-border overflow-hidden text-left hover:shadow-md transition-all active:scale-95"
-                style={{ boxShadow: "0 2px 12px rgba(120,70,30,0.10)" }}
-              >
-                <div className="relative w-full overflow-hidden" style={{ paddingTop: "56%" }}>
-                  {recipe.imageUrl ? (
-                    <img
-                      src={recipe.imageUrl}
-                      alt={recipe.title}
-                      className="absolute inset-0 w-full h-full object-cover"
-                    />
-                  ) : (
-                    <div
-                      className="absolute inset-0 flex items-center justify-center text-4xl"
-                      style={{ background: "linear-gradient(135deg, #f5ede0, #f0e0c8)" }}
-                    >
-                      {emoji}
-                    </div>
-                  )}
-                  <span
-                    className="absolute top-2 left-2 text-xs font-semibold px-2 py-0.5 rounded-full text-white shadow"
-                    style={{ background: "rgba(45,82,64,0.85)" }}
-                  >
-                    {emoji} {recipe.category}
-                  </span>
-                  {(recipe.ingredientMatches ?? 0) > 0 && (
-                    <span
-                      className="absolute top-2 right-2 flex items-center gap-0.5 text-xs font-semibold px-2 py-0.5 rounded-full text-white shadow"
-                      style={{ background: "rgba(193,105,58,0.88)" }}
-                    >
-                      <CheckCircle2 className="w-3 h-3" />
-                      {recipe.ingredientMatches}
-                    </span>
-                  )}
-                </div>
-                <div className="p-2.5">
-                  <h4 className="font-serif font-semibold text-foreground text-xs leading-snug line-clamp-2 mb-1.5">
-                    {recipe.title}
-                  </h4>
-                  <div className="flex items-center gap-1.5 flex-wrap">
-                    <span
-                      className={`text-[10px] font-medium px-1.5 py-0.5 rounded-full ${
-                        recipe.difficulty === "simpel"
-                          ? "bg-green-100 text-green-700"
-                          : recipe.difficulty === "normal"
-                          ? "bg-amber-100 text-amber-700"
-                          : "bg-red-100 text-red-700"
-                      }`}
-                    >
-                      <ChefHat className="w-2.5 h-2.5 inline mr-0.5" />
-                      {recipe.difficulty}
-                    </span>
-                    {recipe.totalTime && (
-                      <span className="flex items-center gap-0.5 text-[10px] text-muted-foreground">
-                        <Clock className="w-2.5 h-2.5" />
-                        {recipe.totalTime.replace("ca. ", "")}
-                      </span>
-                    )}
-                  </div>
-                </div>
-              </button>
-            );
-          })}
-        </div>
       </div>
     );
   }

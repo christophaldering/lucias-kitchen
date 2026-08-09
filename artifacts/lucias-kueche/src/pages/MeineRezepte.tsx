@@ -4,7 +4,7 @@ import type { Season } from "@/types/recipe";
 import { SEASON_LABELS, SEASON_ICONS, getCurrentSeason } from "@/types/recipe";
 import { useRecipes, fetchRecipeById } from "@/hooks/useRecipes";
 import { Clock, Search, ChefHat, Upload, Link, Camera, Loader2, LayoutGrid, Table, Settings2, Plus, ArrowUp, ArrowDown, ArrowUpDown, UtensilsCrossed, MessageCircle, Star, BookOpen, Share2, Sparkles, Lightbulb, X, Globe } from "lucide-react";
-import KochideeChat from "@/components/KochideeChat";
+import KochideeChat, { type SuggestedRecipe } from "@/components/KochideeChat";
 import WebSearchResults from "@/components/WebSearchResults";
 import type { RecipeFilter, ActiveFilters } from "@/hooks/useRecipes";
 import RecipeModal from "@/components/RecipeModal";
@@ -651,6 +651,7 @@ export default function MeineRezepte({ onNavigate: _onNavigate, initialOpenRecip
 
   const [fabOpen, setFabOpen] = useState(false);
   const [kochideeOpen, setKochideeOpen] = useState(false);
+  const [isKochideeResult, setIsKochideeResult] = useState(false);
   const [showWebSearch, setShowWebSearch] = useState(false);
   const [webSearchQuery, setWebSearchQuery] = useState("");
   const [urlModalInitialUrl, setUrlModalInitialUrl] = useState("");
@@ -731,6 +732,7 @@ export default function MeineRezepte({ onNavigate: _onNavigate, initialOpenRecip
       setSearchLoading(false);
       setAiSearchSummary(null);
       setIsAiSearch(false);
+      setIsKochideeResult(false);
       return;
     }
 
@@ -769,6 +771,7 @@ export default function MeineRezepte({ onNavigate: _onNavigate, initialOpenRecip
     setSearch("");
     setAiSearchSummary(null);
     setIsAiSearch(false);
+    setIsKochideeResult(false);
   }, [recipeFilter]);
 
   const allCategories = useMemo(() => {
@@ -991,11 +994,11 @@ export default function MeineRezepte({ onNavigate: _onNavigate, initialOpenRecip
                 <BookOpen className="w-4 h-4 flex-shrink-0" />
                 <span>
                   <span className="font-bold">{searchResults !== null ? baseList.length : (totalRecipes ?? recipes.length)}</span>
-                  <span className="opacity-70"> {isFiltered ? "Treffer" : "Rezepte"}</span>
+                  <span className="opacity-70"> {(isFiltered || searchResults !== null) ? "Treffer" : "Rezepte"}</span>
                 </span>
               </div>
 
-              {(searchLoading || isFiltered) && (
+              {(searchLoading || isFiltered || searchResults !== null) && (
                 <div className="mb-4">
                   {searchLoading ? (
                     <div className="flex items-center gap-2 text-sm">
@@ -1012,9 +1015,38 @@ export default function MeineRezepte({ onNavigate: _onNavigate, initialOpenRecip
                       )}
                     </div>
                   ) : aiSearchSummary ? (
-                    <div className="flex items-center gap-2 px-3 py-2 rounded-xl bg-amber-50 border border-amber-200 text-sm">
+                    <div className="flex items-center gap-2 px-3 py-2 rounded-xl bg-amber-50 border border-amber-200 text-sm flex-wrap">
                       <Sparkles className="w-4 h-4 text-amber-500 flex-shrink-0" />
-                      <span className="font-medium text-amber-800">{aiSearchSummary}</span>
+                      <span className="font-medium text-amber-800 flex-1 min-w-0">{aiSearchSummary}</span>
+                      {isKochideeResult && (
+                        <>
+                          <button
+                            onClick={() => {
+                              setSearchResults(null);
+                              setAiSearchSummary(null);
+                              setIsKochideeResult(false);
+                              setIsAiSearch(false);
+                              setKochideeOpen(true);
+                            }}
+                            className="flex items-center gap-1 text-xs font-medium text-amber-700 border border-amber-300 px-2.5 py-1 rounded-lg hover:bg-amber-100 transition-colors whitespace-nowrap flex-shrink-0"
+                          >
+                            <Lightbulb className="w-3 h-3" />
+                            Verfeinern
+                          </button>
+                          <button
+                            onClick={() => {
+                              setSearchResults(null);
+                              setAiSearchSummary(null);
+                              setIsKochideeResult(false);
+                              setIsAiSearch(false);
+                            }}
+                            className="p-1 rounded-lg text-amber-600 hover:bg-amber-100 transition-colors flex-shrink-0"
+                            title="Kochidee-Ergebnis verwerfen"
+                          >
+                            <X className="w-3.5 h-3.5" />
+                          </button>
+                        </>
+                      )}
                     </div>
                   ) : baseList.length === 0 ? (
                     <div className="flex items-center gap-2 flex-wrap">
@@ -1449,6 +1481,14 @@ export default function MeineRezepte({ onNavigate: _onNavigate, initialOpenRecip
                   setKochideeOpen(false);
                   setWebSearchQuery(q);
                   setShowWebSearch(true);
+                }}
+                onResults={(resultRecipes: SuggestedRecipe[], summary: string) => {
+                  setSearchResults(resultRecipes as unknown as Recipe[]);
+                  setAiSearchSummary(summary);
+                  setIsKochideeResult(true);
+                  setIsAiSearch(true);
+                  setSearchLoading(false);
+                  setKochideeOpen(false);
                 }}
               />
             </div>

@@ -1,0 +1,55 @@
+ZIEL
+Kochidee-Ergebnisse erscheinen nicht mehr im Overlay, sondern
+in der normalen Rezept-Galerie. Das Overlay ist nur noch fuer
+das Gespraech da und schliesst sich, sobald Ergebnisse
+vorliegen.
+
+DATEIEN
+artifacts/lucias-kueche/src/components/KochideeChat.tsx
+artifacts/lucias-kueche/src/pages/MeineRezepte.tsx
+
+AENDERUNG
+1. KochideeChat bekommt im overlay-Modus einen neuen Callback
+   onResults(recipes, summary). Nach erfolgreichem Abschluss
+   (Treffer vorhanden) ruft die Komponente onResults auf,
+   statt die Karten selbst zu rendern, und das Overlay wird
+   geschlossen.
+
+2. MeineRezepte verarbeitet onResults wie ein Suchergebnis:
+   - die gelieferten Rezepte werden als aktives Suchergebnis
+     in der Galerie angezeigt (derselbe Mechanismus wie bei
+     searchResults der Suchfeld-Suche)
+   - darueber der bestehende Ergebnis-Banner (wie bei der
+     KI-Suche im Suchfeld) mit dem summary-Text, ergaenzt um
+     zwei Aktionen: "Verfeinern" (oeffnet das Kochidee-Overlay
+     neu fuer ein frisches Gespraech) und ein X, das das
+     Ergebnis verwirft und die normale Galerie zeigt
+   - das Suchfeld bleibt leer bzw. unangetastet — der Banner
+     traegt die Herkunft
+
+3. Der Null-Treffer-Zustand und der Fehlerzustand BLEIBEN im
+   Overlay (dort steht der "Nochmal versuchen"- und der
+   "Im Web suchen"-Weg) — nur ECHTE Treffer wandern in die
+   Galerie.
+
+4. Der tab-Modus (WasKocheIch) bleibt vollstaendig unveraendert.
+
+VERBOTEN
+- Keine Aenderung an der Suchlogik oder smart-search
+- Keine Aenderung am Gespraechsablauf im Overlay
+- Kein zweiter Darstellungsweg — Galerie ist die einzige
+  Ergebnisflaeche fuer Treffer
+
+VERIFIKATION
+1. Kochidee-Durchlauf mit Treffern: Overlay schliesst sich,
+   Galerie zeigt die Treffer, Banner mit summary steht darueber
+2. Rezept aus dem Ergebnis oeffnen: normales Rezept-Modal
+3. X am Banner: Galerie zeigt wieder alle Rezepte
+4. "Verfeinern": Overlay oeffnet frisch
+5. Durchlauf ohne Treffer: Meldung bleibt IM Overlay,
+   Galerie unveraendert
+6. Suchfeld-Suche danach: funktioniert normal, Banner der
+   Kochidee ist weg
+
+ROLLBACK
+onResults entfernen, Karten wieder im Overlay rendern.

@@ -9,8 +9,10 @@ interface Props {
   onClose: () => void;
   onAdd: (recipes: Partial<Recipe>[]) => Promise<number[]>;
   onOpenRecipe?: (id: number) => void;
-  /** Wenn gesetzt: URL vorausfüllen und Import sofort starten */
+  /** Einzelne URL vorausfüllen und Import sofort starten */
   initialUrl?: string;
+  /** Mehrere URLs sequenziell importieren (aus Websuche-Mehrfachauswahl) */
+  initialUrls?: string[];
 }
 
 type Step = "input" | "loading" | "review" | "saving" | "done" | "error";
@@ -23,8 +25,9 @@ function getDomain(rawUrl: string): string {
   }
 }
 
-export default function UrlImportModal({ onClose, onAdd, onOpenRecipe, initialUrl }: Props) {
-  const [step, setStep] = useState<Step>(initialUrl ? "loading" : "input");
+export default function UrlImportModal({ onClose, onAdd, onOpenRecipe, initialUrl, initialUrls }: Props) {
+  const hasMultiUrls = initialUrls && initialUrls.length > 0;
+  const [step, setStep] = useState<Step>((initialUrl || hasMultiUrls) ? "loading" : "input");
   const [url, setUrl] = useState(initialUrl ?? "");
   const [extracted, setExtracted] = useState<Partial<Recipe>[]>([]);
   // Vorauswahl: LEER — bewusstes Anhaken statt bewusstes Abwählen
@@ -33,6 +36,9 @@ export default function UrlImportModal({ onClose, onAdd, onOpenRecipe, initialUr
   const [errorMsg, setErrorMsg] = useState("");
   const [savedRecipeIds, setSavedRecipeIds] = useState<number[]>([]);
   const [savedTitles, setSavedTitles] = useState<string[]>([]);
+  // Fortschritt beim sequenziellen Multi-URL-Import
+  const [multiProgress, setMultiProgress] = useState<{ current: number; total: number } | null>(null);
+  const [multiFailCount, setMultiFailCount] = useState(0);
 
   const handleImportUrl = async (urlToImport: string) => {
     const trimmed = urlToImport.trim();
@@ -69,10 +75,44 @@ export default function UrlImportModal({ onClose, onAdd, onOpenRecipe, initialUr
     }
   };
 
+  /** Sequenzieller Import mehrerer URLs — strikt nacheinander (kein paralleler AI-Aufruf). */
+  const handleImportMultiUrls = async (urls: string[]) => {
+    setStep("loading");
+    setMultiProgress({ current: 1, total: urls.length });
+    setMultiFailCount(0);
+
+    const allRecipes: Partial<Recipe>[] = [];
+    let fails = 0;
+
+    for (let idx = 0; idx < urls.length; idx++) {
+      setMultiProgress({ current: idx + 1, total: urls.length });
+      const trimmed = urls[idx].trim();
+      try {
+        const { recipes } = await extractUrlRecipes(trimmed);
+        allRecipes.push(...recipes);
+      } catch {
+        fails++;
+      }
+    }
+
+    setMultiProgress(null);
+    setMultiFailCount(fails);
+    setExtracted(allRecipes);
+    setSelected(new Set());
+    setExpandedItems(allRecipes.length === 1 ? new Set([0]) : new Set());
+    setStep("review");
+  };
+
   const handleImport = () => handleImportUrl(url);
 
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  useEffect(() => { if (initialUrl) handleImportUrl(initialUrl); }, []);
+  useEffect(() => {
+    if (initialUrls && initialUrls.length > 0) {
+      void handleImportMultiUrls(initialUrls);
+    } else if (initialUrl) {
+      void handleImportUrl(initialUrl);
+    }
+  }, []);
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
     if (e.key === "Enter") handleImport();
@@ -186,8 +226,19 @@ export default function UrlImportModal({ onClose, onAdd, onOpenRecipe, initialUr
           {step === "loading" && (
             <div className="flex flex-col items-center gap-4 py-12">
               <Loader2 className="w-10 h-10 text-[#4A7C59] animate-spin" />
-              <p className="font-serif text-lg text-foreground">KI analysiert die Seite…</p>
-              <p className="text-sm text-muted-foreground">Das kann einen Moment dauern.</p>
+              {multiProgress ? (
+                <>
+                  <p className="font-serif text-lg text-foreground">
+                    Analysiere {multiProgress.current}/{multiProgress.total}…
+                  </p>
+                  <p className="text-sm text-muted-foreground">Bitte kurz warten.</p>
+                </>
+              ) : (
+                <>
+                  <p className="font-serif text-lg text-foreground">KI analysiert die Seite…</p>
+                  <p className="text-sm text-muted-foreground">Das kann einen Moment dauern.</p>
+                </>
+              )}
             </div>
           )}
 
@@ -210,6 +261,14 @@ export default function UrlImportModal({ onClose, onAdd, onOpenRecipe, initialUr
                 </div>
               ) : (
                 <>
+                  {multiFailCount > 0 && (
+                    <p className="text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded-xl px-3 py-2 mb-3">
+                      {multiFailCount === 1
+                        ? "1 Seite konnte nicht gelesen werden."
+                        : `${multiFailCount} Seiten konnten nicht gelesen werden.`}
+                      {" "}Die übrigen Rezepte sind unten bereit.
+                    </p>
+                  )}
                   <p className="text-sm text-muted-foreground mb-3">
                     {extracted.length === 1
                       ? "Rezept prüfen und dann übernehmen:"

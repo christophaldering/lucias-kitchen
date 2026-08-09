@@ -634,6 +634,7 @@ export default function MeineRezepte({ onNavigate: _onNavigate, initialOpenRecip
   };
   const [showPdfModal, setShowPdfModal] = useState(false);
   const [showUrlModal, setShowUrlModal] = useState(false);
+  const [urlModalInitialUrls, setUrlModalInitialUrls] = useState<string[]>([]);
   const [showImageModal, setShowImageModal] = useState(false);
   const [showNewRecipeModal, setShowNewRecipeModal] = useState(false);
   const [variantBaseRecipe, setVariantBaseRecipe] = useState<Recipe | null>(null);
@@ -1377,10 +1378,11 @@ export default function MeineRezepte({ onNavigate: _onNavigate, initialOpenRecip
 
           {showUrlModal && (
             <UrlImportModal
-              onClose={() => { setShowUrlModal(false); setUrlModalInitialUrl(""); }}
+              onClose={() => { setShowUrlModal(false); setUrlModalInitialUrl(""); setUrlModalInitialUrls([]); }}
               onAdd={async (newRecipes) => addRecipes(newRecipes)}
-              onOpenRecipe={(id) => { setShowUrlModal(false); setUrlModalInitialUrl(""); openRecipe(id); }}
-              initialUrl={urlModalInitialUrl || undefined}
+              onOpenRecipe={(id) => { setShowUrlModal(false); setUrlModalInitialUrl(""); setUrlModalInitialUrls([]); openRecipe(id); }}
+              initialUrl={urlModalInitialUrls.length !== 1 ? (urlModalInitialUrl || undefined) : undefined}
+              initialUrls={urlModalInitialUrls.length > 1 ? urlModalInitialUrls : undefined}
             />
           )}
 
@@ -1499,9 +1501,10 @@ export default function MeineRezepte({ onNavigate: _onNavigate, initialOpenRecip
         <WebSearchResults
           query={webSearchQuery}
           onClose={() => setShowWebSearch(false)}
-          onSelectUrl={(url) => {
+          onSelectUrls={(urls) => {
             setShowWebSearch(false);
-            setUrlModalInitialUrl(url);
+            setUrlModalInitialUrls(urls);
+            setUrlModalInitialUrl(urls.length === 1 ? urls[0] : "");
             setShowUrlModal(true);
           }}
         />

@@ -1,0 +1,60 @@
+ZIEL
+Im Websuche-Overlay koennen mehrere Ergebnisse ausgewaehlt
+und gemeinsam uebernommen werden. Karte antippen = auswaehlen;
+eine Sammel-Aktion startet die Uebernahme aller Ausgewaehlten.
+
+DATEIEN
+artifacts/lucias-kueche/src/components/WebSearchResults.tsx
+artifacts/lucias-kueche/src/components/UrlImportModal.tsx
+
+AENDERUNG
+
+1. AUSWAHL PER KARTEN-TIPP:
+   - Klick auf die Kartenflaeche toggelt die Auswahl:
+     sichtbarer Rahmen in Akzentfarbe + Haekchen-Kreis oben
+     links (leer = nicht gewaehlt, gefuellt = gewaehlt)
+   - "Original ansehen" bleibt und toggelt NICHT
+     (stopPropagation); der bisherige Einzel-"Uebernehmen"-
+     Button pro Karte ENTFAELLT zugunsten der Auswahl
+2. SAMMEL-AKTION:
+   - Sticky Fusszeile im Overlay, sobald >= 1 gewaehlt:
+     "N ausgewaehlt" links, rechts gefuellter Button
+     "Uebernehmen (N)"
+   - Klick startet die Analyse ALLER gewaehlten URLs
+     NACHEINANDER ueber den bestehenden extract-url-Flow,
+     mit Fortschritt "Analysiere 1/2…", "Analysiere 2/2…"
+   - Scheitert eine URL: ueberspringen, am Ende vermerken
+     ("1 Seite konnte nicht gelesen werden"), die uebrigen
+     laufen weiter
+3. GEMEINSAME BESTAETIGUNG:
+   - Alle erfolgreich analysierten Rezepte landen in EINEM
+     Bestaetigungs-Dialog (der bestehende UrlImportModal-
+     Auswahlschritt mit Vorschau) — dort gilt weiter die
+     Regel: nichts wird ohne finales "In meine Sammlung
+     uebernehmen" gespeichert
+   - UrlImportModal dafuer um initialUrls (Array) ergaenzen;
+     initialUrl (einzeln) bleibt kompatibel fuer die
+     Null-Treffer-Einstiege
+4. Bei nur EINER gewaehlten Karte verhaelt sich alles wie
+   der bisherige Einzelweg.
+
+VERBOTEN
+- Kein Speichern ohne den finalen Bestaetigungsschritt
+- Keine parallelen extract-url-Aufrufe (aiLimiter schonen —
+  strikt sequenziell)
+- Keine Aenderung an Routen
+
+VERIFIKATION
+1. Websuche "nudeln mit fleisch": beide Karten antippen ->
+   beide markiert, Fusszeile zeigt "Uebernehmen (2)"
+2. Klick: Fortschritt 1/2, 2/2 -> EIN Dialog mit beiden
+   Rezepten samt Vorschau -> beide anhaken -> uebernehmen ->
+   beide in der Galerie
+3. "Original ansehen" waehrend der Auswahl: oeffnet Tab,
+   aendert die Auswahl NICHT
+4. Eine kaputte URL im Set: Rest laeuft durch, Hinweis
+   erscheint
+5. Einzelauswahl: identisch zum bisherigen Verhalten
+
+ROLLBACK
+Zurueck zu Einzel-"Uebernehmen" pro Karte.

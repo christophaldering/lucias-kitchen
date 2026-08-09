@@ -593,14 +593,19 @@ export default function MeineRezepte({ onNavigate: _onNavigate, initialOpenRecip
     try { localStorage.setItem("lk_viewMode", JSON.stringify(mode)); } catch {}
   };
 
-  const [search, setSearch] = useState("");
+  const [field1, setField1] = useState("");
+  const [field2, setField2] = useState("");
+  const [field3, setField3] = useState("");
   const [searchResults, setSearchResults] = useState<Recipe[] | null>(null);
   const [searchLoading, setSearchLoading] = useState(false);
+  const [aiSearchLoading, setAiSearchLoading] = useState(false);
   const [aiSearchSummary, setAiSearchSummary] = useState<string | null>(null);
-  const [isAiSearch, setIsAiSearch] = useState(false);
+  // tracks which field produced the current searchResults ("direct" = field1, "ai" = field2/kochidee)
+  const activeSourceRef = useRef<"direct" | "ai" | null>(null);
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const abortControllerRef = useRef<AbortController | null>(null);
-  const cyclingPlaceholder = useCyclingPlaceholder(AI_SEARCH_PLACEHOLDERS);
+  const aiAbortRef = useRef<AbortController | null>(null);
+  const aiCyclingPlaceholder = useCyclingPlaceholder(AI_SEARCH_PLACEHOLDERS);
   const [selectedId, setSelectedId] = useState<number | null>(null);
   const [selectedFullRecipe, setSelectedFullRecipe] = useState<Recipe | null>(null);
   const selected = selectedFullRecipe ?? (selectedId != null ? (recipes.find((r) => r.id === selectedId) ?? null) : null);
@@ -726,52 +731,92 @@ export default function MeineRezepte({ onNavigate: _onNavigate, initialOpenRecip
     abortControllerRef.current?.abort();
     abortControllerRef.current = null;
 
-    const trimmed = search.trim();
+    const trimmed = field1.trim();
     if (trimmed.length < 2) {
-      setSearchResults(null);
+      // Only clear results if field1 owns them; preserve AI/Kochidee results
+      if (activeSourceRef.current === "direct") {
+        setSearchResults(null);
+        setAiSearchSummary(null);
+        setIsKochideeResult(false);
+        activeSourceRef.current = null;
+      }
       setSearchLoading(false);
-      setAiSearchSummary(null);
-      setIsAiSearch(false);
-      setIsKochideeResult(false);
       return;
     }
 
-    setIsAiSearch(true);
     setSearchLoading(true);
 
     debounceRef.current = setTimeout(async () => {
       const controller = new AbortController();
       abortControllerRef.current = controller;
       try {
-        const { recipes, summary } = await smartSearchApi(trimmed, recipeFilter, controller.signal);
+        const filterParam = recipeFilter !== "all" ? `&filter=${recipeFilter}` : "";
+        const res = await authFetch(
+          `${API_BASE}/recipes/search?q=${encodeURIComponent(trimmed)}${filterParam}`,
+          { headers: authHeaders(), signal: controller.signal },
+        );
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        const data = await res.json();
+        const found: Recipe[] = Array.isArray(data) ? data : (data.recipes ?? []);
         if (!controller.signal.aborted) {
-          setSearchResults(recipes);
-          setAiSearchSummary(summary ?? null);
+          setSearchResults(found);
+          setAiSearchSummary(null);
+          setIsKochideeResult(false);
+          activeSourceRef.current = "direct";
         }
       } catch {
         if (!controller.signal.aborted) {
-          setSearchResults(null);
+          if (activeSourceRef.current === "direct") setSearchResults(null);
           setAiSearchSummary(null);
+          activeSourceRef.current = null;
         }
       } finally {
         if (!controller.signal.aborted) {
           setSearchLoading(false);
         }
       }
-    }, 450);
+    }, 300);
 
     return () => {
       if (debounceRef.current) clearTimeout(debounceRef.current);
       abortControllerRef.current?.abort();
     };
-  }, [search, recipeFilter]);
+  }, [field1, recipeFilter]);
+
+  const runAiSearch = useCallback(async () => {
+    const trimmed = field2.trim();
+    if (!trimmed) return;
+    aiAbortRef.current?.abort();
+    const controller = new AbortController();
+    aiAbortRef.current = controller;
+    setAiSearchLoading(true);
+    try {
+      const { recipes, summary } = await smartSearchApi(trimmed, recipeFilter, controller.signal);
+      if (!controller.signal.aborted) {
+        setSearchResults(recipes);
+        setAiSearchSummary(summary ?? null);
+        setIsKochideeResult(false);
+        activeSourceRef.current = "ai";
+      }
+    } catch {
+      if (!controller.signal.aborted) {
+        setSearchResults(null);
+        setAiSearchSummary(null);
+        activeSourceRef.current = null;
+      }
+    } finally {
+      if (!controller.signal.aborted) setAiSearchLoading(false);
+    }
+  }, [field2, recipeFilter]);
 
   useEffect(() => {
     setSearchResults(null);
-    setSearch("");
+    setField1("");
+    setField2("");
+    setField3("");
     setAiSearchSummary(null);
-    setIsAiSearch(false);
     setIsKochideeResult(false);
+    activeSourceRef.current = null;
   }, [recipeFilter]);
 
   const allCategories = useMemo(() => {
@@ -828,7 +873,7 @@ export default function MeineRezepte({ onNavigate: _onNavigate, initialOpenRecip
   const currentSeason = getCurrentSeason();
   const seasonalRecipes = recipeStats?.seasonal ?? [];
 
-  const isFiltered = search.trim() !== "" || activeCategory !== "Alle" || timeFilter !== "Alle" || seasonFilter !== "Alle" || cookedFilter !== "Alle" || photoType !== "all" || chefPickFilter;
+  const isFiltered = field1.trim() !== "" || activeCategory !== "Alle" || timeFilter !== "Alle" || seasonFilter !== "Alle" || cookedFilter !== "Alle" || photoType !== "all" || chefPickFilter;
 
   return (
     <div>
@@ -879,37 +924,102 @@ export default function MeineRezepte({ onNavigate: _onNavigate, initialOpenRecip
 
           {/* Search + category filters */}
           {(
-            <div className="space-y-2 sm:space-y-3">
-              {/* Search row */}
-              <div className="flex items-center gap-3 flex-wrap">
-                <div className="relative flex-1 min-w-[180px]">
-                  <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+            <div className="space-y-2 sm:space-y-2.5">
+              {/* Feld 1: Direkte Suche */}
+              <div className="space-y-0.5">
+                <label className="text-[11px] font-medium text-muted-foreground flex items-center gap-1 pl-0.5">
+                  <Search className="w-3 h-3" /> In meinen Rezepten
+                </label>
+                <div className="relative">
+                  <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground pointer-events-none" />
                   <input
                     type="text"
-                    placeholder={cyclingPlaceholder}
-                    value={search}
-                    onChange={(e) => setSearch(e.target.value)}
-                    className="w-full pl-10 pr-10 py-2 sm:py-3 rounded-xl border border-border bg-white text-sm focus:outline-none focus:ring-2 focus:ring-[#4A7C59]/30 min-h-[40px] sm:min-h-[48px] transition-all"
+                    placeholder="Titel, Zutat oder Kategorie…"
+                    value={field1}
+                    onChange={(e) => setField1(e.target.value)}
+                    className="w-full pl-9 pr-9 py-2 rounded-xl border border-border bg-white text-sm focus:outline-none focus:ring-2 focus:ring-[#4A7C59]/30 min-h-[44px] transition-all"
                   />
-                  {isAiSearch && search.trim() && (
-                    <span className="absolute right-3 top-1/2 -translate-y-1/2 text-amber-500" title="KI-Suche aktiv">
-                      <Sparkles className="w-4 h-4" />
-                    </span>
+                  {searchLoading && (
+                    <Loader2 className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 animate-spin text-[#4A7C59] pointer-events-none" />
                   )}
                 </div>
               </div>
 
-              {/* Kochidee-Zeile: erklärt beide Suchwege */}
-              <div className="flex items-center justify-between gap-3 flex-wrap">
+              {/* Feld 2: KI-Suche in meinen Rezepten */}
+              <div className="space-y-0.5">
+                <label className="text-[11px] font-medium text-amber-600 flex items-center gap-1 pl-0.5">
+                  <Sparkles className="w-3 h-3" /> KI-Suche in meinen Rezepten
+                </label>
+                <div className="flex gap-2">
+                  <div className="relative flex-1">
+                    <Sparkles className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-amber-400 pointer-events-none" />
+                    <input
+                      type="text"
+                      placeholder={aiCyclingPlaceholder}
+                      value={field2}
+                      onChange={(e) => setField2(e.target.value)}
+                      onKeyDown={(e) => { if (e.key === "Enter") runAiSearch(); }}
+                      className="w-full pl-9 pr-9 py-2 rounded-xl border border-amber-200 bg-amber-50/60 text-sm focus:outline-none focus:ring-2 focus:ring-amber-400/30 min-h-[44px] transition-all"
+                    />
+                    {aiSearchLoading && (
+                      <Loader2 className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 animate-spin text-amber-500 pointer-events-none" />
+                    )}
+                  </div>
+                  <button
+                    onClick={runAiSearch}
+                    disabled={!field2.trim() || aiSearchLoading}
+                    className="flex-shrink-0 px-4 rounded-xl bg-amber-500 text-white text-sm font-semibold hover:bg-amber-600 disabled:opacity-40 disabled:cursor-not-allowed transition-colors min-h-[44px]"
+                    title="KI-Suche starten"
+                  >
+                    <Sparkles className="w-4 h-4" />
+                  </button>
+                </div>
+              </div>
+
+              {/* Feld 3: Im Internet suchen */}
+              <div className="space-y-0.5">
+                <label className="text-[11px] font-medium text-[#4A7C59] flex items-center gap-1 pl-0.5">
+                  <Globe className="w-3 h-3" /> Im Internet suchen
+                </label>
+                <div className="flex gap-2">
+                  <div className="relative flex-1">
+                    <Globe className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-[#4A7C59]/60 pointer-events-none" />
+                    <input
+                      type="text"
+                      placeholder="z.B. Pho Bo, Shakshuka…"
+                      value={field3}
+                      onChange={(e) => setField3(e.target.value)}
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter" && field3.trim()) {
+                          setWebSearchQuery(field3.trim());
+                          setShowWebSearch(true);
+                        }
+                      }}
+                      className="w-full pl-9 pr-4 py-2 rounded-xl border border-[#4A7C59]/20 bg-[#4A7C59]/5 text-sm focus:outline-none focus:ring-2 focus:ring-[#4A7C59]/30 min-h-[44px] transition-all"
+                    />
+                  </div>
+                  <button
+                    onClick={() => { if (field3.trim()) { setWebSearchQuery(field3.trim()); setShowWebSearch(true); } }}
+                    disabled={!field3.trim()}
+                    className="flex-shrink-0 px-4 rounded-xl bg-[#4A7C59] text-white text-sm font-semibold hover:bg-[#3a6347] disabled:opacity-40 disabled:cursor-not-allowed transition-colors min-h-[44px]"
+                    title="Im Internet suchen"
+                  >
+                    <Globe className="w-4 h-4" />
+                  </button>
+                </div>
+              </div>
+
+              {/* Kochidee-Button */}
+              <div className="flex items-center justify-between gap-3 pt-0.5">
                 <span className="text-xs text-muted-foreground leading-tight">
-                  Suchfeld findet direkt in deinen Rezepten
+                  Kochidee: KI hilft via Dialog beim Eingrenzen
                 </span>
                 <button
                   onClick={() => setKochideeOpen(true)}
-                  className="flex-shrink-0 flex items-center gap-1.5 px-3.5 py-2.5 rounded-xl text-xs font-semibold bg-[#C1693A] text-white hover:bg-[#a0542e] transition-colors min-h-[44px]"
+                  className="flex-shrink-0 flex items-center gap-1.5 px-3.5 py-2 rounded-xl text-xs font-semibold bg-[#C1693A] text-white hover:bg-[#a0542e] transition-colors min-h-[44px]"
                 >
                   <Lightbulb className="w-3.5 h-3.5" />
-                  Kochidee — KI hilft beim Eingrenzen
+                  Kochidee
                 </button>
               </div>
 
@@ -1002,29 +1112,20 @@ export default function MeineRezepte({ onNavigate: _onNavigate, initialOpenRecip
                 <div className="mb-4">
                   {searchLoading ? (
                     <div className="flex items-center gap-2 text-sm">
-                      {isAiSearch ? (
-                        <>
-                          <Sparkles className="w-3.5 h-3.5 animate-pulse text-amber-500" />
-                          <span className="text-muted-foreground">KI sucht passende Rezepte…</span>
-                        </>
-                      ) : (
-                        <>
-                          <Loader2 className="w-3.5 h-3.5 animate-spin text-[#4A7C59]" />
-                          <span className="text-muted-foreground">Suche läuft…</span>
-                        </>
-                      )}
+                      <Loader2 className="w-3.5 h-3.5 animate-spin text-[#4A7C59]" />
+                      <span className="text-muted-foreground">Suche läuft…</span>
                     </div>
                   ) : aiSearchSummary ? (
                     <div className="flex items-center gap-2 px-3 py-2 rounded-xl bg-amber-50 border border-amber-200 text-sm flex-wrap">
                       <Sparkles className="w-4 h-4 text-amber-500 flex-shrink-0" />
                       <span className="font-medium text-amber-800 flex-1 min-w-0">{aiSearchSummary}</span>
-                      {baseList.length === 0 && search.trim() && (
+                      {baseList.length === 0 && field2.trim() && (
                         <button
-                          onClick={() => { setWebSearchQuery(search.trim()); setShowWebSearch(true); }}
+                          onClick={() => { setField3(field2.trim()); setWebSearchQuery(field2.trim()); setShowWebSearch(true); }}
                           className="flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-full border border-[#4A7C59]/30 text-[#4A7C59] hover:bg-[#4A7C59]/5 transition-colors flex-shrink-0"
                         >
                           <Globe className="w-3 h-3" />
-                          Im Web nach „{search.trim()}" suchen
+                          Im Web nach „{field2.trim()}" suchen
                         </button>
                       )}
                       {isKochideeResult && (
@@ -1034,7 +1135,7 @@ export default function MeineRezepte({ onNavigate: _onNavigate, initialOpenRecip
                               setSearchResults(null);
                               setAiSearchSummary(null);
                               setIsKochideeResult(false);
-                              setIsAiSearch(false);
+                              activeSourceRef.current = null;
                               setKochideeOpen(true);
                             }}
                             className="flex items-center gap-1 text-xs font-medium text-amber-700 border border-amber-300 px-2.5 py-1 rounded-lg hover:bg-amber-100 transition-colors whitespace-nowrap flex-shrink-0"
@@ -1047,7 +1148,7 @@ export default function MeineRezepte({ onNavigate: _onNavigate, initialOpenRecip
                               setSearchResults(null);
                               setAiSearchSummary(null);
                               setIsKochideeResult(false);
-                              setIsAiSearch(false);
+                              activeSourceRef.current = null;
                             }}
                             className="p-1 rounded-lg text-amber-600 hover:bg-amber-100 transition-colors flex-shrink-0"
                             title="Kochidee-Ergebnis verwerfen"
@@ -1060,13 +1161,13 @@ export default function MeineRezepte({ onNavigate: _onNavigate, initialOpenRecip
                   ) : baseList.length === 0 ? (
                     <div className="flex items-center gap-2 flex-wrap">
                       <p className="text-sm text-muted-foreground">Keine Treffer</p>
-                      {search.trim() && (
+                      {field1.trim() && (
                         <button
-                          onClick={() => { setWebSearchQuery(search.trim()); setShowWebSearch(true); }}
+                          onClick={() => { setField3(field1.trim()); setWebSearchQuery(field1.trim()); setShowWebSearch(true); }}
                           className="flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-full border border-[#4A7C59]/30 text-[#4A7C59] hover:bg-[#4A7C59]/5 transition-colors"
                         >
                           <Globe className="w-3 h-3" />
-                          Im Web nach „{search.trim()}" suchen
+                          Im Web nach „{field1.trim()}" suchen
                         </button>
                       )}
                     </div>
@@ -1084,7 +1185,7 @@ export default function MeineRezepte({ onNavigate: _onNavigate, initialOpenRecip
               )}
 
               {/* Seasonal hint banner */}
-              {seasonFilter === "Alle" && seasonalRecipes.length > 0 && !search && (
+              {seasonFilter === "Alle" && seasonalRecipes.length > 0 && !field1 && !field2 && (
                 <div
                   className="mb-4 flex items-center justify-between gap-3 px-4 py-3 rounded-xl border cursor-pointer hover:opacity-90 transition-opacity"
                   style={{ background: "linear-gradient(135deg, #f5ede0, #fdf6ec)", borderColor: "#e2c9a8" }}
@@ -1102,7 +1203,7 @@ export default function MeineRezepte({ onNavigate: _onNavigate, initialOpenRecip
                 </div>
               )}
 
-              {searchLoading && isAiSearch ? (
+              {aiSearchLoading ? (
                 <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-5">
                   {[1, 2, 3, 4].map((i) => (
                     <div key={i} className="bg-white rounded-2xl border border-border overflow-hidden animate-pulse" style={{ boxShadow: "0 2px 12px rgba(120,70,30,0.10)" }}>
@@ -1119,13 +1220,18 @@ export default function MeineRezepte({ onNavigate: _onNavigate, initialOpenRecip
                 <div className="text-center py-16 text-muted-foreground">
                   <p className="text-4xl mb-4">🔍</p>
                   <p className="font-serif text-lg">Kein Rezept gefunden.</p>
-                  {search.trim() && (
+                  {(field1.trim() || field2.trim()) && (
                     <button
-                      onClick={() => { setWebSearchQuery(search.trim()); setShowWebSearch(true); }}
+                      onClick={() => {
+                        const q = field1.trim() || field2.trim();
+                        setField3(q);
+                        setWebSearchQuery(q);
+                        setShowWebSearch(true);
+                      }}
                       className="mt-4 inline-flex items-center gap-1.5 text-sm px-4 py-2 rounded-full border border-[#4A7C59]/30 text-[#4A7C59] hover:bg-[#4A7C59]/5 transition-colors"
                     >
                       <Globe className="w-3.5 h-3.5" />
-                      Im Web nach „{search.trim()}" suchen
+                      Im Web nach „{field1.trim() || field2.trim()}" suchen
                     </button>
                   )}
                 </div>
@@ -1504,7 +1610,7 @@ export default function MeineRezepte({ onNavigate: _onNavigate, initialOpenRecip
                   setSearchResults(resultRecipes as unknown as Recipe[]);
                   setAiSearchSummary(summary);
                   setIsKochideeResult(true);
-                  setIsAiSearch(true);
+                  activeSourceRef.current = "ai";
                   setSearchLoading(false);
                   setKochideeOpen(false);
                 }}

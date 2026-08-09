@@ -1,0 +1,72 @@
+ZIEL
+Drei klar getrennte Suchfelder untereinander auf der
+Rezepte-Seite:
+1. Direkte Suche in den eigenen Rezepten
+2. KI-gestuetzte Suche in den eigenen Rezepten
+3. KI-gestuetzte Suche im Internet
+
+DATEI
+artifacts/lucias-kueche/src/pages/MeineRezepte.tsx
+(plus minimale Anpassungen an WebSearchResults, falls noetig)
+
+AUFBAU
+Anstelle des bisherigen einen Suchfelds drei Felder
+untereinander, jeweils mit Icon, kurzem Label und eigenem
+Platzhalter:
+
+Feld 1 — Lupe, Label "In meinen Rezepten"
+  Platzhalter: "Titel, Zutat oder Kategorie…"
+  Verhalten: Live-Suche beim Tippen (Debounce 300 ms) ueber
+  die bestehende Mehrwort-Suche GET /recipes/search.
+  KEIN KI-Aufruf.
+
+Feld 2 — Funkel-Icon, Label "KI-Suche in meinen Rezepten"
+  Platzhalter: "z.B. ohne Fleisch unter 30 Minuten…"
+  Verhalten: Ausloesung NUR per Enter oder Such-Button am
+  Feldrand (kein Feuern beim Tippen — jeder Aufruf kostet).
+  Ruft POST /recipes/smart-search mit query auf.
+  Waehrend der Suche Spinner im Feld.
+
+Feld 3 — Weltkugel, Label "Im Internet suchen"
+  Platzhalter: "z.B. Pho Bo, Shakshuka…"
+  Verhalten: Ausloesung NUR per Enter oder Button.
+  Oeffnet das bestehende WebSearchResults-Overlay mit der
+  Anfrage (Route /recipes/web-search, Import-Flow wie gebaut).
+
+REGELN
+- Es ist immer nur EINE Suche aktiv: Ausloesen in einem Feld
+  leert die Ergebnisse der anderen und deren Eingaben bleiben
+  stehen, aber ihr Ergebnis-Banner verschwindet.
+- Ergebnisse von Feld 1 und 2 erscheinen wie bisher in der
+  Galerie (Feld 2 mit dem summary-Banner). Feld 3 bleibt im
+  Overlay mit Import.
+- Die Null-Treffer-Buttons "Im Web suchen" aus dem vorherigen
+  Fix bleiben und befuellen/triggern Feld 3 — als Abkuerzung
+  von Ebene 1/2 zu Ebene 3.
+- Der Kochidee-Button bleibt erhalten und rueckt als vierte
+  Zeile unter die drei Felder (oder rechts neben Feld 2,
+  falls Platz) — er ist der dialogische Weg zu Ebene 2.
+- Mobil: Felder volle Breite, kompakte Hoehe, Labels klein
+  ueber dem Feld; nichts ueberlappt, Buttons min. 44px.
+
+VERBOTEN
+- Keine Aenderung an den drei Server-Routen
+- Kein KI- oder Web-Aufruf beim blossen Tippen (Feld 2 und 3)
+- isAiQuery-Reste, falls noch vorhanden, entfernen —
+  die Weiche ist durch die expliziten Felder ersetzt
+
+VERIFIKATION
+1. Feld 1 "Auflauf": Treffer erscheinen live beim Tippen
+2. Feld 2 "ohne Fleisch unter 30 Minuten" + Enter: Banner
+   mit summary, gefilterte Treffer in der Galerie
+3. Feld 3 "Pho Bo" + Enter: Web-Overlay mit Karten, Import
+   funktioniert
+4. Netzwerk-Tab: beim Tippen in Feld 2 und 3 KEINE Requests,
+   erst bei Enter
+5. Nacheinander Feld 1 und Feld 2 nutzen: nur das jeweils
+   letzte Ergebnis sichtbar, kein Banner-Geist
+6. iPhone-Breite: drei Felder sauber untereinander, Galerie
+   beginnt ohne Scroll-Marathon
+
+ROLLBACK
+Zurueck zum einen Feld mit smart-search.

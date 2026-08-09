@@ -1,5 +1,6 @@
 import { Router, type IRouter } from "express";
 import { aiLimiter } from "../lib/rateLimits";
+import { authMiddleware } from "./auth";
 import { openai } from "@workspace/integrations-openai-ai-server";
 import { db } from "@workspace/db";
 import { recipesTable, recipeIngredientsTable, mealPlansTable } from "@workspace/db/schema";
@@ -15,7 +16,7 @@ const suggestSchema = z.object({
   wishText: z.string().max(500).optional().default(""),
 });
 
-router.post("/meal-plans/suggest", aiLimiter, async (req, res) => {
+router.post("/meal-plans/suggest", authMiddleware, aiLimiter, async (req, res) => {
   try {
     const parsed = suggestSchema.parse(req.body);
     const { startDate, days, mealTypes, wishText } = parsed;

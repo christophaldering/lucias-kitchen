@@ -1,5 +1,6 @@
 import { Router, type IRouter } from "express";
 import { aiLimiter } from "../lib/rateLimits";
+import { authMiddleware } from "./auth";
 import { openai } from "@workspace/integrations-openai-ai-server";
 import { RECIPE_EXTRACTION_SYSTEM_PROMPT } from "../lib/recipeExtractionPrompt";
 import { ObjectStorageService } from "../lib/objectStorage";
@@ -56,7 +57,7 @@ async function cropAndStore(
   }
 }
 
-router.post("/extract-image", aiLimiter, async (req, res) => {
+router.post("/extract-image", authMiddleware, aiLimiter, async (req, res) => {
   try {
     const body = req.body as {
       image?: string;

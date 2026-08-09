@@ -20,6 +20,7 @@ import { eq, inArray, sql, and, isNull } from "drizzle-orm";
 import { z } from "zod/v4";
 import { openai } from "@workspace/integrations-openai-ai-server";
 import { aiLimiter, searchLimiter } from "../../lib/rateLimits";
+import { authMiddleware } from "../auth";
 import { embedQuery, cosineSimilarity, getRecipeEmbeddings } from "../../lib/embeddings";
 import { createHash } from "crypto";
 import {
@@ -254,7 +255,7 @@ function canExtract(ip: string): boolean {
   return true;
 }
 
-router.post("/recipes/smart-search", searchLimiter, async (req, res) => {
+router.post("/recipes/smart-search", authMiddleware, searchLimiter, async (req, res) => {
   try {
     const bodySchema = z.object({
       query: z.string().min(1).max(500),
@@ -519,7 +520,7 @@ router.post("/recipes/smart-search", searchLimiter, async (req, res) => {
 });
 
 // ---------------------------------------------------------------------------
-router.post("/recipes/ai-search", aiLimiter, async (req, res) => {
+router.post("/recipes/ai-search", authMiddleware, aiLimiter, async (req, res) => {
   try {
     const schema = z.object({
       query: z.string().min(1).max(500),
@@ -1417,7 +1418,7 @@ const suggestBodySchema = z.object({
   exclusions: z.array(z.string()).default([]),
 });
 
-router.post("/recipes/suggest", aiLimiter, async (req, res) => {
+router.post("/recipes/suggest", authMiddleware, aiLimiter, async (req, res) => {
   try {
     const { ingredients, moods, exclusions } = suggestBodySchema.parse(req.body);
     const allRecipes = await getRecipesWithIngredients(req.authUser?.id);

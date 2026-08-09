@@ -1,5 +1,6 @@
 import { Router, type IRouter } from "express";
 import { aiLimiter } from "../lib/rateLimits";
+import { authMiddleware } from "./auth";
 import { openai } from "@workspace/integrations-openai-ai-server";
 import { anthropic } from "@workspace/integrations-anthropic-ai";
 import { RECIPE_EXTRACTION_SYSTEM_PROMPT } from "../lib/recipeExtractionPrompt";
@@ -8,7 +9,7 @@ import { ObjectStorageService } from "../lib/objectStorage";
 const router: IRouter = Router();
 const storageService = new ObjectStorageService();
 
-router.post("/extract-pdf", aiLimiter, async (req, res) => {
+router.post("/extract-pdf", authMiddleware, aiLimiter, async (req, res) => {
   try {
     const { pdf } = req.body as { pdf?: string };
 

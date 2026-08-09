@@ -1,5 +1,6 @@
 import { Router, type IRouter } from "express";
 import { aiLimiter } from "../lib/rateLimits";
+import { authMiddleware } from "./auth";
 import { openai } from "@workspace/integrations-openai-ai-server";
 
 const router: IRouter = Router();
@@ -23,7 +24,7 @@ Nenne die Zutaten auf Deutsch, kurz und präzise (z.B. "Lachs", "Champignons", "
   pantry: `Du bist ein Speisekammer-Analyst. Analysiere das Foto und erkenne alle sichtbaren Vorräte, Konserven, Trockenwaren, Nudeln, Reis, Mehl, Öle und sonstige haltbare Lebensmittel. Gib eine JSON-Liste der erkannten Zutaten zurück. Nenne sie auf Deutsch, kurz und präzise. Gib AUSSCHLIESSLICH reines JSON zurück ohne Markdown. Format: {"ingredients": ["Zutat1", "Zutat2"]}`,
 };
 
-router.post("/extract-fridge", aiLimiter, async (req, res) => {
+router.post("/extract-fridge", authMiddleware, aiLimiter, async (req, res) => {
   try {
     const { image, mimeType, location } = req.body as { image?: string; mimeType?: string; location?: string };
 

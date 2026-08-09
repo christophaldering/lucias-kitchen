@@ -1,5 +1,6 @@
 import { Router, type IRouter } from "express";
 import { aiLimiter } from "../lib/rateLimits";
+import { authMiddleware } from "./auth";
 import { openai } from "@workspace/integrations-openai-ai-server";
 import { promises as dns } from "node:dns";
 import { isIPv4, isIPv6 } from "node:net";
@@ -293,7 +294,7 @@ export async function extractAndSaveImageFromUrl(sourceUrl: string): Promise<str
   }
 }
 
-router.post("/extract-url", aiLimiter, async (req, res) => {
+router.post("/extract-url", authMiddleware, aiLimiter, async (req, res) => {
   try {
     const { url } = req.body as { url?: string };
 

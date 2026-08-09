@@ -1,0 +1,58 @@
+ZIEL
+Etappe A der semantischen Suche: Embedding-Infrastruktur.
+Jedes Rezept bekommt einen Embedding-Vektor. Die Suche selbst
+wird in dieser Etappe NICHT veraendert.
+
+TEIL 1 — SPEICHERUNG
+Neue Tabelle recipe_embeddings im Drizzle-Schema:
+  recipe_id    (FK auf recipes, unique, cascade delete)
+  embedding    Vektor mit 1536 Dimensionen
+  content_hash Text (Hash des eingebetteten Inhalts)
+  updated_at   Timestamp
+
+Bevorzugt: pgvector. Beim Start CREATE EXTENSION IF NOT EXISTS
+vector versuchen. Funktioniert das nicht (Extension in der
+Datenbank nicht verfuegbar), stattdessen die Vektoren als JSONB-
+Array speichern und die Aehnlichkeit spaeter in Node berechnen —
+bei ~700 Rezepten sind das ~4 MB im Speicher, unkritisch.
+Im Ergebnisbericht klar nennen, welcher Weg aktiv ist.
+
+TEIL 2 — EMBEDDING-ERZEUGUNG
+Neue Datei artifacts/api-server/src/lib/embeddings.ts
+
+Modell: OpenAI text-embedding-3-small.
+Eingebetteter Text pro Rezept: Titel, Kategorie, Tags,
+Zutatennamen, allgemeine Notizen (notes). AUSDRUECKLICH NICHT:
+personalNotes oder andere nutzerbezogene Daten.
+content_hash = Hash genau dieses Textes.
+
+TEIL 3 — BEFUELLUNG UND PFLEGE
+Beim Serverstart ein Hintergrund-Job (nicht blockierend):
+alle Rezepte ohne Embedding oder mit abweichendem content_hash
+einsammeln und in Batches (bis 100 Texte pro API-Aufruf)
+einbetten. Fortschritt loggen ("Embeddings: 200/678").
+Fehler einzelner Batches loggen und weitermachen.
+
+Nach Erstellen oder Aendern eines Rezepts: Embedding asynchron
+neu berechnen — der Nutzer wartet darauf NICHT, die Antwort der
+Route geht sofort raus. Beim Loeschen uebernimmt cascade delete.
+
+VERBOTEN
+- Keine Aenderung an irgendeiner Such-Route
+- Keine Aenderung am Client
+- Kein Embedding von personalNotes
+- Startvorgang darf nicht auf die Befuellung warten
+
+VERIFIKATION
+1. Nach dem ersten Start und Abschluss des Jobs:
+   SELECT COUNT(*) FROM recipe_embeddings
+   muss der Zahl der nicht geloeschten Rezepte entsprechen
+2. Ein Rezept bearbeiten (Zutat ergaenzen): updated_at und
+   content_hash des Embeddings aendern sich binnen kurzem
+3. Server-Neustart danach: Job findet nichts mehr zu tun
+   (Log zeigt 0 fehlende)
+4. App normal benutzbar waehrend der Befuellung
+
+ROLLBACK
+Bei Startproblemen: Hintergrund-Job deaktivieren, Tabelle
+kann bleiben.

@@ -35,16 +35,13 @@ const TABLE_SORT_MAP: Record<TableSortKey, string> = {
   createdAt: "neueste",
 };
 
-async function searchRecipesApi(q: string, filter: RecipeFilter, signal?: AbortSignal): Promise<Recipe[]> {
-  const filterParam = filter !== "all" ? `&filter=${filter}` : "";
-  const res = await authFetch(`${API_BASE}/recipes/search?q=${encodeURIComponent(q)}${filterParam}`, { headers: authHeaders(), signal });
-  if (!res.ok) throw new Error(`HTTP ${res.status}`);
-  return res.json();
-}
-
-async function aiSearchRecipesApi(query: string, filter: RecipeFilter, signal?: AbortSignal): Promise<{ recipes: Recipe[]; summary: string }> {
+async function smartSearchApi(
+  query: string,
+  filter: RecipeFilter,
+  signal?: AbortSignal,
+): Promise<{ recipes: Recipe[]; summary: string; exactCount: number; semanticCount: number }> {
   const filterParam = filter !== "all" ? filter : undefined;
-  const res = await authFetch(`${API_BASE}/recipes/ai-search`, {
+  const res = await authFetch(`${API_BASE}/recipes/smart-search`, {
     method: "POST",
     headers: { ...authHeaders(), "Content-Type": "application/json" },
     body: JSON.stringify({ query, filter: filterParam }),
@@ -52,24 +49,6 @@ async function aiSearchRecipesApi(query: string, filter: RecipeFilter, signal?: 
   });
   if (!res.ok) throw new Error(`HTTP ${res.status}`);
   return res.json();
-}
-
-const AI_SIGNAL_WORDS = new Set([
-  "ohne", "kein", "keine", "keinen", "unter", "ueber", "über",
-  "maximal", "max", "hoechstens", "höchstens", "weniger",
-  "schnell", "schnelles", "schneller", "einfach", "einfaches",
-  "festlich", "festliches", "leicht", "leichtes",
-  "vegetarisch", "vegan",
-]);
-
-function isAiQuery(query: string): boolean {
-  const trimmed = query.trim();
-  if (!trimmed) return false;
-  const words = trimmed.split(/\s+/);
-  if (words.length > 3) return true;
-  if (/[?,!]/.test(trimmed)) return true;
-  if (words.some((w) => AI_SIGNAL_WORDS.has(w.toLowerCase()))) return true;
-  return false;
 }
 
 const AI_SEARCH_PLACEHOLDERS = [
@@ -741,33 +720,25 @@ export default function MeineRezepte({ onNavigate: _onNavigate, initialOpenRecip
     abortControllerRef.current = null;
 
     const trimmed = search.trim();
-    if (!trimmed) {
+    if (trimmed.length < 2) {
       setSearchResults(null);
       setSearchLoading(false);
       setAiSearchSummary(null);
       setIsAiSearch(false);
       return;
     }
-    const useAi = isAiQuery(trimmed);
-    setIsAiSearch(useAi);
+
+    setIsAiSearch(true);
     setSearchLoading(true);
-    const debounceMs = useAi ? 700 : 300;
+
     debounceRef.current = setTimeout(async () => {
       const controller = new AbortController();
       abortControllerRef.current = controller;
       try {
-        if (useAi) {
-          const { recipes, summary } = await aiSearchRecipesApi(trimmed, recipeFilter, controller.signal);
-          if (!controller.signal.aborted) {
-            setSearchResults(recipes);
-            setAiSearchSummary(summary);
-          }
-        } else {
-          const results = await searchRecipesApi(trimmed, recipeFilter, controller.signal);
-          if (!controller.signal.aborted) {
-            setSearchResults(results);
-            setAiSearchSummary(null);
-          }
+        const { recipes, summary } = await smartSearchApi(trimmed, recipeFilter, controller.signal);
+        if (!controller.signal.aborted) {
+          setSearchResults(recipes);
+          setAiSearchSummary(summary ?? null);
         }
       } catch {
         if (!controller.signal.aborted) {
@@ -779,7 +750,8 @@ export default function MeineRezepte({ onNavigate: _onNavigate, initialOpenRecip
           setSearchLoading(false);
         }
       }
-    }, debounceMs);
+    }, 450);
+
     return () => {
       if (debounceRef.current) clearTimeout(debounceRef.current);
       abortControllerRef.current?.abort();

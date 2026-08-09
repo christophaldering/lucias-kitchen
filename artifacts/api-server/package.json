@@ -11,6 +11,7 @@
   },
   "dependencies": {
     "@google-cloud/storage": "^7.19.0",
+    "@google/genai": "^2.16.0",
     "@napi-rs/canvas": "^0.1.97",
     "@types/compression": "^1.8.1",
     "@types/multer": "^2.1.0",

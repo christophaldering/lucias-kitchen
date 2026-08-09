@@ -13,6 +13,7 @@ import { eq, and, isNull, sql } from "drizzle-orm";
 import { z } from "zod/v4";
 import { authMiddleware } from "../auth";
 import { generateTagsForRecipe } from "../../lib/generateRecipeTags";
+import { upsertEmbeddingForRecipe } from "../../lib/embeddings";
 import { registerPhotoForRecipe } from "../../utils/registerPhotoForRecipe";
 import {
   isAdmin,
@@ -275,6 +276,11 @@ router.post("/recipes", authMiddleware, async (req, res) => {
       }
     }
 
+    // Embedding asynchron erzeugen (fire-and-forget, Nutzer wartet nicht)
+    setImmediate(() => {
+      upsertEmbeddingForRecipe(recipe.id).catch(() => {});
+    });
+
     res.status(201).json(created.length === 1 ? created[0] : created);
   } catch (err) {
     if (err instanceof z.ZodError) {
@@ -373,6 +379,11 @@ router.put("/recipes/:id", authMiddleware, async (req, res) => {
       .where(eq(recipeIngredientsTable.recipeId, id));
 
     res.json({ ...updated, ingredients: updatedIngredients, isOwner: true, isFavorite: false, owner: null });
+
+    // Embedding asynchron aktualisieren (fire-and-forget)
+    setImmediate(() => {
+      upsertEmbeddingForRecipe(id).catch(() => {});
+    });
   } catch (err) {
     if (err instanceof z.ZodError) {
       res.status(400).json({ error: "validation_error", issues: err.issues });

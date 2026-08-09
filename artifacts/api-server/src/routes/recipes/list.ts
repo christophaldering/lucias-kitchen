@@ -19,7 +19,8 @@ import {
 import { eq, inArray, sql, and, isNull } from "drizzle-orm";
 import { z } from "zod/v4";
 import { openai } from "@workspace/integrations-openai-ai-server";
-import { aiLimiter } from "../../lib/rateLimits";
+import { aiLimiter, searchLimiter } from "../../lib/rateLimits";
+import { embedQuery, cosineSimilarity, getRecipeEmbeddings } from "../../lib/embeddings";
 import { createHash } from "crypto";
 import {
   isAdmin,
@@ -223,6 +224,301 @@ Gib IMMER reines JSON zurück (kein Markdown), folgendes Format:
 
 Extrahiere alle relevanten Felder aus der Anfrage. keywords sind zusätzliche Begriffe die im Titel oder in Notizen vorkommen könnten. summary ist eine sehr kurze Beschreibung der Suche (max. 8 Wörter) für die Ergebnisanzeige.`;
 
+// ---------------------------------------------------------------------------
+// POST /recipes/smart-search
+// ---------------------------------------------------------------------------
+// Bedingungswörter, die eine GPT-Kriterienextraktion auslösen
+const SMART_CONDITION_WORDS = new Set([
+  "ohne", "kein", "keine", "keinen",
+  "unter", "ueber", "über",
+  "maximal", "max", "hoechstens", "höchstens", "weniger",
+  "vegetarisch", "vegan",
+]);
+
+const STOPWORDS_SMART = new Set(["mit", "und", "der", "die", "das", "im", "in", "am"]);
+
+const SIMILARITY_THRESHOLD = 0.30;
+
+// Internes In-Memory-Rate-Limit für die teure GPT-Extraktion: max 30 pro 10 Min pro IP
+const EXTRACTION_WINDOW_MS = 10 * 60 * 1000;
+const extractionCounts = new Map<string, { count: number; resetAt: number }>();
+function canExtract(ip: string): boolean {
+  const now = Date.now();
+  const entry = extractionCounts.get(ip);
+  if (!entry || entry.resetAt < now) {
+    extractionCounts.set(ip, { count: 1, resetAt: now + EXTRACTION_WINDOW_MS });
+    return true;
+  }
+  if (entry.count >= 30) return false;
+  entry.count++;
+  return true;
+}
+
+router.post("/recipes/smart-search", searchLimiter, async (req, res) => {
+  try {
+    const bodySchema = z.object({
+      query: z.string().min(1).max(500),
+      filter: z.string().optional(),
+    });
+    const { query, filter } = bodySchema.parse(req.body);
+    const currentUserId = req.authUser?.id;
+
+    // -------------------------------------------------------------------------
+    // SCHRITT 1: Bedingungserkennung (lokal, kein GPT-Aufruf)
+    // -------------------------------------------------------------------------
+    const queryWords = query.trim().toLowerCase().split(/\s+/);
+    const hasConditions = queryWords.some((w) => SMART_CONDITION_WORDS.has(w));
+
+    // -------------------------------------------------------------------------
+    // SCHRITT 2: Kriterienextraktion (nur bei erkannten Bedingungen + Rate-Limit)
+    // -------------------------------------------------------------------------
+    let criteria: AiCriteria | null = null;
+    let summary: string | null = null;
+
+    if (hasConditions && canExtract(req.ip ?? "unknown")) {
+      try {
+        const aiResp = await openai.chat.completions.create({
+          model: "gpt-4o",
+          max_completion_tokens: 400,
+          messages: [
+            { role: "system", content: AI_SEARCH_SYSTEM_PROMPT },
+            { role: "user", content: query },
+          ],
+        });
+        let rawJson = aiResp.choices[0]?.message?.content ?? "{}";
+        rawJson = rawJson.replace(/^```(?:json)?\s*/i, "").replace(/\s*```$/i, "").trim();
+        criteria = JSON.parse(rawJson);
+        criteria!.ingredients ??= [];
+        criteria!.exclusions  ??= [];
+        criteria!.keywords    ??= [];
+        summary = criteria!.summary ?? null;
+      } catch (err) {
+        req.log.warn({ err }, "smart-search: Kriterienextraktion fehlgeschlagen — weiter ohne Bedingungen.");
+        criteria = null;
+      }
+    }
+
+    // Gemeinsame SQL-Basisbedingungen (deleted_at + filter + harte Kriterien)
+    // buildAiSearchSqlConditions mit leeren ingredients/keywords/cuisine/mood,
+    // damit nur exclusions, diet, maxMinutes als WHERE-Einschränkung wirken.
+    const baseConds: ReturnType<typeof sql>[] = criteria
+      ? buildAiSearchSqlConditions(
+          { ...criteria, ingredients: [], keywords: [], cuisine: null, mood: null },
+          currentUserId,
+          filter,
+        )
+      : (() => {
+          const conds: ReturnType<typeof sql>[] = [sql`r.deleted_at IS NULL`];
+          if (filter === "mine" && currentUserId != null)
+            conds.push(sql`(r.created_by IS NULL OR r.created_by = ${currentUserId})`);
+          else if (filter === "favorites" && currentUserId != null)
+            conds.push(sql`EXISTS(SELECT 1 FROM recipe_favorites rf WHERE rf.recipe_id = r.id AND rf.user_id = ${currentUserId})`);
+          return conds;
+        })();
+
+    // -------------------------------------------------------------------------
+    // SCHRITT 3: Exakte Treffer (Mehrwort-AND-Suche über alle Felder)
+    // -------------------------------------------------------------------------
+    const searchWords = query
+      .trim()
+      .split(/\s+/)
+      .map((w) => w.trim().toLowerCase())
+      .filter((w) => w.length >= 2 && !STOPWORDS_SMART.has(w));
+
+    let exactIds: number[] = [];
+    if (searchWords.length > 0) {
+      const wordConds = searchWords.map((word) => {
+        const p = `%${escapeLike(word)}%`;
+        return sql`(
+          r.title ILIKE ${p}
+          OR COALESCE(r.notes, '') ILIKE ${p}
+          OR COALESCE(r.category, '') ILIKE ${p}
+          OR EXISTS (SELECT 1 FROM recipe_ingredients ri2
+                     WHERE ri2.recipe_id = r.id AND ri2.name ILIKE ${p})
+          OR EXISTS (SELECT 1 FROM unnest(ARRAY(
+                       SELECT jsonb_array_elements_text(r.steps))) AS step
+                     WHERE step ILIKE ${p})
+        )`;
+      });
+      const exactRes = await db.execute(sql`
+        SELECT DISTINCT r.id
+        FROM recipes r
+        WHERE ${sql.join([...baseConds, ...wordConds], sql` AND `)}
+        ORDER BY r.id
+      `);
+      const rawExact = (exactRes as unknown as { rows: Array<{ id: number }> }).rows
+        ?? (exactRes as unknown as Array<{ id: number }>);
+      exactIds = rawExact.map((r) => Number(r.id));
+    }
+
+    // -------------------------------------------------------------------------
+    // SCHRITT 4: Semantische Treffer (Embedding + Cosine-Ähnlichkeit)
+    // -------------------------------------------------------------------------
+    let semanticCandidates: Array<{ id: number; score: number }> = [];
+    const queryVector = await embedQuery(query);
+    if (queryVector !== null) {
+      // Gültige Kandidaten-IDs laut baseConds aus der DB holen
+      const validRes = await db.execute(sql`
+        SELECT DISTINCT r.id FROM recipes r
+        WHERE ${sql.join(baseConds, sql` AND `)}
+      `);
+      const rawValid = (validRes as unknown as { rows: Array<{ id: number }> }).rows
+        ?? (validRes as unknown as Array<{ id: number }>);
+      const validIdSet = new Set(rawValid.map((r) => Number(r.id)));
+
+      const storedEmbeddings = await getRecipeEmbeddings();
+      for (const [recipeId, vector] of storedEmbeddings) {
+        if (!validIdSet.has(recipeId)) continue;
+        const score = cosineSimilarity(queryVector, vector);
+        if (score >= SIMILARITY_THRESHOLD) semanticCandidates.push({ id: recipeId, score });
+      }
+      semanticCandidates.sort((a, b) => b.score - a.score);
+    }
+
+    // -------------------------------------------------------------------------
+    // SCHRITT 5: Zusammenführen, Deduplizieren, max. 60
+    // -------------------------------------------------------------------------
+    const exactIdSet = new Set(exactIds);
+    const mergedIds: number[] = [...exactIds];
+    for (const { id } of semanticCandidates) {
+      if (!exactIdSet.has(id)) mergedIds.push(id);
+    }
+    const limitedIds = mergedIds.slice(0, 60);
+
+    const exactCount    = exactIds.length;
+    const semanticCount = semanticCandidates.filter((c) => !exactIdSet.has(c.id)).length;
+
+    if (limitedIds.length === 0) {
+      return res.json({
+        recipes: [],
+        summary: summary ?? "Keine Treffer",
+        exactCount: 0,
+        semanticCount: 0,
+      });
+    }
+
+    // -------------------------------------------------------------------------
+    // Hydration: vollständige Rezeptdaten (gleiche Shape wie ai-search)
+    // -------------------------------------------------------------------------
+    const favExpr = currentUserId != null
+      ? sql`EXISTS(SELECT 1 FROM recipe_favorites rf WHERE rf.recipe_id = r.id AND rf.user_id = ${currentUserId})`
+      : sql`false`;
+    const isOwnerExpr = currentUserId != null
+      ? sql`(r.created_by IS NULL OR r.created_by = ${currentUserId})`
+      : sql`(r.created_by IS NULL)`;
+
+    const hydRows = await db.execute(sql`
+      SELECT
+        r.id,
+        r.title,
+        r.servings,
+        r.prep_time        AS "prepTime",
+        r.total_time       AS "totalTime",
+        r.difficulty,
+        r.category,
+        r.rating,
+        r.kcal_per_portion AS "kcalPerPortion",
+        r.source,
+        r.last_cooked      AS "lastCooked",
+        r.cooked_count     AS "cookedCount",
+        r.notes,
+        jsonb_array_length(COALESCE(r.steps, '[]'::jsonb)) > 0 AS "hasSteps",
+        r.image_url        AS "imageUrl",
+        r.created_at       AS "createdAt",
+        r.seasons,
+        r.tags,
+        r.created_by       AS "createdBy",
+        r.parent_recipe_id AS "parentRecipeId",
+        r.variant_name     AS "variantName",
+        r.source_document_url AS "sourceDocumentUrl",
+        r.is_ai_generated  AS "isAiGenerated",
+        r.image_source     AS "imageSource",
+        r.tried,
+        r.chef_pick        AS "chefPick",
+        (
+          SELECT p.image_url
+          FROM recipe_photo_links rpl
+          INNER JOIN photos p ON p.id = rpl.photo_id
+          WHERE rpl.recipe_id = r.id AND rpl.is_main = true
+          ORDER BY rpl.sort_order, p.created_at DESC
+          LIMIT 1
+        ) AS "mainPhotoUrl",
+        COALESCE(
+          json_agg(
+            json_build_object(
+              'id',       ri.id,
+              'recipeId', ri.recipe_id,
+              'amount',   ri.amount,
+              'unit',     ri.unit,
+              'name',     ri.name,
+              'note',     ri.note
+            ) ORDER BY ri.id
+          ) FILTER (WHERE ri.id IS NOT NULL),
+          '[]'
+        ) AS ingredients,
+        ${favExpr}     AS "isFavorite",
+        ${isOwnerExpr} AS "isOwner",
+        u.display_name  AS "ownerDisplayName",
+        u.avatar_url    AS "ownerAvatarUrl"
+      FROM recipes r
+      LEFT JOIN recipe_ingredients ri ON ri.recipe_id = r.id
+      LEFT JOIN users u ON u.id = r.created_by
+      WHERE r.id = ANY(${sql`ARRAY[${sql.join(limitedIds.map((id) => sql`${id}`), sql`, `)}]::int[]`})
+      GROUP BY r.id, u.display_name, u.avatar_url
+      ORDER BY r.id
+    `);
+
+    type SmartRow = {
+      id: number; title: string; servings: number | null; prepTime: string | null;
+      totalTime: string | null; difficulty: string; category: string; rating: string | null;
+      kcalPerPortion: number | null; source: string | null; lastCooked: string | null;
+      cookedCount: number | null; notes: string | null; hasSteps: boolean;
+      imageUrl: string | null; mainPhotoUrl: string | null; createdAt: Date | string | null;
+      seasons: string[] | null; tags: string[] | null; createdBy: number | null;
+      parentRecipeId: number | null; variantName: string | null; sourceDocumentUrl: string | null;
+      isAiGenerated: boolean; imageSource: string | null; tried: boolean; chefPick: boolean;
+      ingredients: Array<{ id: number; recipeId: number; amount: string; unit: string; name: string; note: string | null }>;
+      isFavorite: boolean; isOwner: boolean; ownerDisplayName: string | null; ownerAvatarUrl: string | null;
+    };
+
+    const rawHyd = (hydRows as unknown as { rows: SmartRow[] }).rows
+      ?? (hydRows as unknown as SmartRow[]);
+    const hydratedMap = new Map(rawHyd.map((r) => [r.id, r]));
+
+    // Reihenfolge aus limitedIds beibehalten (exakt zuerst, dann semantisch nach Score)
+    const recipes = limitedIds.flatMap((id) => {
+      const r = hydratedMap.get(id);
+      if (!r) return [];
+      return [{
+        id: r.id, title: r.title, servings: r.servings, prepTime: r.prepTime,
+        totalTime: r.totalTime, difficulty: r.difficulty, category: r.category,
+        rating: r.rating, kcalPerPortion: r.kcalPerPortion, source: r.source,
+        lastCooked: r.lastCooked, cookedCount: r.cookedCount, notes: r.notes,
+        steps: [] as unknown[], hasSteps: r.hasSteps ?? false,
+        imageUrl: sanitizeImageUrl(r.imageUrl), mainPhotoUrl: r.mainPhotoUrl ?? null,
+        createdAt: r.createdAt, seasons: r.seasons ?? [], tags: r.tags ?? [],
+        createdBy: r.createdBy, parentRecipeId: r.parentRecipeId, variantName: r.variantName,
+        sourceDocumentUrl: r.sourceDocumentUrl, isAiGenerated: r.isAiGenerated ?? false,
+        imageSource: r.imageSource ?? null, tried: r.tried ?? false, chefPick: r.chefPick ?? false,
+        ingredients: r.ingredients,
+        isFavorite: r.isFavorite, isOwner: r.isOwner,
+        matchedInNotes: false,
+        owner: (r.ownerDisplayName != null || r.ownerAvatarUrl != null)
+          ? { displayName: r.ownerDisplayName!, avatarUrl: r.ownerAvatarUrl }
+          : null,
+      }];
+    });
+
+    const finalSummary = summary ?? `${recipes.length} ${recipes.length === 1 ? "Treffer" : "Treffer"}`;
+
+    res.json({ recipes, summary: finalSummary, exactCount, semanticCount });
+  } catch (err) {
+    req.log.error({ err }, "smart-search fehlgeschlagen");
+    res.status(500).json({ error: "internal_error", message: "Suche fehlgeschlagen" });
+  }
+});
+
+// ---------------------------------------------------------------------------
 router.post("/recipes/ai-search", aiLimiter, async (req, res) => {
   try {
     const schema = z.object({

@@ -1,0 +1,100 @@
+ZIEL
+Etappe B: EINE vereinheitlichte Suche, die exakte Wortsuche,
+semantische Aehnlichkeit (Embeddings aus Etappe A) und harte
+Bedingungen kombiniert. Die Weiche isAiQuery entfaellt.
+
+VORAUSSETZUNG
+Etappe A ist verifiziert (recipe_embeddings befuellt).
+
+TEIL 1 — SERVER: NEUE ROUTE
+POST /recipes/smart-search in
+artifacts/api-server/src/routes/recipes/list.ts
+Body: { query: string (1-500), filter?: string }
+
+Ablauf:
+
+1. BEDINGUNGS-ERKENNUNG (lokal, ohne KI-Aufruf):
+   Die Anfrage enthaelt harte Bedingungen, wenn eines dieser
+   Woerter als eigenstaendiges Wort vorkommt: ohne, kein, keine,
+   keinen, unter, ueber, über, maximal, max, hoechstens,
+   höchstens, weniger, vegetarisch, vegan, fleisch (nur als
+   "ohne fleisch"/"kein fleisch"-Kontext zaehlt fleisch nicht
+   eigenstaendig — einfacher: fleisch NICHT in die Liste).
+
+2. NUR wenn Bedingungen erkannt: GPT-4o-Kriterienextraktion wie
+   in der bestehenden ai-search-Route (denselben System-Prompt
+   und dasselbe criteria-Format wiederverwenden). Daraus mit dem
+   bestehenden SQL-Kriterienfilter eine WHERE-Einschraenkung
+   bauen (exclusions, diet, maxMinutes). ingredients/keywords
+   aus den criteria gehen NICHT in die WHERE-Klausel — die
+   Bedeutungssuche uebernimmt das.
+   Keine Bedingungen erkannt: dieser Schritt entfaellt komplett,
+   kein GPT-Aufruf.
+
+3. EXAKTE TREFFER: die Mehrwort-UND-Suche (wie in
+   GET /recipes/search nach dem Mehrwort-Fix) auf die Anfrage
+   anwenden, eingeschraenkt durch die WHERE-Klausel aus Schritt 2.
+
+4. SEMANTISCHE TREFFER: Embedding der Anfrage erzeugen
+   (text-embedding-3-small), Cosine-Aehnlichkeit gegen
+   recipe_embeddings (pgvector-Operator ODER Node-Berechnung,
+   je nach dem in Etappe A aktiven Weg — dieselbe Hilfsfunktion
+   nutzen). Kandidaten ueber der Schwelle (Startwert 0.30,
+   als Konstante SIMILARITY_THRESHOLD) nehmen, ebenfalls durch
+   die WHERE-Klausel aus Schritt 2 einschraenken.
+
+5. ZUSAMMENFUEHREN: exakte Treffer zuerst (untereinander in der
+   bisherigen Reihenfolge der Wortsuche), danach semantische
+   Treffer absteigend nach Aehnlichkeit, Duplikate raus,
+   insgesamt maximal 60. Wie in ai-search zu vollstaendigen
+   Rezepten mit Zutaten hydrieren.
+
+6. ANTWORT: { recipes, summary, semanticCount, exactCount }
+   summary: bei Kriterienextraktion die bisherige Zusammenfassung;
+   sonst kurz "N Treffer" — Formulierung wie bisher.
+
+RATE-LIMIT: NICHT den aiLimiter auf die Route legen. Neuer
+searchLimiter in rateLimits.ts: 120 Anfragen pro 10 Minuten
+pro IP. Der GPT-Aufruf in Schritt 2 zaehlt zusaetzlich intern:
+maximal 30 Kriterienextraktionen pro 10 Minuten pro IP (bei
+Ueberschreitung Schritt 2 ueberspringen und im summary-Text
+nichts Besonderes anzeigen — die Suche laeuft dann ohne harte
+Bedingungen weiter).
+
+TEIL 2 — CLIENT
+artifacts/lucias-kueche/src/pages/MeineRezepte.tsx:
+- isAiQuery entfernen, ebenso die Verzweigung useAi im
+  Such-Effect. Es gibt nur noch einen Aufruf: smart-search.
+- Debounce einheitlich 450 ms, Suche erst ab 2 Zeichen.
+- aiSearchSummary weiterverwenden fuer das summary-Feld.
+- Trefferzahl-Anzeige: Anzahl der gelieferten recipes.
+
+TEIL 3 — ALTE PFADE
+Die Routen /recipes/ai-search und /recipes/search bleiben in
+dieser Etappe im Code (Sicherheitsnetz), werden vom Client aber
+nicht mehr aufgerufen. Der JS/SQL-Parallelvergleich in ai-search
+bleibt unangetastet. Aufraeumen kommt in einer eigenen Etappe.
+
+VERBOTEN
+- Kein GPT-Aufruf bei Anfragen ohne erkannte Bedingungen
+- aiLimiter NICHT auf smart-search
+- personalNotes weder einbetten noch durchsuchen
+- Keine Aenderung an Galerie-Filtern, Sortierung, Pagination
+
+VERIFIKATION
+1. "Gulasch": exakte Treffer sofort, kein GPT-Aufruf im Log
+2. "Auflauf mit Fleisch": findet u.a. "Fleisch im Auflauf"
+   (exakt) — der Fall, der die Debatte ausgeloest hat
+3. "etwas Waermendes fuer kalte Tage": semantische Treffer
+   (Eintoepfe, Schmorgerichte), obwohl kein Rezept diese
+   Woerter enthaelt; kein GPT-Aufruf im Log
+4. "Auflauf ohne Kaese": GPT-Aufruf im Log, kein Treffer
+   enthaelt Kaese in den Zutaten
+5. "Pasta ohne Fleisch unter 30 Minuten": Treffer ohne
+   Fleisch-Stichworte, alle mit Zeitangabe unter 30 Min
+6. Latenz beim Tippen gefuehlt fluessig; pro getippter Suche
+   genau EIN Embedding-Aufruf im Log
+
+ROLLBACK
+Client-Aufruf zurueck auf die alten zwei Pfade; die neue Route
+kann deaktiviert bleiben.

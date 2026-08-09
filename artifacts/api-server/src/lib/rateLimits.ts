@@ -22,3 +22,12 @@ export const globalLimiter = rateLimit({
   standardHeaders: true,
   legacyHeaders: false,
 });
+
+/** Suche: 120 Anfragen pro 10 Minuten pro IP */
+export const searchLimiter = rateLimit({
+  windowMs: 10 * 60 * 1000,
+  max: 120,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: "Zu viele Suchanfragen. Bitte kurz warten.",
+});

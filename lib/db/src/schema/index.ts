@@ -8,3 +8,4 @@ export * from "./notifications";
 export * from "./invitations";
 export * from "./pantry";
 export * from "./appSettings";
+export * from "./embeddings";

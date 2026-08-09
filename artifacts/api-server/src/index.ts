@@ -5,6 +5,7 @@ import { seedUser } from "./db/seedUser";
 import { recoverProcessingSessions } from "./routes/bulkImport";
 import { warmupRecipeCache } from "./routes/recipes";
 import { startTrashCleanupJob } from "./lib/trashCleanup";
+import { checkPgvectorSupport, backfillEmbeddings } from "./lib/embeddings";
 import { buildRecipeExport } from "./lib/recipeExport";
 import { sendEmail, sendEmailWithAttachment, isEmailConfigured } from "./lib/email";
 import cron from "node-cron";
@@ -104,6 +105,14 @@ async function main() {
   warmupRecipeCache(undefined).catch(() => {});
 
   startTrashCleanupJob();
+
+  // Embedding-Infrastruktur: pgvector prüfen, dann Hintergrund-Befüllung starten
+  void checkPgvectorSupport().catch(() => {});
+  setTimeout(() => {
+    backfillEmbeddings().catch((err) => {
+      logger.error({ err }, "Embeddings: Befüllung fehlgeschlagen.");
+    });
+  }, 5_000); // 5 s nach Start, damit der DB-Pool stabil ist
 
   // Wöchentliche Datensicherung per E-Mail (jeden Sonntag 06:00 Europe/Berlin)
   void (async () => {

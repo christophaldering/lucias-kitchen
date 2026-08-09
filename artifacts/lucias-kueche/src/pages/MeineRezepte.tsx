@@ -1081,7 +1081,18 @@ export default function MeineRezepte({ onNavigate: _onNavigate, initialOpenRecip
                 <span>
                   <span className="font-bold">{searchResults !== null ? baseList.length : (totalRecipes ?? recipes.length)}</span>
                   <span className="opacity-70"> {(isFiltered || searchResults !== null) ? "Treffer" : "Rezepte"}</span>
+                  {searchResults !== null && savedSortOrder !== "alphabetisch" && (
+                    <span className="text-xs text-muted-foreground/70 ml-1">
+                      {"(sortiert: " + (savedSortOrder === "kategorie" ? "nach Kategorie" : savedSortOrder === "bewertung" ? "nach Bewertung" : savedSortOrder === "zuletzt_gekocht" ? "zuletzt gekocht" : "am häufigsten gekocht") + ")"}
+                    </span>
+                  )}
                 </span>
+                {aiSearchLoading && baseList.length > 0 && (
+                  <span className="flex items-center gap-1 text-xs text-amber-600">
+                    <Sparkles className="w-3 h-3 animate-pulse" />
+                    KI verfeinert…
+                  </span>
+                )}
               </div>
 
               {(searchLoading || isFiltered || searchResults !== null) && (
@@ -1147,16 +1158,7 @@ export default function MeineRezepte({ onNavigate: _onNavigate, initialOpenRecip
                         </button>
                       )}
                     </div>
-                  ) : (
-                    <p className="text-sm flex items-center gap-2">
-                      <span className="font-semibold text-[#C1693A]">{baseList.length} Treffer</span>
-                      {savedSortOrder !== "alphabetisch" && (
-                        <span className="text-xs text-muted-foreground/70">
-                          (sortiert: {savedSortOrder === "kategorie" ? "nach Kategorie" : savedSortOrder === "bewertung" ? "nach Bewertung" : savedSortOrder === "zuletzt_gekocht" ? "zuletzt gekocht" : "am häufigsten gekocht"})
-                        </span>
-                      )}
-                    </p>
-                  )}
+                  ) : null}
                 </div>
               )}
 
@@ -1179,7 +1181,7 @@ export default function MeineRezepte({ onNavigate: _onNavigate, initialOpenRecip
                 </div>
               )}
 
-              {aiSearchLoading ? (
+              {(searchLoading || aiSearchLoading) && baseList.length === 0 ? (
                 <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-5">
                   {[1, 2, 3, 4].map((i) => (
                     <div key={i} className="bg-white rounded-2xl border border-border overflow-hidden animate-pulse" style={{ boxShadow: "0 2px 12px rgba(120,70,30,0.10)" }}>
@@ -1192,7 +1194,7 @@ export default function MeineRezepte({ onNavigate: _onNavigate, initialOpenRecip
                     </div>
                   ))}
                 </div>
-              ) : !searchLoading && baseList.length === 0 ? (
+              ) : !searchLoading && !aiSearchLoading && baseList.length === 0 ? (
                 <div className="text-center py-16 text-muted-foreground">
                   <p className="text-4xl mb-4">🔍</p>
                   <p className="font-serif text-lg">Kein Rezept gefunden.</p>

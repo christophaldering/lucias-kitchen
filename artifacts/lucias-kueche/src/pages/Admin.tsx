@@ -334,6 +334,8 @@ function BackupSection({
   const [showRestoreConfirm, setShowRestoreConfirm] = useState(false);
   const [busy, setBusy] = useState(false);
 
+  const [exportBusy, setExportBusy] = useState(false);
+
   const doExport = () => {
     const data = JSON.stringify(recipes, null, 2);
     const blob = new Blob([data], { type: "application/json" });
@@ -342,6 +344,27 @@ function BackupSection({
     a.href = url; a.download = "lucias-rezepte.json"; a.click();
     URL.revokeObjectURL(url);
     toast("Export erfolgreich");
+  };
+
+  const doServerExport = async () => {
+    setExportBusy(true);
+    try {
+      const res = await fetch("/api/admin/export", { headers: authHeaders() });
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      const date = new Date().toISOString().slice(0, 10);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `lucias-kueche-export-${date}.json`;
+      a.click();
+      URL.revokeObjectURL(url);
+      toast("Datensicherung heruntergeladen");
+    } catch {
+      toast("Export fehlgeschlagen", "err");
+    } finally {
+      setExportBusy(false);
+    }
   };
 
   const doExportExcel = () => {
@@ -571,6 +594,11 @@ function BackupSection({
             <button onClick={doExportExcel}
               className="flex items-center gap-2 px-4 py-2.5 bg-[#4A7C59] text-white rounded-xl text-sm font-semibold hover:bg-[#3d6849] transition-colors">
               <Download className="w-4 h-4" /> Alle exportieren (.xlsx)
+            </button>
+            <button onClick={doServerExport} disabled={exportBusy}
+              className="flex items-center gap-2 px-4 py-2.5 bg-[#2d5a40] text-white rounded-xl text-sm font-semibold hover:bg-[#234830] transition-colors disabled:opacity-60">
+              {exportBusy ? <Loader2 className="w-4 h-4 animate-spin" /> : <Database className="w-4 h-4" />}
+              Datensicherung (vollständig)
             </button>
           </div>
         </AdminActionCard>

@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback, useRef } from "react";
 import type { Recipe } from "@/types/recipe";
-import { X, ChevronLeft, ChevronRight, Timer, Play, Pause, RotateCcw } from "lucide-react";
+import { X, ChevronLeft, ChevronRight, Timer, Play, Pause, RotateCcw, MonitorOff } from "lucide-react";
+import { useWakeLock } from "@/hooks/useWakeLock";
 
 interface Props {
   recipe: Recipe;
@@ -53,32 +54,12 @@ export default function CookingMode({ recipe, onClose }: Props) {
   const [timer, setTimer] = useState<TimerState | null>(null);
   const [touchStart, setTouchStart] = useState<number | null>(null);
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
-  const wakeLockRef = useRef<WakeLockSentinel | null>(null);
   const alarmRef = useRef<AudioContext | null>(null);
+  const wakeLockActive = useWakeLock(true);
 
   const currentStep = steps[stepIndex];
   const detectedTimers = extractTimers(currentStep ?? "");
 
-  useEffect(() => {
-    let wakeLock: WakeLockSentinel | null = null;
-    async function requestWakeLock() {
-      try {
-        if ("wakeLock" in navigator) {
-          wakeLock = await (navigator as Navigator & { wakeLock: { request(type: string): Promise<WakeLockSentinel> } }).wakeLock.request("screen");
-          wakeLockRef.current = wakeLock;
-        }
-      } catch {
-        // Wake lock not available
-      }
-    }
-    requestWakeLock();
-    return () => {
-      if (wakeLockRef.current) {
-        wakeLockRef.current.release().catch(() => {});
-        wakeLockRef.current = null;
-      }
-    };
-  }, []);
 
   useEffect(() => {
     if (timer && timer.running && !timer.finished) {
@@ -205,9 +186,17 @@ export default function CookingMode({ recipe, onClose }: Props) {
       <div className="flex items-center justify-between px-5 pt-5 pb-3 flex-shrink-0">
         <div className="min-w-0">
           <p className="text-green-300 text-sm font-medium truncate">{recipe.title}</p>
-          <p className="text-white/60 text-xs mt-0.5">
-            Schritt {stepIndex + 1} von {steps.length}
-          </p>
+          <div className="flex items-center gap-2 mt-0.5">
+            <p className="text-white/60 text-xs">
+              Schritt {stepIndex + 1} von {steps.length}
+            </p>
+            {wakeLockActive && (
+              <span className="flex items-center gap-1 text-white/40 text-xs">
+                <MonitorOff className="w-3 h-3" />
+                Display bleibt an
+              </span>
+            )}
+          </div>
         </div>
         <button
           onClick={onClose}

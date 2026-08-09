@@ -5,6 +5,9 @@ import { seedUser } from "./db/seedUser";
 import { recoverProcessingSessions } from "./routes/bulkImport";
 import { warmupRecipeCache } from "./routes/recipes";
 import { startTrashCleanupJob } from "./lib/trashCleanup";
+import { buildRecipeExport } from "./lib/recipeExport";
+import { sendEmail, sendEmailWithAttachment, isEmailConfigured } from "./lib/email";
+import cron from "node-cron";
 import { db, HARMLESS_PG_CODES } from "@workspace/db";
 import { recipesTable } from "@workspace/db/schema";
 import { eq, isNull, and, or, sql } from "drizzle-orm";
@@ -101,6 +104,52 @@ async function main() {
   warmupRecipeCache(undefined).catch(() => {});
 
   startTrashCleanupJob();
+
+  // Wöchentliche Datensicherung per E-Mail (jeden Sonntag 06:00 Europe/Berlin)
+  void (async () => {
+    const emailReady = await isEmailConfigured().catch(() => false);
+    if (!emailReady) {
+      logger.info("Wochensicherungs-Cron nicht gestartet: E-Mail nicht konfiguriert.");
+      return;
+    }
+    const ADMIN_EMAIL = "lucia.aldering@googlemail.com";
+    const MAX_ATTACHMENT_BYTES = 15 * 1024 * 1024;
+    cron.schedule(
+      "0 6 * * 0",
+      async () => {
+        try {
+          logger.info("Wochensicherung: Erstelle Export…");
+          const exportData = await buildRecipeExport();
+          const json = JSON.stringify(exportData, null, 2);
+          const date = new Date().toISOString().slice(0, 10);
+          const subject = `Lucias Kueche — Wochensicherung ${date}`;
+          const body = `<p>Automatische Datensicherung vom ${date}.</p>
+<p>Enthält <strong>${exportData.recipeCount} Rezepte</strong>.</p>`;
+          const byteSize = Buffer.byteLength(json, "utf8");
+          if (byteSize > MAX_ATTACHMENT_BYTES) {
+            logger.warn({ byteSize }, "Wochensicherung: Anhang zu groß, sende Hinweis-Mail.");
+            await sendEmail(
+              ADMIN_EMAIL,
+              subject,
+              body + `<p><em>Hinweis: Der Export (${(byteSize / 1024 / 1024).toFixed(1)} MB) ist zu groß für einen E-Mail-Anhang. Bitte nutze den manuellen Export im Admin-Bereich.</em></p>`,
+            );
+          } else {
+            const filename = `lucias-kueche-export-${date}.json`;
+            await sendEmailWithAttachment(ADMIN_EMAIL, subject, body, {
+              filename,
+              content: json,
+              contentType: "application/json",
+            });
+            logger.info({ recipeCount: exportData.recipeCount }, "Wochensicherung erfolgreich versendet.");
+          }
+        } catch (err) {
+          logger.error({ err }, "Wochensicherung: Fehler beim Versand — Server läuft weiter.");
+        }
+      },
+      { timezone: "Europe/Berlin" },
+    );
+    logger.info("Wochensicherungs-Cron registriert (jeden Sonntag 06:00 Europe/Berlin).");
+  })();
 
   try {
     const result = await db

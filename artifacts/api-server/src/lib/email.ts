@@ -72,6 +72,35 @@ export async function sendEmail(to: string, subject: string, html: string): Prom
   }
 }
 
+export async function sendEmailWithAttachment(
+  to: string,
+  subject: string,
+  html: string,
+  attachment: { filename: string; content: string | Buffer; contentType: string },
+): Promise<void> {
+  const t = await getTransporter();
+  const fromEmail = await getSenderEmail();
+  try {
+    await t.sendMail({
+      from: `"Lucia's Küche" <${fromEmail}>`,
+      to,
+      subject,
+      html,
+      attachments: [
+        {
+          filename: attachment.filename,
+          content: attachment.content,
+          contentType: attachment.contentType,
+        },
+      ],
+    });
+    logger.info({ to, subject }, "Email with attachment sent successfully");
+  } catch (err) {
+    logger.error({ err, to, subject }, "Failed to send email with attachment");
+    throw err;
+  }
+}
+
 export async function isEmailConfigured(): Promise<boolean> {
   const dbPassword = await getDbSetting("smtp_password");
   return !!(dbPassword ?? process.env["GMAIL_APP_PASSWORD"]);

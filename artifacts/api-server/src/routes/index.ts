@@ -25,6 +25,7 @@ import kochideeContextRouter from "./kochideeContext";
 import inviteRouter from "./invite";
 import batchExtractRouter from "./batchExtract";
 import adminEmailRouter from "./adminEmail";
+import adminExportRouter from "./adminExport";
 
 const router: IRouter = Router();
 
@@ -54,5 +55,6 @@ router.use(kochideeChatRouter);
 router.use(kochideeContextRouter);
 router.use(batchExtractRouter);
 router.use(adminEmailRouter);
+router.use(adminExportRouter);
 
 export default router;

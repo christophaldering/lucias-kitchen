@@ -9,7 +9,7 @@
  */
 import { useState, useRef, useEffect, useCallback } from "react";
 import {
-  MessageCircle, Send, X, Loader2, ChefHat, Clock, CheckCircle2,
+  MessageCircle, Send, X, Loader2, ChefHat, Clock, CheckCircle2, Globe,
 } from "lucide-react";
 import { authFetch, authHeaders } from "@/lib/authFetch";
 import { useAuth } from "@/contexts/AuthContext";
@@ -77,6 +77,8 @@ export interface KochideeChatProps {
   onRecipeClick: (id: number) => void;
   /** Overlay: Schliessen-Callback */
   onClose?: () => void;
+  /** Overlay: Websuche starten (query = ingredients joined) */
+  onWebSearch?: (query: string) => void;
 }
 
 const CATEGORY_EMOJIS: Record<string, string> = {
@@ -94,6 +96,7 @@ export default function KochideeChat({
   onChatComplete,
   onRecipeClick,
   onClose,
+  onWebSearch,
 }: KochideeChatProps) {
   const { token } = useAuth();
 
@@ -109,6 +112,7 @@ export default function KochideeChat({
   const [suggestions, setSuggestions] = useState<SuggestedRecipe[]>([]);
   const [suggestLoading, setSuggestLoading] = useState(false);
   const [chatCompleted, setChatCompleted] = useState(false);
+  const [lastProfile, setLastProfile] = useState<{ ingredients: string[]; moods: string[]; exclusions: string[] } | null>(null);
   const chatEndRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -163,6 +167,7 @@ export default function KochideeChat({
       // Overlay-Modus: sofort Abschluss-State setzen, Rezepte via smart-search laden
       setChatActive(false);
       setChatCompleted(true);
+      setLastProfile(profile);
       setSuggestLoading(true);
       try {
         const res = await authFetch(`${API_BASE}/recipes/smart-search`, {
@@ -409,6 +414,9 @@ export default function KochideeChat({
 
   // ─── Keine Treffer / Fehler (nach Abschluss, 0 Ergebnisse) ──────────────────
   if (chatCompleted && !suggestLoading) {
+    const webQuery = lastProfile
+      ? [...lastProfile.ingredients, ...lastProfile.moods].filter(Boolean).join(" ")
+      : "";
     return (
       <div className="flex flex-col items-center justify-center h-full gap-4 text-center px-4">
         <span className="text-4xl">🔍</span>
@@ -423,6 +431,15 @@ export default function KochideeChat({
           >
             Nochmal versuchen
           </button>
+          {onWebSearch && webQuery && (
+            <button
+              onClick={() => onWebSearch(webQuery)}
+              className="flex items-center gap-1.5 px-4 py-2.5 border border-[#4A7C59]/40 text-[#4A7C59] rounded-xl text-sm font-medium hover:bg-[#4A7C59]/5 transition-colors"
+            >
+              <Globe className="w-3.5 h-3.5" />
+              Im Web suchen
+            </button>
+          )}
           {onClose && (
             <button
               onClick={onClose}

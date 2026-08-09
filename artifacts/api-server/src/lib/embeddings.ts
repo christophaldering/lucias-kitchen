@@ -1,10 +1,10 @@
 /**
  * Embedding-Infrastruktur — semantische Suche.
  *
- * Modell:       Gemini text-embedding-004 (768 Dimensionen)
+ * Modell:       Gemini gemini-embedding-001 (3072 Dimensionen)
  * API:          Echter Google-Endpunkt (GEMINI_API_KEY), nicht der Replit-Proxy
- *               (der Proxy blockiert alle Embedding-Endpunkte)
- * Speicherweg:  JSONB (float[]-Array)
+ *               (der Proxy unterstützt keine Embedding-Endpunkte)
+ * Speicherweg:  JSONB (float[]-Array, keine Größenbeschränkung)
  * Invalidierung: content_hash = sha256(EMBEDDING_MODEL + ":" + text)
  *               → Modellwechsel markiert alle Einträge automatisch als veraltet.
  *
@@ -22,7 +22,7 @@ import {
 import { eq, isNull } from "drizzle-orm";
 import { logger } from "./logger";
 
-const EMBEDDING_MODEL = "text-embedding-004";
+const EMBEDDING_MODEL = "gemini-embedding-001"; // 3072 dim, stabil; text-embedding-004 nicht verfügbar
 const GEMINI_BASE    = "https://generativelanguage.googleapis.com/v1beta";
 
 /**
@@ -293,7 +293,7 @@ export async function backfillEmbeddings(): Promise<void> {
 
   logger.info(
     `Embeddings: ${toProcess.length} von ${allRecipes.length} Rezepten werden eingebettet ` +
-    `(Gemini ${EMBEDDING_MODEL}, 768 dim, ${CONCURRENCY} parallel) …`,
+    `(Gemini ${EMBEDDING_MODEL}, 3072 dim, ${CONCURRENCY} parallel) …`,
   );
 
   let done = 0;

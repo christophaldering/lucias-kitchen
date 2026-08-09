@@ -3,8 +3,9 @@ import { Recipe } from "@/types/recipe";
 import type { Season } from "@/types/recipe";
 import { SEASON_LABELS, SEASON_ICONS, getCurrentSeason } from "@/types/recipe";
 import { useRecipes, fetchRecipeById } from "@/hooks/useRecipes";
-import { Clock, Search, ChefHat, Upload, Link, Camera, Loader2, LayoutGrid, Table, Settings2, Plus, ArrowUp, ArrowDown, ArrowUpDown, UtensilsCrossed, MessageCircle, Star, BookOpen, Share2, Sparkles, Lightbulb, X } from "lucide-react";
+import { Clock, Search, ChefHat, Upload, Link, Camera, Loader2, LayoutGrid, Table, Settings2, Plus, ArrowUp, ArrowDown, ArrowUpDown, UtensilsCrossed, MessageCircle, Star, BookOpen, Share2, Sparkles, Lightbulb, X, Globe } from "lucide-react";
 import KochideeChat from "@/components/KochideeChat";
+import WebSearchResults from "@/components/WebSearchResults";
 import type { RecipeFilter, ActiveFilters } from "@/hooks/useRecipes";
 import RecipeModal from "@/components/RecipeModal";
 import RecipeSuggestModal from "@/components/RecipeSuggestModal";
@@ -650,6 +651,9 @@ export default function MeineRezepte({ onNavigate: _onNavigate, initialOpenRecip
 
   const [fabOpen, setFabOpen] = useState(false);
   const [kochideeOpen, setKochideeOpen] = useState(false);
+  const [showWebSearch, setShowWebSearch] = useState(false);
+  const [webSearchQuery, setWebSearchQuery] = useState("");
+  const [urlModalInitialUrl, setUrlModalInitialUrl] = useState("");
   const [managedSelected, setManagedSelected] = useState<Set<number>>(new Set());
 
   const recipeIds = useMemo(() => recipes.map((r) => r.id), [recipes]);
@@ -1013,7 +1017,18 @@ export default function MeineRezepte({ onNavigate: _onNavigate, initialOpenRecip
                       <span className="font-medium text-amber-800">{aiSearchSummary}</span>
                     </div>
                   ) : baseList.length === 0 ? (
-                    <p className="text-sm text-muted-foreground">Keine Treffer</p>
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <p className="text-sm text-muted-foreground">Keine Treffer</p>
+                      {search.trim() && (
+                        <button
+                          onClick={() => { setWebSearchQuery(search.trim()); setShowWebSearch(true); }}
+                          className="flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-full border border-[#4A7C59]/30 text-[#4A7C59] hover:bg-[#4A7C59]/5 transition-colors"
+                        >
+                          <Globe className="w-3 h-3" />
+                          Im Web nach „{search.trim()}" suchen
+                        </button>
+                      )}
+                    </div>
                   ) : (
                     <p className="text-sm flex items-center gap-2">
                       <span className="font-semibold text-[#C1693A]">{baseList.length} Treffer</span>
@@ -1263,10 +1278,9 @@ export default function MeineRezepte({ onNavigate: _onNavigate, initialOpenRecip
 
           {showUrlModal && (
             <UrlImportModal
-              onClose={() => setShowUrlModal(false)}
-              onAdd={async (newRecipes) => {
-                return addRecipes(newRecipes);
-              }}
+              onClose={() => { setShowUrlModal(false); setUrlModalInitialUrl(""); }}
+              onAdd={async (newRecipes) => addRecipes(newRecipes)}
+              initialUrl={urlModalInitialUrl || undefined}
             />
           )}
 
@@ -1384,6 +1398,19 @@ export default function MeineRezepte({ onNavigate: _onNavigate, initialOpenRecip
           </div>
       </>
 
+      {/* Websuche-Overlay */}
+      {showWebSearch && (
+        <WebSearchResults
+          query={webSearchQuery}
+          onClose={() => setShowWebSearch(false)}
+          onSelectUrl={(url) => {
+            setShowWebSearch(false);
+            setUrlModalInitialUrl(url);
+            setShowUrlModal(true);
+          }}
+        />
+      )}
+
       {/* Kochidee-Overlay */}
       {kochideeOpen && (
         <div
@@ -1418,6 +1445,11 @@ export default function MeineRezepte({ onNavigate: _onNavigate, initialOpenRecip
                   openRecipe(id);
                 }}
                 onClose={() => setKochideeOpen(false)}
+                onWebSearch={(q) => {
+                  setKochideeOpen(false);
+                  setWebSearchQuery(q);
+                  setShowWebSearch(true);
+                }}
               />
             </div>
           </div>

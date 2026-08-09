@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { X, Link, FileText, Check, Loader2 } from "lucide-react";
 import type { Recipe } from "@/types/recipe";
 import { extractUrlRecipes } from "@/hooks/useRecipes";
@@ -6,31 +6,33 @@ import { extractUrlRecipes } from "@/hooks/useRecipes";
 interface Props {
   onClose: () => void;
   onAdd: (recipes: Partial<Recipe>[]) => Promise<number[]>;
+  /** Wenn gesetzt: URL vorausfüllen und Import sofort starten */
+  initialUrl?: string;
 }
 
 type Step = "input" | "loading" | "review" | "saving" | "done" | "error";
 
-export default function UrlImportModal({ onClose, onAdd }: Props) {
-  const [step, setStep] = useState<Step>("input");
-  const [url, setUrl] = useState("");
+export default function UrlImportModal({ onClose, onAdd, initialUrl }: Props) {
+  const [step, setStep] = useState<Step>(initialUrl ? "loading" : "input");
+  const [url, setUrl] = useState(initialUrl ?? "");
   const [extracted, setExtracted] = useState<Partial<Recipe>[]>([]);
   const [selected, setSelected] = useState<Set<number>>(new Set());
   const [errorMsg, setErrorMsg] = useState("");
 
-  const handleImport = async () => {
-    const trimmed = url.trim();
+  const handleImportUrl = async (urlToImport: string) => {
+    const trimmed = urlToImport.trim();
     if (!trimmed) return;
 
-    let parsed: URL;
+    let parsedUrl: URL;
     try {
-      parsed = new URL(trimmed);
+      parsedUrl = new URL(trimmed);
     } catch {
       setErrorMsg("Bitte gib eine gültige URL ein (z.B. https://www.chefkoch.de/rezepte/…)");
       setStep("error");
       return;
     }
 
-    if (!["http:", "https:"].includes(parsed.protocol)) {
+    if (!["http:", "https:"].includes(parsedUrl.protocol)) {
       setErrorMsg("Nur HTTP- und HTTPS-URLs sind erlaubt.");
       setStep("error");
       return;
@@ -48,6 +50,12 @@ export default function UrlImportModal({ onClose, onAdd }: Props) {
       setStep("error");
     }
   };
+
+  const handleImport = () => handleImportUrl(url);
+
+  // Wenn initialUrl gesetzt: Import direkt beim Öffnen starten
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  useEffect(() => { if (initialUrl) handleImportUrl(initialUrl); }, []);
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
     if (e.key === "Enter") handleImport();

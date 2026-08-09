@@ -1,0 +1,77 @@
+ZIEL
+Rezept-Websuche als dritte Ebene: Wenn die eigene Sammlung
+nichts hergibt, kann im Web gesucht und ein Fund ueber den
+bestehenden URL-Import uebernommen werden.
+
+TEIL 1 — SERVER
+Neue Route POST /recipes/web-search in einer neuen Datei
+artifacts/api-server/src/routes/webSearch.ts
+Body: { query: string (2-200) }
+Middleware: authMiddleware + aiLimiter.
+
+Implementierung ueber die OpenAI Responses API mit dem
+web_search-Tool (der im Test verifizierte Weg 1b; exakt die
+dort funktionierende Aufrufform verwenden).
+
+Prompt-Anweisung an das Modell:
+- Suche nach deutschsprachigen Kochrezepten zur Anfrage;
+  haenge "Rezept" an, falls die Anfrage es nicht enthaelt
+- Gib AUSSCHLIESSLICH JSON zurueck:
+  { "results": [{ "title", "url", "source", "description" }] }
+  mit 3 bis 5 Eintraegen; description max. 2 Saetze
+- NUR URLs verwenden, die tatsaechlich in den Suchergebnissen
+  vorkamen — keine erfundenen oder zusammengesetzten URLs
+
+Server-seitige Nachpruefung:
+- Nur https-URLs durchlassen, Duplikate (gleiche URL) entfernen
+- JSON-Parsing mit Markdown-Fence-Bereinigung wie in ai-search
+- Bei Parse-Fehler oder leeren Ergebnissen: { results: [] }
+  mit 200, kein 500
+
+TEIL 2 — CLIENT: EINSTIEGE AN DEN NULL-TREFFER-STELLEN
+a) Rezepte-Seite: Zeigt die Suche null Treffer, erscheint
+   unter der Meldung ein Button "Im Web nach '<Anfrage>'
+   suchen" (Weltkugel- oder Such-Icon).
+b) Kochidee-Overlay: Im Null-Treffer-Zustand (aus dem
+   vorherigen Fix) neben "Nochmal versuchen" ein Button
+   "Im Web suchen" — als Anfrage dienen die ingredients
+   des Profils, mit Leerzeichen verbunden.
+
+Beide oeffnen dieselbe neue Komponente
+components/WebSearchResults.tsx als Overlay:
+- Ladezustand "Ich schaue im Web..."
+- Ergebniskarten: Titel, Quelle (Domain), Beschreibung
+- Klick auf eine Karte oeffnet den BESTEHENDEN URL-Import
+  (UrlImportModal) mit vorausgefuellter URL — Vorschau,
+  Bearbeiten und Speichern laufen exakt wie beim manuellen
+  URL-Import; danach traegt das Rezept wie ueblich die Quelle
+- Leerergebnis: "Auch im Web nichts gefunden" + Schliessen
+- Die Websuche startet NUR durch den Button-Klick, niemals
+  automatisch oder beim Tippen
+
+TEIL 3 — UNVERAENDERT
+Suchfeld-Verhalten, Kochidee-Dialog, extract-url-Route und
+UrlImportModal-Logik bleiben unangetastet (Modal darf einen
+optionalen initialUrl-Prop bekommen, mehr nicht).
+
+VERBOTEN
+- Kein Aufruf der Websuche ohne expliziten Klick
+- Keine erfundenen URLs anzeigen
+- Kein neues Package, kein neuer Key
+- Keine Aenderung an smart-search oder /recipes/suggest
+
+VERIFIKATION
+1. Suche "Pho Bo" (nicht in der Sammlung) -> null Treffer ->
+   Web-Button -> 3-5 Karten mit echten, klickbaren Quellen
+2. Eine Karte antippen -> URL-Import oeffnet mit der URL ->
+   Rezept importieren -> es erscheint in der Sammlung mit
+   Quellenangabe
+3. Kochidee-Durchlauf mit exotischem Wunsch -> Null-Treffer-
+   Zustand -> "Im Web suchen" funktioniert
+4. Unsinnsanfrage ("Goldstaub-Auflauf") -> "Auch im Web
+   nichts gefunden", kein Absturz
+5. Netzwerk-Tab: KEIN web-search-Aufruf beim normalen Tippen
+   im Suchfeld
+
+ROLLBACK
+Buttons und Overlay entfernen; die Route kann inaktiv bleiben.

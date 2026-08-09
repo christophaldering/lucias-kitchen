@@ -26,6 +26,7 @@ import inviteRouter from "./invite";
 import batchExtractRouter from "./batchExtract";
 import adminEmailRouter from "./adminEmail";
 import adminExportRouter from "./adminExport";
+import webSearchRouter from "./webSearch";
 
 const router: IRouter = Router();
 
@@ -56,5 +57,6 @@ router.use(kochideeContextRouter);
 router.use(batchExtractRouter);
 router.use(adminEmailRouter);
 router.use(adminExportRouter);
+router.use(webSearchRouter);
 
 export default router;

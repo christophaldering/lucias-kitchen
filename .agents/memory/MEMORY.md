@@ -1,2 +1,3 @@
 - [Server-seitige Sortierung GET /recipes](server-sort.md) — sort+dir Parameter; buildSortOrder() mit sql.raw() für alle 7 Werte; zeit-Bucket dupliziert den SQL-Ausdruck inline statt totalTimeParsedMinutesSql zu verschachteln
 - [Stats-Endpunkt /recipes/stats](stats-endpoint.md) — liefert hasVariants (bool) + seasonal (max 12, aktuelle Saison server-seitig berechnet); zwei separate db.execute()-Aufrufe nach dem Haupt-res.json() — FALSCH; alles muss in einen einzigen res.json()-Aufruf
+- [Gemini Embedding Model](gemini-embedding-model.md) — text-embedding-004 nicht verfügbar; gemini-embedding-001 verwenden (3072 dim, v1beta, echter Google-Key)

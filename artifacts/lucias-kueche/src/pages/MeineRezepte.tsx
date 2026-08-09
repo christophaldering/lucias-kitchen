@@ -54,12 +54,21 @@ async function aiSearchRecipesApi(query: string, filter: RecipeFilter, signal?: 
   return res.json();
 }
 
+const AI_SIGNAL_WORDS = new Set([
+  "ohne", "kein", "keine", "keinen", "unter", "ueber", "über",
+  "maximal", "max", "hoechstens", "höchstens", "weniger",
+  "schnell", "schnelles", "schneller", "einfach", "einfaches",
+  "festlich", "festliches", "leicht", "leichtes",
+  "vegetarisch", "vegan",
+]);
+
 function isAiQuery(query: string): boolean {
   const trimmed = query.trim();
   if (!trimmed) return false;
-  const wordCount = trimmed.split(/\s+/).length;
-  if (wordCount > 3) return true;
+  const words = trimmed.split(/\s+/);
+  if (words.length > 3) return true;
   if (/[?,!]/.test(trimmed)) return true;
+  if (words.some((w) => AI_SIGNAL_WORDS.has(w.toLowerCase()))) return true;
   return false;
 }
 

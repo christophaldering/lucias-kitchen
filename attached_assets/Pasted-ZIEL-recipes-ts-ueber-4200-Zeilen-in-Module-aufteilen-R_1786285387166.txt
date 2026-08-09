@@ -1,0 +1,66 @@
+ZIEL
+recipes.ts (ueber 4200 Zeilen) in Module aufteilen. Reine
+Umstrukturierung — NULL Verhaltensaenderung, kein Pfad aendert
+sich, keine Logik wird angefasst.
+
+VORARBEIT
+Mit grep pruefen, welche anderen Dateien etwas aus
+routes/recipes.ts importieren (z.B. invalidateRecipeListCache
+oder isAdmin). Diese Import-Pfade muessen nachgezogen werden.
+Liste im Ergebnisbericht nennen.
+
+NEUE STRUKTUR
+Verzeichnis artifacts/api-server/src/routes/recipes/ mit:
+
+  shared.ts   recipeListCache, RECIPE_CACHE_MAX, cacheSet,
+              invalidateRecipeListCache, buildSortOrder,
+              buildExtraFilters, Zeitparsing-Helfer, isAdmin,
+              getRecipesWithIngredients und alle weiteren
+              gemeinsam genutzten Helfer
+  list.ts     GET /recipes, GET /recipes/stats,
+              die Suche und die KI-Suche
+  detail.ts   GET/PUT/PATCH/DELETE /recipes/:id, favorite,
+              Varianten
+  photos.ts   alle Foto-Routen
+  admin.ts    trash, restore, seed, request-delete,
+              delete-all
+  index.ts    setzt die Teilrouter zu EINEM Router zusammen
+              und exportiert ihn unter demselben Namen wie
+              bisher recipes.ts
+
+FALLE 1 — ROUTENREIHENFOLGE
+/recipes/stats, /recipes/search und /recipes/trash muessen VOR
+/recipes/:id registriert werden, sonst frisst der :id-Handler
+diese Pfade. In index.ts deshalb feste Reihenfolge: erst list,
+dann admin, dann photos, dann detail. Diese Reihenfolge als
+Kommentar in index.ts dokumentieren.
+
+FALLE 2 — EINE CACHE-INSTANZ
+recipeListCache existiert genau EINMAL, in shared.ts. Alle
+Module importieren dieselbe Instanz. Keine Kopie pro Datei —
+sonst invalidiert ein Schreibzugriff in detail.ts nicht mehr
+den Cache, den list.ts fuellt.
+
+Die alte recipes.ts wird geloescht, der Import in der
+zentralen Routen-Registrierung zeigt auf das neue Verzeichnis.
+
+VERBOTEN
+- Keine Logikaenderung, keine Umbenennung von Pfaden
+- Keine Aenderung an SQL, Filtern, Sortierung, Limitern
+- Kein Modul ueber ~1200 Zeilen
+
+VERIFIKATION
+1. Build laeuft durch, Server startet
+2. wc -l artifacts/api-server/src/routes/recipes/*.ts
+3. Funktionsrunde in der App: Galerie + Scrollen, ein Filter,
+   eine Sortierung, Rezept oeffnen, Rezept bearbeiten,
+   Statistiken, normale Suche, KI-Suche, Admin-Papierkorb,
+   Export-Button
+4. Nach dem Bearbeiten eines Rezepts zeigt die Galerie den
+   neuen Stand (prueft die geteilte Cache-Instanz)
+5. curl auf /api/recipes/stats -> 200 (prueft die Reihenfolge)
+
+ROLLBACK
+Bei irgendeinem 404 auf einem bisher funktionierenden Pfad
+oder bei veralteten Listen nach Bearbeitung: kompletter
+Rueckbau auf die eine Datei.

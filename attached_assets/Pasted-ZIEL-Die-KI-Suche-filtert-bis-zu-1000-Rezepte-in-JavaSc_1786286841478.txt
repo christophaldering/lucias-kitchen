@@ -1,0 +1,101 @@
+ZIEL
+Die KI-Suche filtert bis zu 1000 Rezepte in JavaScript. Die
+Filterung wandert nach SQL. Die Ergebnisse muessen exakt gleich
+bleiben — verifiziert durch einen temporaeren Parallelbetrieb.
+
+DATEI
+artifacts/api-server/src/routes/recipes/list.ts
+(Route POST /recipes/ai-search; Helfer nach shared.ts, wenn
+sinnvoll)
+
+UNVERAENDERT BLEIBT
+Der OpenAI-Aufruf, das criteria-Format, das Antwortformat
+{ recipes, summary, criteria } inklusive matchedInNotes pro
+Rezept, der aiLimiter, die Fehlerbehandlung.
+
+SCHRITT 1 — SQL-FILTER BAUEN
+Eine Funktion, die aus dem criteria-Objekt eine WHERE-Bedingung
+baut. Basis: deleted_at IS NULL plus derselbe filterExpr
+(all/mine/favorites) wie in GET /recipes/search.
+
+Die Semantik ist EXAKT dem bestehenden JS-Filter nachzubilden:
+
+a) exclusions: Rezept faellt raus, wenn irgendein Ausschluss-
+   Begriff (ILIKE %term%) in einem Zutatennamen, im Titel oder
+   in der Kategorie vorkommt. Notizen werden hier NICHT geprueft.
+
+b) diet vegetarisch/vegan: Rezept faellt raus, wenn eines der
+   Fleisch-Stichworte in Zutatennamen, Titel oder Kategorie
+   vorkommt. Die Stichwortliste WOERTLICH aus dem bestehenden
+   Code uebernehmen (die Liste mit "fleisch", "schwein", ...,
+   "filet").
+
+c) diet fleisch: Rezept besteht, wenn die Kategorie eines von
+   fleisch/gefluegel/fisch enthaelt ODER eines der Stichworte
+   der ZWEITEN Liste (die ohne "pute" und "filet") in
+   Zutatennamen oder Titel vorkommt. Sonst faellt es raus.
+   Achtung: die beiden Listen sind NICHT identisch — beide als
+   getrennte Konstanten uebernehmen.
+
+d) maxMinutes: Minuten aus total_time parsen (Zifferngruppen,
+   eine Zahl = Minuten, zwei = Stunden*60+Minuten). Hat
+   total_time keine Ziffern, stattdessen prep_time parsen.
+   Liefert KEINES von beiden Ziffern, besteht das Rezept den
+   Zeitfilter. (Bewusst anders als der Galerie-Zeitfilter!)
+
+e) searchTerms = ingredients + keywords + cuisine + mood.
+   Ist die Liste leer, bestehen alle Rezepte. Sonst besteht ein
+   Rezept, wenn IRGENDEIN Begriff in Titel, Notizen, Kategorie
+   oder einem Zutatennamen vorkommt (ILIKE %term%).
+
+f) ILIKE-Sonderzeichen: % und _ in Begriffen escapen — die
+   bisherige includes()-Pruefung kannte keine Wildcards.
+
+g) matchedInNotes: fuer jedes Treffer-Rezept true, wenn
+   mindestens ein Begriff in den Notizen vorkommt, aber KEIN
+   Begriff in Titel, Kategorie, Zutatennamen oder Tags. Die
+   Tags-Spalte einbeziehen wie im bestehenden Code. Darf als
+   SQL-Ausdruck oder als kleiner JS-Schritt NUR ueber die
+   Treffer berechnet werden.
+
+Die Treffer-IDs werden dann wie in GET /recipes/search zu
+vollstaendigen Rezepten mit Zutaten hydriert. KEIN Aufruf von
+getRecipesWithIngredients mit Limit 1000 mehr.
+
+SCHRITT 2 — PARALLELBETRIEB ZUR VERIFIKATION
+Den alten JS-Filter vorerst BEHALTEN. Nach dem SQL-Weg zusaetzlich
+den JS-Weg auf denselben criteria laufen lassen und die beiden
+ID-Mengen vergleichen. Bei Abweichung: req.log.warn mit beiden
+ID-Listen und den criteria. Die Antwort an den Client kommt aus
+dem SQL-Weg.
+
+SCHRITT 3 — LEERSTRING-ZWEIG IN /recipes/search
+Mit grep im Client pruefen, ob /recipes/search je mit leerem q
+aufgerufen wird. Wenn nein: der !q-Zweig liefert kuenftig ein
+leeres Array statt 1000 Rezepte. Wenn doch: Aufrufstelle nennen
+und den Zweig unveraendert lassen. Ergebnis im Bericht.
+
+VERBOTEN
+- Keine Aenderung am OpenAI-Prompt oder Modell
+- Keine Aenderung am Antwortformat
+- Keine Aenderung an GET /recipes, Filtern, Sortierung
+- Kein neues Package
+
+VERIFIKATION
+1. Fuenf Suchanfragen in der App, darunter:
+   "Pasta ohne Fleisch unter 30 Minuten",
+   "vegetarisch mit Kartoffeln",
+   "etwas Festliches mit Fisch",
+   eine Anfrage nur mit Stimmung ("schnelles Abendessen"),
+   eine mit Ausschluss ("Auflauf ohne Kaese")
+2. Nach jeder Anfrage die Server-Logs pruefen: KEINE
+   Abweichungs-Warnung aus dem Parallelvergleich
+3. Ein Treffer, bei dem der Begriff nur in den Notizen steht,
+   traegt matchedInNotes = true
+4. grep -n "1, 1000" artifacts/api-server/src/routes/recipes/list.ts
+   -> hoechstens noch der !q-Zweig, je nach Schritt 3
+
+ROLLBACK
+Bei Abweichungen im Parallelvergleich, die sich nicht durch
+einen SQL-Fehler erklaeren und beheben lassen: Antwort wieder
+aus dem JS-Weg speisen und Abweichung im Bericht dokumentieren.

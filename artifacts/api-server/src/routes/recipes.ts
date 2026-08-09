@@ -373,7 +373,7 @@ router.post("/recipes/ai-search", async (req, res) => {
       return;
     }
 
-    const allRecipesResult = await getRecipesWithIngredients(currentUserId, filter, 1, 500);
+    const allRecipesResult = await getRecipesWithIngredients(currentUserId, filter, 1, 1000);
     const allRecipes = allRecipesResult.recipes;
 
     const matchedRecipes = allRecipes.filter((recipe) => {
@@ -506,7 +506,7 @@ router.get("/recipes/search", async (req, res) => {
     const filter = req.query.filter as string | undefined;
 
     if (!q) {
-      const result = await getRecipesWithIngredients(currentUserId, filter, 1, 500);
+      const result = await getRecipesWithIngredients(currentUserId, filter, 1, 1000);
       return res.json(result.recipes);
     }
 

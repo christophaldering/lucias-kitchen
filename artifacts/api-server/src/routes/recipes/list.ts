@@ -528,7 +528,16 @@ router.get("/recipes/search", async (req, res) => {
       return res.json([]);
     }
 
-    const pattern = `%${q}%`;
+    // Mehrwort-Suche: q in Einzelwörter zerlegen, Kurzwörter und Füllwörter verwerfen.
+    const STOPWORDS_SEARCH = new Set(["mit", "und", "der", "die", "das", "im", "in", "am"]);
+    const words = q
+      .split(/\s+/)
+      .map((w) => w.trim().toLowerCase())
+      .filter((w) => w.length >= 2 && !STOPWORDS_SEARCH.has(w));
+
+    if (words.length === 0) {
+      return res.json([]);
+    }
 
     const filterExpr = filter === "mine" && currentUserId != null
       ? sql`(${recipesTable.createdBy} IS NULL OR ${recipesTable.createdBy} = ${currentUserId})`
@@ -536,30 +545,31 @@ router.get("/recipes/search", async (req, res) => {
         ? sql`EXISTS(SELECT 1 FROM recipe_favorites rf WHERE rf.recipe_id = ${recipesTable.id} AND rf.user_id = ${currentUserId})`
         : undefined;
 
+    // Für jedes Wort: muss in mindestens einem Feld vorkommen (OR über Felder).
+    // Alle Wörter müssen passen (AND über Wörter).
+    const wordConditions = words.map((word) => {
+      const p = `%${escapeLike(word)}%`;
+      return sql`(
+        ${recipesTable.title} ILIKE ${p}
+        OR COALESCE(${recipesTable.notes}, '') ILIKE ${p}
+        OR COALESCE(${recipesTable.category}, '') ILIKE ${p}
+        OR EXISTS (
+          SELECT 1 FROM ${recipeIngredientsTable} ri2
+          WHERE ri2.recipe_id = ${recipesTable.id}
+          AND ri2.name ILIKE ${p}
+        )
+        OR EXISTS (
+          SELECT 1 FROM unnest(ARRAY(SELECT jsonb_array_elements_text(${recipesTable.steps}))) AS step
+          WHERE step ILIKE ${p}
+        )
+      )`;
+    });
+
     const matchingRecipeIds = await db
       .selectDistinct({ id: recipesTable.id })
       .from(recipesTable)
       .leftJoin(recipeIngredientsTable, eq(recipeIngredientsTable.recipeId, recipesTable.id))
-      .where(
-        and(
-          isNull(recipesTable.deletedAt),
-          filterExpr,
-          sql`
-            ${recipesTable.title} ILIKE ${pattern}
-            OR COALESCE(${recipesTable.notes}, '') ILIKE ${pattern}
-            OR COALESCE(${recipesTable.category}, '') ILIKE ${pattern}
-            OR EXISTS (
-              SELECT 1 FROM ${recipeIngredientsTable} ri2
-              WHERE ri2.recipe_id = ${recipesTable.id}
-              AND ri2.name ILIKE ${pattern}
-            )
-            OR EXISTS (
-              SELECT 1 FROM unnest(ARRAY(SELECT jsonb_array_elements_text(${recipesTable.steps}))) AS step
-              WHERE step ILIKE ${pattern}
-            )
-          `
-        )
-      );
+      .where(and(isNull(recipesTable.deletedAt), filterExpr, ...wordConditions));
 
     if (matchingRecipeIds.length === 0) {
       return res.json([]);
@@ -649,18 +659,20 @@ router.get("/recipes/search", async (req, res) => {
 
     const rawSearchRows = (searchRows as unknown as { rows: SearchRow[] }).rows ?? (searchRows as unknown as SearchRow[]);
 
-    const pattern2 = q.toLowerCase();
     const result = rawSearchRows.map((r) => {
       const titleLower = r.title.toLowerCase();
       const notesLower = (r.notes ?? "").toLowerCase();
       const categoryLower = r.category.toLowerCase();
       const ingNames = (r.ingredients as Array<{ name: string }>).map((i) => i.name.toLowerCase());
       const tagsLower = (r.tags ?? []).map((t: string) => t.toLowerCase());
-      const matchedInTitle = titleLower.includes(pattern2);
-      const matchedInCategory = categoryLower.includes(pattern2);
-      const matchedInIngredients = ingNames.some((n) => n.includes(pattern2));
-      const matchedInTags = tagsLower.some((t: string) => t.includes(pattern2));
-      const matchedInNotes = !matchedInTitle && !matchedInCategory && !matchedInIngredients && !matchedInTags && notesLower.includes(pattern2);
+      // matchedInNotes: mindestens ein Suchwort ist ausschließlich in den Notizen zu finden
+      const matchedInNotes = words.some((word) => {
+        const inTitle = titleLower.includes(word);
+        const inCategory = categoryLower.includes(word);
+        const inIng = ingNames.some((n) => n.includes(word));
+        const inTags = tagsLower.some((t) => t.includes(word));
+        return !inTitle && !inCategory && !inIng && !inTags && notesLower.includes(word);
+      });
       return {
         id: r.id, title: r.title, servings: r.servings, prepTime: r.prepTime,
         totalTime: r.totalTime, difficulty: r.difficulty, category: r.category,

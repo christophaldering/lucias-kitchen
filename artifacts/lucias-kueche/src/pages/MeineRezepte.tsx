@@ -989,7 +989,7 @@ export default function MeineRezepte({ onNavigate: _onNavigate, initialOpenRecip
               <div className="mb-5 px-4 py-2 flex items-center gap-2 text-sm text-[#4A7C59]">
                 <BookOpen className="w-4 h-4 flex-shrink-0" />
                 <span>
-                  <span className="font-bold">{totalRecipes ?? recipes.length}</span>
+                  <span className="font-bold">{searchResults !== null ? baseList.length : (totalRecipes ?? recipes.length)}</span>
                   <span className="opacity-70"> {isFiltered ? "Treffer" : "Rezepte"}</span>
                 </span>
               </div>

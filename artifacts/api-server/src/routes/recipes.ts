@@ -1041,14 +1041,16 @@ router.get("/recipes/stats", authMiddleware, async (req, res) => {
     const top3Rows = (top3Result as unknown as { rows: Array<{ id: number; title: string; rating: string | null; cookedCount: number | null; category: string }> }).rows
       ?? (top3Result as unknown as Array<{ id: number; title: string; rating: string | null; cookedCount: number | null; category: string }>);
 
-    // avgIngredients: rounded average of ingredient count per recipe
+    // avgIngredients: rounded average over ALL non-deleted recipes
+    // (recipes with 0 ingredients count as 0, not excluded from denominator)
     const avgResult = await db.execute(sql`
       SELECT COALESCE(ROUND(AVG(cnt))::int, 0) AS avg_ingredients
       FROM (
-        SELECT recipe_id, COUNT(*)::int AS cnt
-        FROM recipe_ingredients
-        WHERE recipe_id IN (SELECT id FROM recipes WHERE deleted_at IS NULL)
-        GROUP BY recipe_id
+        SELECT r.id, COUNT(ri.recipe_id)::int AS cnt
+        FROM recipes r
+        LEFT JOIN recipe_ingredients ri ON ri.recipe_id = r.id
+        WHERE r.deleted_at IS NULL
+        GROUP BY r.id
       ) sub
     `);
     const avgRows = (avgResult as unknown as { rows: Array<{ avg_ingredients: number }> }).rows

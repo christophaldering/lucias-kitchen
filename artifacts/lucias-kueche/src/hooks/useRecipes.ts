@@ -1,14 +1,8 @@
 import { useInfiniteQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo } from "react";
 import type { Recipe, IngredientInput, Season, RecipePhoto } from "@/types/recipe";
 import { authFetch, authHeaders } from "@/lib/authFetch";
 import { useAuth } from "@/contexts/AuthContext";
-import {
-  getCachedRecipes,
-  setCachedRecipes,
-  deleteCachedRecipe,
-  clearRecipeCache,
-} from "@/lib/recipeDb";
 
 export interface RecipeUpdatePayload {
   title: string;
@@ -69,43 +63,6 @@ export function useRecipes(filter: RecipeFilter = "all", options?: { loadAll?: b
   const queryClient = useQueryClient();
   const loadAll = options?.loadAll ?? false;
 
-  // When any filter is active, skip local cache (it holds unfiltered data)
-  const hasActiveFilters = !!(
-    activeFilters?.category ||
-    activeFilters?.time ||
-    activeFilters?.season ||
-    activeFilters?.cooked ||
-    activeFilters?.photoType ||
-    activeFilters?.variants ||
-    activeFilters?.chefPick
-  );
-
-  const [cacheState, setCacheState] = useState<{ filter: RecipeFilter; recipes: Recipe[]; loaded: boolean }>({
-    filter,
-    recipes: [],
-    loaded: false,
-  });
-  const [isBackgroundRefreshing, setIsBackgroundRefreshing] = useState(false);
-  const cacheLoadedRef = useRef(false);
-
-  useEffect(() => {
-    if (hasActiveFilters) return; // skip cache when filters are active
-    let cancelled = false;
-    setCacheState({ filter, recipes: [], loaded: false });
-    cacheLoadedRef.current = false;
-    setIsBackgroundRefreshing(false);
-    getCachedRecipes(filter).then((recipes) => {
-      if (!cancelled) {
-        setCacheState({ filter, recipes, loaded: true });
-        cacheLoadedRef.current = true;
-      }
-    });
-    return () => { cancelled = true; };
-  }, [filter, hasActiveFilters]);
-
-  const cachedRecipes = cacheState.filter === filter ? cacheState.recipes : [];
-  const cacheLoaded = cacheState.filter === filter && cacheState.loaded;
-
   const filterParamStr = useMemo(() => {
     const p = new URLSearchParams();
     if (filter !== "all") p.set("filter", filter);
@@ -161,32 +118,21 @@ export function useRecipes(filter: RecipeFilter = "all", options?: { loadAll?: b
     },
   });
 
-  const serverRecipes = useMemo(
+  const recipes = useMemo(
     () => infiniteQuery.data?.pages.flatMap((p) => p.recipes) ?? [],
     [infiniteQuery.data]
   );
-  const hasServerData = infiniteQuery.data !== undefined && !infiniteQuery.isLoading;
+  const totalRecipes = infiniteQuery.data?.pages[0]?.total ?? null;
+  const loading = infiniteQuery.isLoading;
+
+  const isUnauthorizedError = infiniteQuery.isError && infiniteQuery.error instanceof Error && (infiniteQuery.error as Error & { isUnauthorized?: boolean }).isUnauthorized;
+  const error = infiniteQuery.isError && !isUnauthorizedError ? "Rezepte konnten nicht geladen werden." : null;
 
   useEffect(() => {
-    if (hasActiveFilters) return; // never overwrite the full cache with filtered results
-    if (infiniteQuery.isError) {
-      setIsBackgroundRefreshing(false);
-      return;
+    if (loadAll && infiniteQuery.hasNextPage && !infiniteQuery.isFetchingNextPage) {
+      infiniteQuery.fetchNextPage();
     }
-    if (!infiniteQuery.isLoading && !infiniteQuery.isFetchingNextPage && infiniteQuery.data) {
-      const allPagesFetched = !infiniteQuery.hasNextPage;
-      if (allPagesFetched) {
-        setIsBackgroundRefreshing(false);
-        setCachedRecipes(filter, serverRecipes).catch(() => {});
-      }
-    }
-  }, [hasActiveFilters, filter, infiniteQuery.isError, infiniteQuery.isLoading, infiniteQuery.isFetchingNextPage, infiniteQuery.data, infiniteQuery.hasNextPage, serverRecipes.length]);
-
-  useEffect(() => {
-    if (cacheLoaded && cacheLoadedRef.current && cachedRecipes.length > 0 && !hasServerData) {
-      setIsBackgroundRefreshing(true);
-    }
-  }, [cacheLoaded, cachedRecipes.length, hasServerData]);
+  }, [loadAll, infiniteQuery.hasNextPage, infiniteQuery.isFetchingNextPage, infiniteQuery.fetchNextPage]);
 
   const addRecipesMutation = useMutation({
     mutationFn: async (newRecipes: Partial<Recipe>[]): Promise<Recipe[]> => {
@@ -237,10 +183,7 @@ export function useRecipes(filter: RecipeFilter = "all", options?: { loadAll?: b
       });
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
     },
-    onSuccess: (_data, id) => {
-      deleteCachedRecipe(id).catch(() => {});
-      queryClient.invalidateQueries({ queryKey: ["recipes"] });
-    },
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["recipes"] }),
   });
 
   const deleteAllRecipesMutation = useMutation({
@@ -248,10 +191,7 @@ export function useRecipes(filter: RecipeFilter = "all", options?: { loadAll?: b
       const res = await authFetch(`${API_BASE}/recipes`, { method: "DELETE", headers: authHeaders() });
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
     },
-    onSuccess: () => {
-      clearRecipeCache().catch(() => {});
-      queryClient.invalidateQueries({ queryKey: ["recipes"] });
-    },
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["recipes"] }),
   });
 
   const requestDeleteAllMutation = useMutation({
@@ -270,10 +210,7 @@ export function useRecipes(filter: RecipeFilter = "all", options?: { loadAll?: b
       const res = await authFetch(`${API_BASE}/recipes/seed`, { method: "POST", headers: authHeaders() });
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
     },
-    onSuccess: () => {
-      clearRecipeCache().catch(() => {});
-      queryClient.invalidateQueries({ queryKey: ["recipes"] });
-    },
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["recipes"] }),
   });
 
   const toggleFavoriteMutation = useMutation({
@@ -287,22 +224,6 @@ export function useRecipes(filter: RecipeFilter = "all", options?: { loadAll?: b
     },
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ["recipes"] }),
   });
-
-  const recipes = hasServerData ? serverRecipes : cachedRecipes;
-  const totalRecipes = infiniteQuery.data?.pages[0]?.total ?? null;
-
-  const loading = !cacheLoaded
-    ? infiniteQuery.isLoading
-    : cachedRecipes.length === 0 && infiniteQuery.isLoading;
-
-  const isUnauthorizedError = infiniteQuery.isError && infiniteQuery.error instanceof Error && (infiniteQuery.error as Error & { isUnauthorized?: boolean }).isUnauthorized;
-  const error = infiniteQuery.isError && !isUnauthorizedError ? "Rezepte konnten nicht geladen werden." : null;
-
-  useEffect(() => {
-    if (loadAll && infiniteQuery.hasNextPage && !infiniteQuery.isFetchingNextPage) {
-      infiniteQuery.fetchNextPage();
-    }
-  }, [loadAll, infiniteQuery.hasNextPage, infiniteQuery.isFetchingNextPage, infiniteQuery.fetchNextPage]);
 
   async function fetchRecipes() {
     await queryClient.invalidateQueries({ queryKey: ["recipes"] });
@@ -352,7 +273,6 @@ export function useRecipes(filter: RecipeFilter = "all", options?: { loadAll?: b
       headers: authHeaders(),
     });
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
-    deleteCachedRecipe(id).catch(() => {});
   }
 
   async function deleteRecipe(id: number) {
@@ -380,7 +300,7 @@ export function useRecipes(filter: RecipeFilter = "all", options?: { loadAll?: b
     totalRecipes,
     loading,
     error,
-    isBackgroundRefreshing,
+    isBackgroundRefreshing: false,
     refetch: fetchRecipes,
     addRecipes,
     updateRecipe,

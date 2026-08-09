@@ -353,12 +353,6 @@ export default function Wochenplan({ onNavigate }: WochenplanProps = {}) {
 
   return (
     <div className="max-w-5xl mx-auto px-4 py-6 pb-28">
-      {isBackgroundRefreshing && (
-        <div className="flex items-center gap-2 mb-3 px-3 py-2 rounded-xl bg-[#4A7C59]/8 border border-[#4A7C59]/20 text-sm text-[#4A7C59]">
-          <Loader2 className="w-3.5 h-3.5 animate-spin flex-shrink-0" />
-          <span>Rezepte werden aktualisiert…</span>
-        </div>
-      )}
       <div className="flex items-center justify-between mb-6">
         <h2 className="font-serif text-2xl font-semibold text-foreground">
           📅 Mein Wochenplan

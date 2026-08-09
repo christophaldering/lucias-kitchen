@@ -1,6 +1,5 @@
 import React, { createContext, useContext, useState, useEffect, useCallback } from "react";
 import { registerUnauthorizedHandler, authFetch } from "@/lib/authFetch";
-import { clearRecipeCache } from "@/lib/recipeDb";
 
 const API_BASE = "/api";
 
@@ -80,7 +79,6 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       .catch(() => {
         setStoredToken(null);
         setToken(null);
-        clearRecipeCache().catch(() => {});
       })
       .finally(() => {
         setLoading(false);
@@ -89,7 +87,6 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }, [fetchMe]);
 
   const login = useCallback(async (email: string, password: string) => {
-    await clearRecipeCache().catch(() => {});
     const res = await fetch(`${API_BASE}/auth/login`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -109,7 +106,6 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     setStoredToken(null);
     setToken(null);
     setUser(null);
-    clearRecipeCache().catch(() => {});
   }, []);
 
   useEffect(() => {

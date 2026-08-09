@@ -1,0 +1,75 @@
+ZIEL
+Rezept-Export als Datensicherung. Zwei Wege:
+a) Manueller Download im Admin-Bereich (sofort, verlaesslich)
+b) Woechentlicher automatischer Versand per E-Mail an den Admin
+
+TEIL 1 — SERVER: EXPORT-FUNKTION
+Neue Datei: artifacts/api-server/src/lib/recipeExport.ts
+
+Eine Funktion buildRecipeExport(), die ein JSON-Objekt baut:
+{
+  "exportedAt": ISO-Zeitstempel,
+  "recipeCount": number,
+  "recipes": [ ... ]
+}
+
+Jedes Rezept vollstaendig mit: allen Spalten aus recipes
+(auch geloeschte NICHT — nur deleted_at IS NULL), den Zutaten,
+den persoenlichen Notizen, dem Koch-Logbuch und den Kommentaren.
+KEINE Nutzerdaten ausser displayName bei Kommentaren,
+KEINE Passwort-Hashes, KEINE E-Mail-Adressen.
+
+Bild-URLs als URLs uebernehmen, die Bilddateien selbst NICHT
+einbetten.
+
+TEIL 2 — SERVER: ADMIN-ROUTE
+Neue Route GET /admin/export in einer neuen Datei
+artifacts/api-server/src/routes/adminExport.ts
+- authMiddleware + isAdmin-Pruefung (wie bei /recipes/trash)
+- liefert das JSON als Download mit Header
+  Content-Disposition: attachment;
+  filename="lucias-kueche-export-YYYY-MM-DD.json"
+
+TEIL 3 — SERVER: WOECHENTLICHER VERSAND
+Paket node-cron installieren (nur dieses eine).
+Beim Serverstart einen Job registrieren:
+jeden Sonntag 06:00 Europe/Berlin.
+
+Der Job ruft buildRecipeExport() auf und versendet das JSON als
+Anhang per sendEmail an die Admin-E-Mail (dieselbe Konstante wie
+in isAdmin). Betreff: "Lucias Kueche — Wochensicherung <Datum>".
+Textkoerper: Anzahl Rezepte und Exportdatum, zwei Saetze genuegen.
+
+Wenn der Anhang groesser als 15 MB wird: nicht anhaengen,
+stattdessen im Text darauf hinweisen, den manuellen Export im
+Admin zu nutzen.
+Fehler beim Versand: loggen, Server laeuft weiter.
+Ist isEmailConfigured() false: Job beim Start gar nicht erst
+registrieren, einmalig loggen.
+
+TEIL 4 — CLIENT: ADMIN-BUTTON
+In Admin.tsx einen Button "Rezepte exportieren (JSON)" im
+bestehenden Verwaltungsbereich. Klick laedt /admin/export mit
+Auth-Header und stoesst den Browser-Download an.
+
+VERBOTEN
+- Keine Aenderung an bestehenden Routen
+- Keine Bilddateien im Export
+- Keine E-Mail-Adressen oder Passwort-Hashes im Export
+- Kein weiteres Paket ausser node-cron
+
+VERIFIKATION
+1. Admin-Button klicken: JSON wird heruntergeladen,
+   recipeCount entspricht der Rezeptzahl in der App
+2. Stichprobe im JSON: ein bekanntes Rezept enthaelt Zutaten,
+   Schritte und Notizen; nirgends taucht ein passwordHash oder
+   eine E-Mail-Adresse auf (im JSON danach suchen)
+3. Der Cron-Job wird beim Serverstart geloggt
+4. Test-Versand: den Job einmalig manuell ausloesen (temporaere
+   Testroute oder direkter Funktionsaufruf beim Start hinter
+   einem Kommentar) und pruefen, dass die Mail ankommt.
+   Testausloeser danach wieder entfernen.
+
+ROLLBACK
+Bei Build- oder Startfehler: node-cron-Registrierung entfernen,
+Rest kann bleiben.

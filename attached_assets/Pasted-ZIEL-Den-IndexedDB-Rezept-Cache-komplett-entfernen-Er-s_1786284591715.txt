@@ -1,0 +1,55 @@
+ZIEL
+Den IndexedDB-Rezept-Cache komplett entfernen. Er stammt aus der
+Zeit, als alle Rezepte vorgeladen wurden. Seit der serverseitigen
+Pagination wird er faktisch nicht mehr genutzt (der variants-
+Parameter setzt hasActiveFilters dauerhaft auf true) und ist nur
+noch tote Komplexitaet.
+
+TEIL 1 — DATEI LOESCHEN
+artifacts/lucias-kueche/src/lib/recipeDb.ts komplett entfernen.
+
+TEIL 2 — useRecipes.ts BEREINIGEN
+Datei: artifacts/lucias-kueche/src/hooks/useRecipes.ts
+
+Entfernen:
+- den Import aus "@/lib/recipeDb"
+- cacheState, setCacheState, cacheLoadedRef und den useEffect,
+  der getCachedRecipes aufruft
+- den useEffect, der setCachedRecipes schreibt
+- die Aufrufe von deleteCachedRecipe und clearRecipeCache in den
+  Mutations (nur die Cache-Aufrufe, NICHT die Mutations selbst)
+- hasActiveFilters, falls es danach nirgends mehr gebraucht wird
+- isBackgroundRefreshing samt State: im Rueckgabeobjekt das Feld
+  als konstantes false beibehalten, damit Aufrufer nicht brechen
+
+Die Zeile "const recipes = hasServerData ? serverRecipes :
+cachedRecipes" wird zu "const recipes = serverRecipes".
+Die loading-Logik entsprechend vereinfachen: loading ist
+schlicht infiniteQuery.isLoading.
+
+TEIL 3 — AUFRUFER PRUEFEN
+grep nach isBackgroundRefreshing in artifacts/lucias-kueche/src.
+Wo es nur fuer eine Anzeige "aktualisiert im Hintergrund"
+verwendet wird, die Anzeige entfernen. Wo es destrukturiert
+wird, kann es dank des konstanten false bleiben.
+
+Danach pruefen, ob eine IndexedDB-Datenbank "lucias-kueche"
+beim App-Start noch angelegt wird — es darf keinen Code mehr
+geben, der indexedDB.open aufruft.
+
+VERBOTEN
+- Keine Aenderung an den Mutations, Filtern oder der Sortierung
+- Keine Aenderung am Server
+- Keine Aenderung an der Suche
+
+VERIFIKATION
+1. grep -rn "recipeDb\|getCachedRecipes\|setCachedRecipes\|indexedDB" artifacts/lucias-kueche/src
+   -> muss leer sein
+2. Build laeuft fehlerfrei durch
+3. App im Browser: Galerie laedt, Filter und Sortierung
+   funktionieren, Rezept oeffnen funktioniert, Rezept loeschen
+   funktioniert
+4. Harter Reload: Galerie erscheint sofort vom Server
+
+ROLLBACK
+Bei Build-Fehler oder leerer Galerie: alle Aenderungen zurueck.

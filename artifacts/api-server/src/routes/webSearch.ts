@@ -119,7 +119,54 @@ router.post("/recipes/web-search", authMiddleware, aiLimiter, async (req, res) =
       results = [];
     }
 
-    res.json({ results });
+    // --- URL-Validierung ---
+    // Jeden Kandidaten per HEAD prüfen (Timeout 4 s, Redirects folgen).
+    // Bei 405 einmal mit GET + Range: bytes=0-0 nachversuchen.
+    // Nur URLs mit finalem 2xx in die Antwort übernehmen.
+    const UA = "Mozilla/5.0 (compatible; RecipeBot/1.0; +https://lucias-kueche.de)";
+
+    async function checkUrl(candidate: { title: string; url: string; source: string; description: string })
+      : Promise<{ title: string; url: string; source: string; description: string } | null> {
+      const tryFetch = async (method: string, url: string): Promise<{ ok: boolean; finalUrl: string; status: number }> => {
+        try {
+          const headers: Record<string, string> = { "User-Agent": UA };
+          if (method === "GET") headers["Range"] = "bytes=0-0";
+          const r = await fetch(url, {
+            method,
+            headers,
+            redirect: "follow",
+            signal: AbortSignal.timeout(4_000),
+          });
+          return { ok: r.ok || r.status === 206, finalUrl: r.url || url, status: r.status };
+        } catch {
+          return { ok: false, finalUrl: url, status: 0 };
+        }
+      };
+
+      let result = await tryFetch("HEAD", candidate.url);
+      if (!result.ok && result.status === 405) {
+        result = await tryFetch("GET", candidate.url);
+      }
+
+      if (result.ok) {
+        // Finale URL nach Redirects verwenden
+        const finalDomain = (() => {
+          try { return new URL(result.finalUrl).hostname.replace(/^www\./, ""); } catch { return candidate.source; }
+        })();
+        return { ...candidate, url: result.finalUrl, source: finalDomain };
+      }
+
+      req.log.info({ url: candidate.url, status: result.status }, "web-search: URL verworfen");
+      return null;
+    }
+
+    const settled = await Promise.allSettled(results.map(checkUrl));
+    const validated = settled
+      .filter((s): s is PromiseFulfilledResult<Awaited<ReturnType<typeof checkUrl>>> => s.status === "fulfilled")
+      .map((s) => s.value)
+      .filter((v): v is NonNullable<typeof v> => v !== null);
+
+    res.json({ results: validated });
   } catch (err) {
     req.log.error({ err }, "web-search fehlgeschlagen");
     // Bei jedem Fehler: 200 + leer statt 500

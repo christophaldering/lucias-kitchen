@@ -331,10 +331,21 @@ router.post("/extract-url", authMiddleware, aiLimiter, async (req, res) => {
         } else if (result.error === "not_html") {
           res.status(422).json({ error: "unsupported_content", message: "Die URL führt zu keiner HTML-Seite" });
         } else {
+          // Leite den echten HTTP-Status (der Zielseite) aus dem error-String ab
+          const httpMatch = result.error.match(/fetch_failed_(\d+)/);
+          const httpStatus = httpMatch ? parseInt(httpMatch[1], 10) : 0;
+          const statusHint =
+            httpStatus === 404 ? " (404 — Seite nicht gefunden)" :
+            httpStatus === 403 ? " (403 — Zugriff verweigert)" :
+            httpStatus === 401 ? " (401 — Anmeldung erforderlich)" :
+            httpStatus === 410 ? " (410 — Seite dauerhaft entfernt)" :
+            httpStatus === 429 ? " (429 — Zu viele Anfragen)" :
+            httpStatus >= 500  ? ` (${httpStatus} — Server-Fehler)` :
+            httpStatus > 0     ? ` (${httpStatus})` : "";
           const statusCode = result.status;
           res.status(statusCode).json({
             error: "fetch_error",
-            message: `Die Seite konnte nicht geladen werden`,
+            message: `Seite nicht erreichbar${statusHint}`,
           });
         }
         return;

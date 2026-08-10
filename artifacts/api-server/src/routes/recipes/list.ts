@@ -239,7 +239,15 @@ const SMART_CONDITION_WORDS = new Set([
 
 const STOPWORDS_SMART = new Set(["mit", "und", "der", "die", "das", "im", "in", "am"]);
 
-const SIMILARITY_THRESHOLD = 0.30;
+// Schwelle empirisch kalibriert (Messreihe 2026-08-10, gemini-embedding-001, 15 Rezepte):
+// – "Waffeltorte" (kein Rezept im Bestand): alle Scores 0.51–0.56  → unter 0.58 = reiner Lärm
+// – "etwas Wärmendes für kalte Tage":       Top-Scores 0.58–0.62  → echte Treffer
+// – "Nudeln mit Fleisch":                   Top-Score  0.7273      → starke Treffer
+// Ergebnis: 0.58 trennt echte Übereinstimmungen sauber vom Hintergrundrauschen.
+const SIMILARITY_THRESHOLD = 0.58;
+// Leitplanken unabhängig von der Schwelle:
+const SEMANTIC_MAX_ADDITIONS = 12;           // maximal 12 semantische Zusätze pro Suche
+const SEMANTIC_TAIL_CUTOFF   = 0.80;         // Treffer unter 80 % des besten Scores fallen weg
 
 // Internes In-Memory-Rate-Limit für die teure GPT-Extraktion: max 30 pro 10 Min pro IP
 const EXTRACTION_WINDOW_MS = 10 * 60 * 1000;
@@ -542,20 +550,38 @@ router.post("/recipes/smart-search", authMiddleware, searchLimiter, async (req, 
         if (score >= SIMILARITY_THRESHOLD) semanticCandidates.push({ id: recipeId, score });
       }
       semanticCandidates.sort((a, b) => b.score - a.score);
+
+      // Leitplanke 1: 80 %-Abstands-Regel — langen Schwanz abschneiden
+      if (semanticCandidates.length > 0) {
+        const bestScore = semanticCandidates[0].score;
+        semanticCandidates = semanticCandidates.filter(
+          (c) => c.score >= bestScore * SEMANTIC_TAIL_CUTOFF
+        );
+      }
     }
 
     // -------------------------------------------------------------------------
-    // SCHRITT 5: Zusammenführen, Deduplizieren, max. 60
+    // SCHRITT 5: Zusammenführen, Deduplizieren, max. 60 gesamt / 12 semantisch
     // -------------------------------------------------------------------------
     const exactIdSet = new Set(exactIds);
     const mergedIds: number[] = [...exactIds];
+    let semanticAdded = 0;
     for (const { id } of semanticCandidates) {
-      if (!exactIdSet.has(id)) mergedIds.push(id);
+      if (!exactIdSet.has(id)) {
+        // Leitplanke 2: maximal SEMANTIC_MAX_ADDITIONS semantische Zusätze
+        if (semanticAdded >= SEMANTIC_MAX_ADDITIONS) break;
+        mergedIds.push(id);
+        semanticAdded++;
+      }
     }
     const limitedIds = mergedIds.slice(0, 60);
 
     const exactCount    = exactIds.length;
-    const semanticCount = semanticCandidates.filter((c) => !exactIdSet.has(c.id)).length;
+    const semanticCount = semanticAdded;
+    // Set für schnelle source-Bestimmung beim Mapping
+    const semanticOnlyIds = new Set(
+      limitedIds.filter((id) => !exactIdSet.has(id))
+    );
 
     if (limitedIds.length === 0) {
       return res.json({
@@ -672,6 +698,8 @@ router.post("/recipes/smart-search", authMiddleware, searchLimiter, async (req, 
         ingredients: r.ingredients,
         isFavorite: r.isFavorite, isOwner: r.isOwner,
         matchedInNotes: false,
+        /** Herkunft: "exact" = exakter/Kriterien-Treffer; "semantic" = Ähnlichkeitstreffers */
+        searchSource: semanticOnlyIds.has(id) ? ("semantic" as const) : ("exact" as const),
         owner: (r.ownerDisplayName != null || r.ownerAvatarUrl != null)
           ? { displayName: r.ownerDisplayName!, avatarUrl: r.ownerAvatarUrl }
           : null,

@@ -1,4 +1,4 @@
-import { useState, useMemo, useEffect, useRef, useCallback } from "react";
+import { useState, useMemo, useEffect, useRef, useCallback, Fragment } from "react";
 import { Recipe } from "@/types/recipe";
 import type { Season } from "@/types/recipe";
 import { SEASON_LABELS, SEASON_ICONS, getCurrentSeason } from "@/types/recipe";
@@ -580,6 +580,8 @@ export default function MeineRezepte({ onNavigate: _onNavigate, initialOpenRecip
 
   const [field1, setField1] = useState("");
   const [searchResults, setSearchResults] = useState<Recipe[] | null>(null);
+  // Anzahl exakter Treffer aus dem letzten smart-search (für "Ähnliche Rezepte"-Trennlinie)
+  const [searchExactCount, setSearchExactCount] = useState<number>(0);
   const [searchLoading, setSearchLoading] = useState(false);
   const [aiSearchLoading, setAiSearchLoading] = useState(false);
   const [aiSearchSummary, setAiSearchSummary] = useState<string | null>(null);
@@ -785,9 +787,10 @@ export default function MeineRezepte({ onNavigate: _onNavigate, initialOpenRecip
       aiAbortRef.current = controller;
       setAiSearchLoading(true);
       try {
-        const { recipes, summary } = await smartSearchApi(trimmed, recipeFilter, controller.signal);
+        const { recipes, summary, exactCount } = await smartSearchApi(trimmed, recipeFilter, controller.signal);
         if (!controller.signal.aborted) {
           setSearchResults(recipes);
+          setSearchExactCount(exactCount ?? 0);
           setAiSearchSummary(summary ?? null);
           setIsKochideeResult(false);
           activeSourceRef.current = "direct";
@@ -1181,23 +1184,47 @@ export default function MeineRezepte({ onNavigate: _onNavigate, initialOpenRecip
                 </div>
               ) : viewMode === "galerie" ? (
                 <>
-                  <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-5">
-                    {baseList.map((recipe) => (
-                      <RecipeCard
-                        key={recipe.id}
-                        recipe={recipe}
-                        onClick={() => openRecipe(recipe.id)}
-                        onCook={() => openCookingMode(recipe)}
-                        onSuggest={() => setSuggestRecipe(recipe)}
-                        showNotes={showNotes}
-                        showCookCount={showCookCount}
-                        onToggleFavorite={toggleFavorite}
-                        commentCount={commentStats[recipe.id]?.count}
-                        avgRating={commentStats[recipe.id]?.avgRating}
-                        matchedInNotes={recipe.matchedInNotes}
-                      />
-                    ))}
-                  </div>
+                  {(() => {
+                    // "Ähnliche Rezepte"-Trennlinie: nur wenn es exakte UND semantische Treffer gibt
+                    const hasExact    = searchResults !== null && searchExactCount > 0;
+                    const hasSemantic = searchResults !== null && baseList.some(r => r.searchSource === "semantic");
+                    const showDivider = hasExact && hasSemantic;
+                    // Index des ersten semantischen Treffers in baseList
+                    const firstSemanticIdx = showDivider
+                      ? baseList.findIndex(r => r.searchSource === "semantic")
+                      : -1;
+
+                    return (
+                      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-5">
+                        {baseList.map((recipe, idx) => (
+                          <Fragment key={recipe.id}>
+                            {showDivider && idx === firstSemanticIdx && (
+                              <div className="col-span-full flex items-center gap-3 py-1">
+                                <div className="flex-1 border-t border-border/50" />
+                                <span className="text-xs text-muted-foreground/70 font-medium tracking-wide shrink-0">
+                                  Ähnliche Rezepte
+                                </span>
+                                <div className="flex-1 border-t border-border/50" />
+                              </div>
+                            )}
+                            <RecipeCard
+                              recipe={recipe}
+                              onClick={() => openRecipe(recipe.id)}
+                              onCook={() => openCookingMode(recipe)}
+                              onSuggest={() => setSuggestRecipe(recipe)}
+                              showNotes={showNotes}
+                              showCookCount={showCookCount}
+                              onToggleFavorite={toggleFavorite}
+                              commentCount={commentStats[recipe.id]?.count}
+                              avgRating={commentStats[recipe.id]?.avgRating}
+                              matchedInNotes={recipe.matchedInNotes}
+                            />
+                          </Fragment>
+                        ))}
+                      </div>
+                    );
+                  })()}
+
                   {!searchResults && (
                     <>
                       <div ref={sentinelRef} className="h-4" />

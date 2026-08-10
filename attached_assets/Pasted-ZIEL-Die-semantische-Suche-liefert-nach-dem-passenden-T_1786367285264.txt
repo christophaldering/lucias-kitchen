@@ -1,0 +1,58 @@
+ZIEL
+Die semantische Suche liefert nach dem passenden Treffer viel
+zu viele nur entfernt verwandte Rezepte. Zwei Massnahmen:
+Schwelle empirisch kalibrieren UND semantische Zusaetze
+sichtbar von echten Treffern trennen.
+
+TEIL 1 — SCHWELLE EMPIRISCH KALIBRIEREN
+Datei: dort, wo SIMILARITY_THRESHOLD (aktuell 0.30) definiert
+ist (routes/recipes/list.ts bzw. lib/embeddings.ts).
+
+a) Erst MESSEN, nicht raten: Ein Wegwerf-Skript ausfuehren,
+   das fuer drei Testanfragen ("Waffeltorte", "etwas
+   Waermendes fuer kalte Tage", "Nudeln mit Fleisch") die
+   Top-20-Aehnlichkeitswerte samt Rezepttitel ausgibt.
+   Werteverteilung in den Bericht.
+b) Anhand der Verteilung die Schwelle so setzen, dass klar
+   Passendes bleibt und Beifang faellt (erwartbar im Bereich
+   0.45-0.60 — der Messwert entscheidet, nicht die Schaetzung).
+c) Zusaetzlich zwei Leitplanken unabhaengig von der Schwelle:
+   - maximal 12 semantische Zusaetze pro Suche
+   - Abstands-Regel: semantische Treffer, deren Score unter
+     80% des besten semantischen Scores liegt, fallen weg
+     (schneidet den langen Schwanz ab, egal wo die Schwelle
+     steht)
+Skript danach loeschen.
+
+TEIL 2 — SICHTBARE TRENNUNG IM CLIENT
+MeineRezepte.tsx: Die Antwort von smart-search liefert
+bereits exactCount/semanticCount. Darstellung kuenftig:
+- Exakte Treffer zuerst, wie bisher
+- Davor/dazwischen KEINE Aenderung; aber vor dem ersten
+  semantischen Zusatz eine dezente Zwischenueberschrift:
+  "Ähnliche Rezepte" (kleine Schrift, gedaempfte Farbe)
+- Gibt es NUR semantische Treffer (kein exakter), entfaellt
+  die Ueberschrift — dann ist die ganze Liste das Ergebnis
+Voraussetzung: Die Grenze exakt/semantisch muss im Client
+erkennbar sein — falls die Route die Trennung nicht pro
+Rezept mitliefert, ein Flag (source: "exact"|"semantic")
+pro Ergebnis ergaenzen.
+
+VERBOTEN
+- Keine Aenderung an der exakten Suche oder den Kriterien-
+  Filtern (exclusions bleiben hart)
+- Kein neues Ranking-System — nur Schwelle, Kappung, Label
+
+VERIFIKATION
+1. "Waffeltorte": der exakte Treffer, danach hoechstens eine
+   Handvoll wirklich verwandter Eintraege unter "Ähnliche
+   Rezepte" — nicht mehr die Parade
+2. "etwas Waermendes fuer kalte Tage" (rein semantisch):
+   weiterhin gute Eintopf-Treffer, KEINE Ueberschrift
+3. "Kartoffel ohne Fleisch": Ausschluss greift weiter auch
+   fuer die Aehnlichen
+4. Bericht enthaelt die gemessene Score-Verteilung und die
+   gewaehlte Schwelle
+
+ROLLBACK
+Schwelle zurueck auf 0.30, Ueberschrift entfernen.

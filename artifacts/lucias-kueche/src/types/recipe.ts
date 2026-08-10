@@ -104,6 +104,8 @@ export interface Recipe {
   tried?: boolean | null;
   chefPick?: boolean | null;
   matchedInNotes?: boolean;
+  /** Vom smart-search gesetzt: "exact" = exakter/Kriterien-Treffer; "semantic" = Ähnlichkeitstreffer */
+  searchSource?: "exact" | "semantic";
 }
 
 export const ALL_CATEGORIES = [

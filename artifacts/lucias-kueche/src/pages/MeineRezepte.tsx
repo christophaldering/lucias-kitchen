@@ -827,43 +827,14 @@ export default function MeineRezepte({ onNavigate: _onNavigate, initialOpenRecip
 
   const baseList = useMemo(() => {
     if (searchResults !== null) {
-      const sorted2 = [...searchResults];
-      switch (activeSortOrder) {
-        case "alphabetisch":
-          sorted2.sort((a, b) => a.title.localeCompare(b.title, "de"));
-          break;
-        case "kategorie":
-          sorted2.sort((a, b) => a.category.localeCompare(b.category, "de") || a.title.localeCompare(b.title, "de"));
-          break;
-        case "bewertung":
-          sorted2.sort((a, b) => {
-            const score = (r: Recipe) => r.rating === "sehr lecker" ? 2 : r.rating === "lecker" ? 1 : 0;
-            return score(b) - score(a);
-          });
-          break;
-        case "zuletzt_gekocht":
-          sorted2.sort((a, b) => {
-            if (!a.lastCooked && !b.lastCooked) return 0;
-            if (!a.lastCooked) return 1;
-            if (!b.lastCooked) return -1;
-            return b.lastCooked.localeCompare(a.lastCooked);
-          });
-          break;
-        case "haeufig_gekocht":
-          sorted2.sort((a, b) => (b.cookedCount ?? 0) - (a.cookedCount ?? 0));
-          break;
-        case "neueste":
-          sorted2.sort((a, b) => {
-            const ca = a.createdAt ?? "";
-            const cb = b.createdAt ?? "";
-            return cb.localeCompare(ca);
-          });
-          break;
-      }
-      return sorted2;
+      // Smart-search: Server-Reihenfolge unverändernd übernehmen.
+      // Die Reihenfolge ist bereits korrekt (exakte Treffer zuerst, dann
+      // semantische nach Score) — jegliche Client-Sortierung würde die
+      // Relevanzreihenfolge und die "Ähnliche Rezepte"-Grenze kaputt machen.
+      return [...searchResults];
     }
     return recipes;
-  }, [searchResults, recipes, activeSortOrder]);
+  }, [searchResults, recipes]);
 
 
   const knownCategories = useMemo(
@@ -1045,11 +1016,37 @@ export default function MeineRezepte({ onNavigate: _onNavigate, initialOpenRecip
               <div className="mb-5 px-4 py-2 flex items-center gap-2 text-sm text-[#4A7C59]">
                 <BookOpen className="w-4 h-4 flex-shrink-0" />
                 <span>
-                  <span className="font-bold">{searchResults !== null ? baseList.length : (totalRecipes ?? recipes.length)}</span>
-                  <span className="opacity-70"> {(isFiltered || searchResults !== null) ? "Treffer" : "Rezepte"}</span>
-                  {searchResults !== null && savedSortOrder !== "alphabetisch" && (
-                    <span className="text-xs text-muted-foreground/70 ml-1">
-                      {"(sortiert: " + (savedSortOrder === "kategorie" ? "nach Kategorie" : savedSortOrder === "bewertung" ? "nach Bewertung" : savedSortOrder === "zuletzt_gekocht" ? "zuletzt gekocht" : "am häufigsten gekocht") + ")"}
+                  {searchResults !== null ? (
+                    // Ehrliche Trefferanzeige: "1 Treffer · 11 ähnliche" / "12 ähnliche Rezepte"
+                    searchExactCount > 0 && baseList.length > searchExactCount ? (
+                      <>
+                        <span className="font-bold">{searchExactCount}</span>
+                        <span className="opacity-70"> {searchExactCount === 1 ? "Treffer" : "Treffer"}</span>
+                        <span className="opacity-50 mx-1">·</span>
+                        <span className="font-bold">{baseList.length - searchExactCount}</span>
+                        <span className="opacity-70"> ähnliche</span>
+                      </>
+                    ) : searchExactCount > 0 ? (
+                      <>
+                        <span className="font-bold">{searchExactCount}</span>
+                        <span className="opacity-70"> {searchExactCount === 1 ? "Treffer" : "Treffer"}</span>
+                      </>
+                    ) : (
+                      <>
+                        <span className="font-bold">{baseList.length}</span>
+                        <span className="opacity-70"> ähnliche{baseList.length === 1 ? "s Rezept" : " Rezepte"}</span>
+                      </>
+                    )
+                  ) : (
+                    <>
+                      <span className="font-bold">{totalRecipes ?? recipes.length}</span>
+                      <span className="opacity-70"> {isFiltered ? "Treffer" : "Rezepte"}</span>
+                    </>
+                  )}
+                  {/* Während aktiver Suche: Sortierung wirkungslos → "Relevanz"-Pill */}
+                  {searchResults !== null && (
+                    <span className="inline-flex items-center gap-1 text-xs text-muted-foreground/60 ml-2 bg-muted/40 px-2 py-0.5 rounded-full" title="Sortierung: Relevanz">
+                      Relevanz
                     </span>
                   )}
                 </span>

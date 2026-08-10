@@ -1,6 +1,7 @@
 import { Router, type IRouter } from "express";
 import { aiLimiter } from "../lib/rateLimits";
-import { openai } from "@workspace/integrations-openai-ai-server";
+import { AI_MODEL_MAIN } from "../lib/aiModels";
+import { callAiResponses } from "../lib/aiResponses";
 import { z } from "zod/v4";
 import { authMiddleware } from "./auth";
 
@@ -174,16 +175,18 @@ router.post("/kochidee-chat", authMiddleware, aiLimiter, async (req, res) => {
 
     const systemPrompt = buildSystemPrompt(context, pantryIngredients, forceComplete, surpriseMode);
 
-    const response = await openai.chat.completions.create({
-      model: "gpt-4o",
-      max_completion_tokens: 800,
-      messages: [
-        { role: "system", content: systemPrompt },
-        ...messages,
-      ],
-    });
+    // Format conversation as a single string — more reliable than passing an
+    // array with role/content objects when using the Responses API with gpt-5.
+    const conversationText = (messages as Array<{ role: string; content: string }>)
+      .map((m) => `${m.role === "assistant" ? "ASSISTANT" : "USER"}: ${m.content}`)
+      .join("\n\n");
+    const combinedInput = `${systemPrompt}\n\n---\n\n${conversationText}\n\nASSISTANT:`;
 
-    let rawJson = response.choices[0]?.message?.content ?? "";
+    let rawJson = await callAiResponses({
+      model: AI_MODEL_MAIN,
+      input: combinedInput,
+      maxOutputTokens: 2000,
+    });
     rawJson = rawJson.replace(/^```(?:json)?\s*/i, "").replace(/\s*```$/i, "").trim();
 
     let parsed: {

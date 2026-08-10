@@ -18,7 +18,8 @@ import {
 } from "@workspace/db/schema";
 import { eq, inArray, sql, and, isNull } from "drizzle-orm";
 import { z } from "zod/v4";
-import { openai } from "@workspace/integrations-openai-ai-server";
+import { AI_MODEL_MAIN } from "../../lib/aiModels";
+import { callAiResponses } from "../../lib/aiResponses";
 import { aiLimiter, searchLimiter } from "../../lib/rateLimits";
 import { authMiddleware } from "../auth";
 import { embedQuery, cosineSimilarity, getRecipeEmbeddings } from "../../lib/embeddings";
@@ -447,15 +448,13 @@ router.post("/recipes/smart-search", authMiddleware, searchLimiter, async (req, 
 
     if (hasConditions && canExtract(req.ip ?? "unknown")) {
       try {
-        const aiResp = await openai.chat.completions.create({
-          model: "gpt-4o",
-          max_completion_tokens: 400,
-          messages: [
-            { role: "system", content: AI_SEARCH_SYSTEM_PROMPT },
-            { role: "user", content: queryStr },
-          ],
+        let rawJson = await callAiResponses({
+          model: AI_MODEL_MAIN,
+          instructions: AI_SEARCH_SYSTEM_PROMPT,
+          input: queryStr,
+          // No maxOutputTokens override — use the 2000-token default so gpt-5
+          // has enough budget for its hidden reasoning tokens + JSON output.
         });
-        let rawJson = aiResp.choices[0]?.message?.content ?? "{}";
         rawJson = rawJson.replace(/^```(?:json)?\s*/i, "").replace(/\s*```$/i, "").trim();
         criteria = JSON.parse(rawJson);
         criteria!.ingredients ??= [];
@@ -700,16 +699,12 @@ router.post("/recipes/ai-search", authMiddleware, aiLimiter, async (req, res) =>
     const currentUserId = req.authUser?.id;
 
     // OpenAI-Aufruf — unverändert
-    const aiResponse = await openai.chat.completions.create({
-      model: "gpt-4o",
-      max_completion_tokens: 400,
-      messages: [
-        { role: "system", content: AI_SEARCH_SYSTEM_PROMPT },
-        { role: "user", content: query },
-      ],
+    let rawJson = await callAiResponses({
+      model: AI_MODEL_MAIN,
+      instructions: AI_SEARCH_SYSTEM_PROMPT,
+      input: query,
+      // No maxOutputTokens override — use the 2000-token default.
     });
-
-    let rawJson = aiResponse.choices[0]?.message?.content ?? "{}";
     rawJson = rawJson.replace(/^```(?:json)?\s*/i, "").replace(/\s*```$/i, "").trim();
 
     let criteria: AiCriteria;

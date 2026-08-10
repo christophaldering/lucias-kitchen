@@ -2,6 +2,7 @@ import { Router, type IRouter } from "express";
 import { aiLimiter } from "../lib/rateLimits";
 import { authMiddleware } from "./auth";
 import { openai } from "@workspace/integrations-openai-ai-server";
+import { AI_MODEL_MAIN } from "../lib/aiModels";
 
 const router: IRouter = Router();
 
@@ -38,7 +39,7 @@ router.post("/extract-fridge", authMiddleware, aiLimiter, async (req, res) => {
     const prompt = PROMPTS[resolvedLocation];
 
     const response = await openai.chat.completions.create({
-      model: "gpt-4o",
+      model: AI_MODEL_MAIN,
       max_completion_tokens: 1024,
       messages: [
         { role: "system", content: prompt },

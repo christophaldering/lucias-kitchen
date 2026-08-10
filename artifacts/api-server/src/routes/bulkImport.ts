@@ -12,6 +12,7 @@ import {
   notificationsTable,
 } from "@workspace/db/schema";
 import { registerPhotoForRecipe } from "../utils/registerPhotoForRecipe";
+import { AI_MODEL_MAIN } from "../lib/aiModels";
 import { eq, and, desc, sql, or, inArray } from "drizzle-orm";
 import { anthropic } from "@workspace/integrations-anthropic-ai";
 import { escalatingTrim } from "../lib/imageUtils";
@@ -404,7 +405,7 @@ async function processPdfFile(
               let finalBuffer: Buffer;
               try {
                 const cropResponse = await openai.chat.completions.create({
-                  model: "gpt-4o",
+                  model: AI_MODEL_MAIN,
                   max_completion_tokens: 256,
                   messages: [
                     { role: "system", content: FOOD_CROP_SYSTEM_PROMPT },

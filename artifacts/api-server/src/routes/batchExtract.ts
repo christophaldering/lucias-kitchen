@@ -9,6 +9,7 @@ import {
 import { eq, and, isNull, isNotNull, notInArray, sql } from "drizzle-orm";
 import { authMiddleware } from "./auth";
 import { openai } from "@workspace/integrations-openai-ai-server";
+import { AI_MODEL_MAIN } from "../lib/aiModels";
 import { invalidateRecipeListCache } from "./recipes";
 import { escalatingTrim } from "../lib/imageUtils";
 
@@ -155,7 +156,7 @@ async function processRecipe(
   for (const entry of imagesToScan) {
     try {
       const aiResponse = await openai.chat.completions.create({
-        model: "gpt-4o",
+        model: AI_MODEL_MAIN,
         max_completion_tokens: 256,
         messages: [
           { role: "system", content: FOOD_CROP_SYSTEM_PROMPT },

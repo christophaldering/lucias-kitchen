@@ -1,4 +1,5 @@
 import { openai } from "@workspace/integrations-openai-ai-server";
+import { AI_MODEL_FAST } from "./aiModels";
 
 export interface RecipeTagInput {
   title: string;
@@ -44,7 +45,7 @@ function normalizeTags(raw: unknown[]): string[] {
 
 async function attemptGenerate(description: string): Promise<string[]> {
   const response = await openai.chat.completions.create({
-    model: "gpt-4o-mini",
+    model: AI_MODEL_FAST,
     max_completion_tokens: 256,
     messages: [
       { role: "system", content: TAG_GENERATION_PROMPT },

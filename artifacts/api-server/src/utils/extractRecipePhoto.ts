@@ -1,5 +1,6 @@
 import { ObjectStorageService, objectStorageClient } from "../lib/objectStorage";
 import { openai } from "@workspace/integrations-openai-ai-server";
+import { AI_MODEL_MAIN } from "../lib/aiModels";
 import { escalatingTrim } from "../lib/imageUtils";
 
 function parseObjectPath(storagePath: string): { bucketName: string; objectName: string } {
@@ -89,7 +90,7 @@ export async function extractRecipePhoto(sourceDocumentUrl: string): Promise<Buf
   const pageBuffer = await renderFirstPdfPage(pdfBuffer);
 
   const aiResponse = await openai.chat.completions.create({
-    model: "gpt-4o",
+    model: AI_MODEL_MAIN,
     max_completion_tokens: 256,
     messages: [
       { role: "system", content: FOOD_CROP_SYSTEM_PROMPT },

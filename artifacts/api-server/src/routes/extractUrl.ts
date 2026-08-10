@@ -2,6 +2,7 @@ import { Router, type IRouter } from "express";
 import { aiLimiter } from "../lib/rateLimits";
 import { authMiddleware } from "./auth";
 import { openai } from "@workspace/integrations-openai-ai-server";
+import { AI_MODEL_FAST } from "../lib/aiModels";
 import { promises as dns } from "node:dns";
 import { isIPv4, isIPv6 } from "node:net";
 import { ObjectStorageService } from "../lib/objectStorage";
@@ -383,7 +384,7 @@ router.post("/extract-url", authMiddleware, aiLimiter, async (req, res) => {
     const modelUsed: "openai" = "openai";
 
     const aiResponse = await openai.chat.completions.create({
-      model: "gpt-4o-mini",
+      model: AI_MODEL_FAST,
       max_completion_tokens: 8192,
       messages: [
         { role: "system", content: SYSTEM_PROMPT },

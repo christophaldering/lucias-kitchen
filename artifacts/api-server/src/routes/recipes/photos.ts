@@ -16,6 +16,7 @@ import path from "path";
 import fs from "fs";
 import { randomUUID } from "crypto";
 import { openai } from "@workspace/integrations-openai-ai-server";
+import { AI_MODEL_MAIN } from "../../lib/aiModels";
 import { escalatingTrim, generateThumbnail } from "../../lib/imageUtils";
 import { registerPhotoForRecipe } from "../../utils/registerPhotoForRecipe";
 import {
@@ -820,7 +821,7 @@ router.post("/recipes/:id/extract-image-from-source", authMiddleware, async (req
 
       for (const entry of imagesToScan) {
         const aiResponse = await openai.chat.completions.create({
-          model: "gpt-4o",
+          model: AI_MODEL_MAIN,
           max_completion_tokens: 256,
           messages: [
             { role: "system", content: FOOD_CROP_SYSTEM_PROMPT },
@@ -1112,7 +1113,7 @@ router.post("/recipes/:id/extract-all-photos-from-source", authMiddleware, async
     for (const entry of imagesToScan) {
       try {
         const aiResponse = await openai.chat.completions.create({
-          model: "gpt-4o",
+          model: AI_MODEL_MAIN,
           max_completion_tokens: 256,
           messages: [
             { role: "system", content: FOOD_CROP_SYSTEM_PROMPT },

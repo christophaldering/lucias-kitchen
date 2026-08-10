@@ -2,6 +2,7 @@ import { Router, type IRouter } from "express";
 import { aiLimiter } from "../lib/rateLimits";
 import { authMiddleware } from "./auth";
 import { openai } from "@workspace/integrations-openai-ai-server";
+import { AI_MODEL_MAIN } from "../lib/aiModels";
 import { RECIPE_EXTRACTION_SYSTEM_PROMPT } from "../lib/recipeExtractionPrompt";
 import { ObjectStorageService } from "../lib/objectStorage";
 
@@ -135,7 +136,7 @@ router.post("/extract-image", authMiddleware, aiLimiter, async (req, res) => {
     };
 
     const response = await openai.chat.completions.create({
-      model: "gpt-4o",
+      model: AI_MODEL_MAIN,
       max_completion_tokens: 8192,
       messages: [
         { role: "system", content: RECIPE_EXTRACTION_SYSTEM_PROMPT },

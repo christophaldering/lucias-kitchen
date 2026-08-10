@@ -2,6 +2,7 @@ import { Router, type IRouter } from "express";
 import { z } from "zod/v4";
 import { aiLimiter } from "../lib/rateLimits";
 import { authMiddleware } from "./auth";
+import { AI_MODEL_MAIN } from "../lib/aiModels";
 
 const router: IRouter = Router();
 
@@ -40,7 +41,7 @@ router.post("/recipes/web-search", authMiddleware, aiLimiter, async (req, res) =
         Authorization: `Bearer ${OPENAI_KEY}`,
       },
       body: JSON.stringify({
-        model: "gpt-4o",
+        model: AI_MODEL_MAIN,
         tools: [{ type: "web_search_preview" }],
         input: prompt,
       }),
